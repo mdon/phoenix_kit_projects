@@ -43,9 +43,7 @@ defmodule PhoenixKitProjects.MixProject do
       {:phoenix_kit, "~> 1.7"},
       # Hard dep: assignment/task schemas reference PhoenixKitStaff.Schemas.*
       # for polymorphic assignee FKs (team / department / person).
-      # Use a path dep during local dev; switch to a Hex version spec
-      # (`"~> 0.1"`) at release time once phoenix_kit_staff is published.
-      {:phoenix_kit_staff, path: "../phoenix_kit_staff"},
+      {:phoenix_kit_staff, "~> 0.1"},
       {:phoenix_live_view, "~> 1.1"},
       {:ecto_sql, "~> 3.13"},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
