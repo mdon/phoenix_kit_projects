@@ -1,0 +1,11 @@
+/_build/
+/deps/
+/doc/
+*.ez
+*.beam
+*.plt
+erl_crash.dump
+.elixir_ls/
+
+# Hex package tarball (built via "mix hex.build")
+phoenix_kit_projects-*.tar
