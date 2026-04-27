@@ -190,23 +190,57 @@ Step order matters: `compile` first (warnings-as-errors catches the loud stuff),
 
 ## Testing
 
-Two levels:
+Three levels:
 
-- **Unit tests** in `test/phoenix_kit_projects/` — schemas, changesets, pure helpers (duration math, etc.). Always run.
-- **Integration tests** in `test/phoenix_kit_projects/integration/` — hit a real PostgreSQL database via the Ecto sandbox. Use `PhoenixKitProjects.DataCase`.
+- **Unit tests** in `test/phoenix_kit_projects/` — schemas,
+  changesets, pure helpers (duration math, etc.), the `Errors` atom
+  dispatcher. Always run.
+- **Integration tests** in `test/phoenix_kit_projects/integration/`
+  — hit a real PostgreSQL database via the Ecto sandbox. Use
+  `PhoenixKitProjects.DataCase`.
+- **LiveView smoke tests** in `test/phoenix_kit_projects/web/` —
+  drive LVs via `Phoenix.LiveViewTest.live/2` against the test
+  Endpoint + Router. Use `PhoenixKitProjects.LiveCase`.
 
 Test infrastructure:
 
-- `test/support/test_repo.ex` — `PhoenixKitProjects.Test.Repo` (loaded explicitly in `test_helper.exs`)
-- `test/support/data_case.ex` — `PhoenixKitProjects.DataCase`, tags tests `:integration`, sets up the SQL Sandbox
-- `test/test_helper.exs` — runs `PhoenixKit.Migrations.up()` once at boot (creates `phoenix_kit_users`, `phoenix_kit_settings`, V100 staff tables for cross-module assignee FKs, and V101 projects tables), then puts the sandbox in `:manual` mode
-- `config/test.exs` — repo config (env-var driven via `PGUSER` / `PGPASSWORD` / `PGHOST`)
+- `test/support/test_repo.ex` — `PhoenixKitProjects.Test.Repo`
+- `test/support/test_endpoint.ex` — minimal `Phoenix.Endpoint` for
+  LV tests; `server: false`, no port opened
+- `test/support/test_router.ex` — minimal Router whose paths match
+  `PhoenixKitProjects.Paths.*` (base scope `/en/admin/projects`)
+- `test/support/test_layouts.ex` — root + app layouts; `app/1`
+  renders flash divs (`#flash-info`, `#flash-error`,
+  `#flash-warning`) so smoke tests can assert flash content via
+  `render(view) =~ "Saved."` after click events
+- `test/support/hooks.ex` — `:assign_scope` `on_mount` hook that
+  reads `"phoenix_kit_test_scope"` from session and assigns
+  `phoenix_kit_current_scope` + `phoenix_kit_current_user`
+- `test/support/data_case.ex` — `PhoenixKitProjects.DataCase`, tags
+  tests `:integration`, sets up the SQL Sandbox; hosts shared
+  `fixture_task/1`, `fixture_project/1`, `fixture_template/1` and
+  `errors_on/1`
+- `test/support/live_case.ex` — `PhoenixKitProjects.LiveCase` with
+  `fake_scope/1` + `put_test_scope/2` for plugging a real
+  `%PhoenixKit.Users.Auth.Scope{}` into the test session; reuses
+  fixtures from `DataCase`
+- `test/support/activity_log_assertions.ex` —
+  `assert_activity_logged/2` and `refute_activity_logged/2`
+- `test/support/postgres/migrations/<timestamp>_setup_phoenix_kit.exs`
+  — schema migration that calls `PhoenixKit.Migrations.up()` for
+  V01..V96 prereqs and inlines V100 (staff) + V101 (projects) +
+  V105 (partial-index conversion) DDL
+- `test/test_helper.exs` — starts `PhoenixKit.PubSub.Manager`,
+  Hammer's `RateLimiter.Backend`, pins the URL prefix, starts
+  `PhoenixKitProjects.Test.Endpoint`
+- `config/test.exs` — repo + Test.Endpoint config
 
 Commands:
 
 ```bash
 # First time only:
 createdb phoenix_kit_projects_test
+mix test.setup
 
 # All runs (unit + integration if DB is reachable):
 mix test
@@ -215,7 +249,8 @@ mix test
 mix test --exclude integration
 ```
 
-Integration tests are auto-excluded if the DB isn't reachable. `mix test` never hard-fails on a missing DB.
+Integration tests are auto-excluded if the DB isn't reachable. `mix
+test` never hard-fails on a missing DB.
 
 ## CI expectations
 

@@ -46,6 +46,22 @@ defmodule PhoenixKitProjects.Schemas.Task do
   def to_hours(n, unit, _counts_weekends),
     do: n * Map.get(@hours_per_weekdays, unit, 1)
 
+  @type t :: %__MODULE__{
+          uuid: UUIDv7.t() | nil,
+          title: String.t() | nil,
+          description: String.t() | nil,
+          estimated_duration: integer() | nil,
+          estimated_duration_unit: String.t() | nil,
+          default_assigned_team_uuid: UUIDv7.t() | nil,
+          default_assigned_team: Team.t() | Ecto.Association.NotLoaded.t() | nil,
+          default_assigned_department_uuid: UUIDv7.t() | nil,
+          default_assigned_department: Department.t() | Ecto.Association.NotLoaded.t() | nil,
+          default_assigned_person_uuid: UUIDv7.t() | nil,
+          default_assigned_person: Person.t() | Ecto.Association.NotLoaded.t() | nil,
+          inserted_at: DateTime.t() | nil,
+          updated_at: DateTime.t() | nil
+        }
+
   schema "phoenix_kit_project_tasks" do
     field(:title, :string)
     field(:description, :string)

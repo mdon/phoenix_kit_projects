@@ -17,6 +17,22 @@ defmodule PhoenixKitProjects.Schemas.Project do
   @statuses ~w(active archived)
   @start_modes ~w(immediate scheduled)
 
+  @type t :: %__MODULE__{
+          uuid: UUIDv7.t() | nil,
+          name: String.t() | nil,
+          description: String.t() | nil,
+          status: String.t() | nil,
+          is_template: boolean() | nil,
+          counts_weekends: boolean() | nil,
+          start_mode: String.t() | nil,
+          scheduled_start_date: Date.t() | nil,
+          started_at: DateTime.t() | nil,
+          completed_at: DateTime.t() | nil,
+          assignments: [Assignment.t()] | Ecto.Association.NotLoaded.t(),
+          inserted_at: DateTime.t() | nil,
+          updated_at: DateTime.t() | nil
+        }
+
   schema "phoenix_kit_projects" do
     field(:name, :string)
     field(:description, :string)

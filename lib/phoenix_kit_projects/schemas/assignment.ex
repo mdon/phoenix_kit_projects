@@ -21,6 +21,34 @@ defmodule PhoenixKitProjects.Schemas.Assignment do
   @statuses ~w(todo in_progress done)
   @duration_units ~w(minutes hours days weeks fortnights months years)
 
+  @type t :: %__MODULE__{
+          uuid: UUIDv7.t() | nil,
+          project_uuid: UUIDv7.t() | nil,
+          project: Project.t() | Ecto.Association.NotLoaded.t() | nil,
+          task_uuid: UUIDv7.t() | nil,
+          task: Task.t() | Ecto.Association.NotLoaded.t() | nil,
+          status: String.t() | nil,
+          position: integer() | nil,
+          description: String.t() | nil,
+          estimated_duration: integer() | nil,
+          estimated_duration_unit: String.t() | nil,
+          counts_weekends: boolean() | nil,
+          progress_pct: integer() | nil,
+          track_progress: boolean() | nil,
+          assigned_team_uuid: UUIDv7.t() | nil,
+          assigned_team: Team.t() | Ecto.Association.NotLoaded.t() | nil,
+          assigned_department_uuid: UUIDv7.t() | nil,
+          assigned_department: Department.t() | Ecto.Association.NotLoaded.t() | nil,
+          assigned_person_uuid: UUIDv7.t() | nil,
+          assigned_person: Person.t() | Ecto.Association.NotLoaded.t() | nil,
+          completed_by_uuid: UUIDv7.t() | nil,
+          completed_by: User.t() | Ecto.Association.NotLoaded.t() | nil,
+          completed_at: DateTime.t() | nil,
+          dependencies: [Dependency.t()] | Ecto.Association.NotLoaded.t(),
+          inserted_at: DateTime.t() | nil,
+          updated_at: DateTime.t() | nil
+        }
+
   schema "phoenix_kit_project_assignments" do
     field(:status, :string, default: "todo")
     field(:position, :integer, default: 0)

@@ -14,6 +14,15 @@ defmodule PhoenixKitProjects.Schemas.TaskDependency do
   @primary_key {:uuid, UUIDv7, autogenerate: true}
   @foreign_key_type UUIDv7
 
+  @type t :: %__MODULE__{
+          uuid: UUIDv7.t() | nil,
+          task_uuid: UUIDv7.t() | nil,
+          task: Task.t() | Ecto.Association.NotLoaded.t() | nil,
+          depends_on_task_uuid: UUIDv7.t() | nil,
+          depends_on_task: Task.t() | Ecto.Association.NotLoaded.t() | nil,
+          inserted_at: DateTime.t() | nil
+        }
+
   schema "phoenix_kit_project_task_dependencies" do
     belongs_to(:task, Task, foreign_key: :task_uuid, references: :uuid)
     belongs_to(:depends_on_task, Task, foreign_key: :depends_on_task_uuid, references: :uuid)

@@ -28,6 +28,7 @@ defmodule PhoenixKitProjects.DataCase do
       import Ecto
       import Ecto.Changeset
       import Ecto.Query
+      import PhoenixKitProjects.ActivityLogAssertions
       import PhoenixKitProjects.DataCase
     end
   end
@@ -52,5 +53,53 @@ defmodule PhoenixKitProjects.DataCase do
         opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
       end)
     end)
+  end
+
+  # ── Fixtures (shared between DataCase and LiveCase consumers) ────
+
+  @doc "Creates a Task template with a unique title."
+  def fixture_task(attrs \\ %{}) do
+    {:ok, task} =
+      PhoenixKitProjects.Projects.create_task(
+        Map.merge(%{"title" => "Task #{System.unique_integer([:positive])}"}, attrs)
+      )
+
+    task
+  end
+
+  @doc "Creates a real (non-template) Project with a unique name."
+  def fixture_project(attrs \\ %{}) do
+    {:ok, project} =
+      PhoenixKitProjects.Projects.create_project(
+        Map.merge(
+          %{
+            "name" => "Project #{System.unique_integer([:positive])}",
+            "status" => "active",
+            "start_mode" => "immediate",
+            "is_template" => "false"
+          },
+          attrs
+        )
+      )
+
+    project
+  end
+
+  @doc "Creates a Template Project (`is_template = true`) with a unique name."
+  def fixture_template(attrs \\ %{}) do
+    {:ok, template} =
+      PhoenixKitProjects.Projects.create_project(
+        Map.merge(
+          %{
+            "name" => "Template #{System.unique_integer([:positive])}",
+            "status" => "active",
+            "start_mode" => "immediate",
+            "is_template" => "true"
+          },
+          attrs
+        )
+      )
+
+    template
   end
 end

@@ -10,6 +10,7 @@ defmodule PhoenixKitProjects.Integration.AssignmentsTest do
 
   use PhoenixKitProjects.DataCase, async: true
 
+  alias PhoenixKit.Users.Auth
   alias PhoenixKitProjects.Projects
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
 
@@ -36,6 +37,20 @@ defmodule PhoenixKitProjects.Integration.AssignmentsTest do
       })
 
     Map.merge(context, %{project: project, task: task, assignment: assignment})
+  end
+
+  # `Assignment.completed_by_uuid` FKs to `phoenix_kit_users(uuid)`,
+  # so completion paths need a real user — a bare `UUIDv7.generate()`
+  # raises `Ecto.ConstraintError` on the FK. Build a real user via the
+  # public registration path and return its UUID.
+  defp real_user_uuid! do
+    {:ok, user} =
+      Auth.register_user(%{
+        "email" => "actor-#{System.unique_integer([:positive])}@example.com",
+        "password" => "ActorPass123!"
+      })
+
+    user.uuid
   end
 
   describe "mass-assignment guard" do
@@ -75,7 +90,7 @@ defmodule PhoenixKitProjects.Integration.AssignmentsTest do
 
     test "update_assignment_status DOES apply completed_by_uuid/completed_at" do
       %{assignment: a} = fixture!()
-      actor = UUIDv7.generate()
+      actor = real_user_uuid!()
       now = DateTime.utc_now() |> DateTime.truncate(:second)
 
       {:ok, updated} =
@@ -94,7 +109,7 @@ defmodule PhoenixKitProjects.Integration.AssignmentsTest do
   describe "complete_assignment/2 + reopen_assignment/1" do
     test "complete sets status and completion fields" do
       %{assignment: a} = fixture!()
-      actor = UUIDv7.generate()
+      actor = real_user_uuid!()
 
       {:ok, done} = Projects.complete_assignment(a, actor)
 
@@ -105,7 +120,7 @@ defmodule PhoenixKitProjects.Integration.AssignmentsTest do
 
     test "reopen clears completion fields" do
       %{assignment: a} = fixture!()
-      {:ok, done} = Projects.complete_assignment(a, UUIDv7.generate())
+      {:ok, done} = Projects.complete_assignment(a, real_user_uuid!())
 
       {:ok, reopened} = Projects.reopen_assignment(done)
 
@@ -131,7 +146,7 @@ defmodule PhoenixKitProjects.Integration.AssignmentsTest do
       %{project: p, assignment: a} = fixture!()
       ProjectsPubSub.subscribe(ProjectsPubSub.topic_project(p.uuid))
 
-      {:ok, _} = Projects.complete_assignment(a, UUIDv7.generate())
+      {:ok, _} = Projects.complete_assignment(a, real_user_uuid!())
 
       assert_receive {:projects, :assignment_updated, %{uuid: uuid}}, 500
       assert uuid == a.uuid

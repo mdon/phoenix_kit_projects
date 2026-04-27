@@ -60,7 +60,10 @@ defmodule PhoenixKitProjects.MixProject do
       {:ecto_sql, "~> 3.13"},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      # `Phoenix.LiveViewTest` parses HTML via `lazy_html` for `element/2`,
+      # `render(view) =~ "..."`, etc. Test-only.
+      {:lazy_html, ">= 0.1.0", only: :test}
     ]
   end
 

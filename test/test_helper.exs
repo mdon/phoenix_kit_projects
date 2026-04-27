@@ -17,8 +17,19 @@
 # inlines the V100 (staff) + V101 (projects) DDL.
 
 # Elixir 1.19 quirk — see `phoenix_kit_locations` test_helper for context.
-Code.require_file("support/test_repo.ex", __DIR__)
-Code.require_file("support/data_case.ex", __DIR__)
+support_dir = Path.expand("support", __DIR__)
+
+[
+  "test_repo.ex",
+  "test_layouts.ex",
+  "hooks.ex",
+  "test_router.ex",
+  "test_endpoint.ex",
+  "activity_log_assertions.ex",
+  "data_case.ex",
+  "live_case.ex"
+]
+|> Enum.each(&Code.require_file(&1, support_dir))
 
 alias PhoenixKitProjects.Test.Repo, as: TestRepo
 
@@ -89,6 +100,18 @@ Application.put_env(:phoenix_kit_projects, :test_repo_available, repo_available)
 # which calls the Hammer-backed rate limiter. Mirrors core's
 # `phoenix_kit/test/test_helper.exs:69`.
 {:ok, _pid} = PhoenixKit.Users.RateLimiter.Backend.start_link([])
+
+# Force PhoenixKit's URL prefix cache to "/" for tests so `Paths.index()`
+# etc. produce paths the test router can match. Admin paths always get
+# the default locale ("en") prefix, so our router scope is `/en/admin/projects`.
+:persistent_term.put({PhoenixKit.Config, :url_prefix}, "/")
+
+# Start the test Endpoint so Phoenix.LiveViewTest can drive our LiveViews
+# via `live/2` with real URLs. Runs with `server: false`, so no port is
+# opened. Only starts when the test DB is available.
+if repo_available do
+  {:ok, _} = PhoenixKitProjects.Test.Endpoint.start_link()
+end
 
 exclude = if repo_available, do: [], else: [:integration]
 ExUnit.start(exclude: exclude)
