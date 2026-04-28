@@ -58,5 +58,44 @@ defmodule PhoenixKitProjects.ActivityLogRescueTest do
       assert source =~ ~r/DBConnection\.OwnershipError\s*->\s*\n?\s*:ok/
       assert source =~ ~r/:exit,\s*_reason\s*->\s*:ok/
     end
+
+    test "DBConnection.OwnershipError rescue swallows cross-process call" do
+      # Spawn a bare process (not Task.async — that propagates the
+      # caller chain so the spawned process inherits sandbox
+      # ownership). A bare `spawn` doesn't, so the spawned process
+      # can't check out a connection → `DBConnection.OwnershipError`.
+      # Our wrapper rescue catches it and returns `:ok`.
+      parent = self()
+      ref = make_ref()
+
+      :proc_lib.spawn(fn ->
+        # No `Sandbox.allow/3`, no caller-chain inheritance — this
+        # process is fully outside the sandbox.
+        Process.put(:"$callers", [])
+
+        result =
+          try do
+            PhoenixKitProjects.Activity.log("projects.test", [])
+          rescue
+            e -> {:rescued, e}
+          catch
+            kind, reason -> {:caught, kind, reason}
+          end
+
+        send(parent, {ref, result})
+      end)
+
+      assert_receive {^ref, result}, 5_000
+
+      # If our rescue is in place: result is :ok (or some non-crash
+      # tuple from core). If our rescue is missing: result would be
+      # `{:rescued, %DBConnection.OwnershipError{}}` from the test's
+      # outer try/rescue — which would fail this assertion.
+      refute match?({:rescued, %DBConnection.OwnershipError{}}, result),
+             "OwnershipError leaked past Activity.log/2 rescue: #{inspect(result)}"
+
+      refute match?({:caught, :exit, _}, result),
+             "exit signal leaked past Activity.log/2 catch: #{inspect(result)}"
+    end
   end
 end
