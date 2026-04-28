@@ -7,6 +7,8 @@ defmodule PhoenixKitProjects.Web.TasksLive do
   alias PhoenixKitProjects.{Activity, Paths, Projects}
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
 
+  require Logger
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: ProjectsPubSub.subscribe(ProjectsPubSub.topic_tasks())
@@ -20,7 +22,10 @@ defmodule PhoenixKitProjects.Web.TasksLive do
     {:noreply, load_tasks(socket)}
   end
 
-  def handle_info(_msg, socket), do: {:noreply, socket}
+  def handle_info(msg, socket) do
+    Logger.debug("[TasksLive] unexpected handle_info: #{inspect(msg)}")
+    {:noreply, socket}
+  end
 
   @impl true
   def handle_event("delete", %{"uuid" => uuid}, socket) do

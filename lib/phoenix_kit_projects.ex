@@ -23,6 +23,8 @@ defmodule PhoenixKitProjects do
     Settings.get_boolean_setting("projects_enabled", false)
   rescue
     _ -> false
+  catch
+    :exit, _ -> false
   end
 
   @impl PhoenixKit.Module

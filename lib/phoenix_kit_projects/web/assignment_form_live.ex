@@ -586,6 +586,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
                       type="button"
                       phx-click="remove_assignment_dep"
                       phx-value-uuid={dep.depends_on_uuid}
+                      phx-disable-with={gettext("Removing…")}
                       class="hover:text-error"
                     >
                       <.icon name="hero-x-mark" class="w-3 h-3" />
@@ -604,7 +605,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
                   options={Enum.map(@available_assignment_deps, &{&1.task.title, &1.uuid})}
                   prompt={gettext("Select task")}
                 />
-                <button type="submit" class="btn btn-ghost btn-sm">
+                <button type="submit" phx-disable-with={gettext("Adding…")} class="btn btn-ghost btn-sm">
                   <.icon name="hero-plus" class="w-4 h-4" />
                 </button>
               </.form>

@@ -22,9 +22,17 @@ defmodule PhoenixKitProjects.Activity do
       :activity_unavailable
     end
   rescue
+    Postgrex.Error ->
+      :ok
+
+    DBConnection.OwnershipError ->
+      :ok
+
     e ->
       Logger.warning("[Projects] Activity logging error: #{Exception.message(e)}")
       {:error, e}
+  catch
+    :exit, _reason -> :ok
   end
 
   @doc "Extracts `user.uuid` from the LiveView socket assigns."

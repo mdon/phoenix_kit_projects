@@ -12,6 +12,8 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Schemas.Task, as: TaskSchema
 
+  require Logger
+
   @impl true
   def mount(%{"id" => id}, _session, socket) do
     case Projects.get_project(id) do
@@ -79,7 +81,10 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
      |> push_navigate(to: Paths.projects())}
   end
 
-  def handle_info(_msg, socket), do: {:noreply, socket}
+  def handle_info(msg, socket) do
+    Logger.debug("[ProjectShowLive] unexpected handle_info: #{inspect(msg)}")
+    {:noreply, socket}
+  end
 
   defp load_assignments(socket) do
     project_uuid = socket.assigns.project.uuid
@@ -777,7 +782,12 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
             <span class="text-sm">
               {gettext("Scheduled for %{date}", date: L10n.format_date(@project.scheduled_start_date))}
             </span>
-            <button type="button" phx-click="start_project" class="btn btn-success btn-xs ml-auto">
+            <button
+              type="button"
+              phx-click="start_project"
+              phx-disable-with={gettext("Starting…")}
+              class="btn btn-success btn-xs ml-auto"
+            >
               {gettext("Start now")}
             </button>
           <% true -> %>
@@ -786,6 +796,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
             <button
               type="button"
               phx-click="start_project"
+              phx-disable-with={gettext("Starting…")}
               data-confirm={gettext("Start this project now?")}
               class="btn btn-success btn-xs ml-auto"
             >
@@ -886,15 +897,30 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                         <%= if not @is_template do %>
                           <%= cond do %>
                             <% a.status == "todo" -> %>
-                              <button phx-click="start_task" phx-value-uuid={a.uuid} class="btn btn-warning btn-xs">
+                              <button
+                                phx-click="start_task"
+                                phx-value-uuid={a.uuid}
+                                phx-disable-with={gettext("Starting…")}
+                                class="btn btn-warning btn-xs"
+                              >
                                 {gettext("Start")}
                               </button>
                             <% a.status == "in_progress" -> %>
-                              <button phx-click="complete" phx-value-uuid={a.uuid} class="btn btn-success btn-xs">
+                              <button
+                                phx-click="complete"
+                                phx-value-uuid={a.uuid}
+                                phx-disable-with={gettext("Saving…")}
+                                class="btn btn-success btn-xs"
+                              >
                                 <.icon name="hero-check" class="w-3.5 h-3.5" /> {gettext("Done")}
                               </button>
                             <% a.status == "done" -> %>
-                              <button phx-click="reopen" phx-value-uuid={a.uuid} class="btn btn-ghost btn-xs">
+                              <button
+                                phx-click="reopen"
+                                phx-value-uuid={a.uuid}
+                                phx-disable-with={gettext("Reopening…")}
+                                class="btn btn-ghost btn-xs"
+                              >
                                 {gettext("Reopen")}
                               </button>
                           <% end %>
@@ -906,6 +932,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                         <button
                           phx-click="remove_assignment"
                           phx-value-uuid={a.uuid}
+                          phx-disable-with={gettext("Removing…")}
                           data-confirm={gettext("Remove \"%{title}\"?", title: a.task.title)}
                           class="btn btn-ghost btn-xs text-error"
                         >
@@ -1013,6 +1040,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                               type="button"
                               phx-click="toggle_tracking"
                               phx-value-uuid={a.uuid}
+                              phx-disable-with={gettext("Saving…")}
                               title={gettext("Disable percentage tracking")}
                               class="btn btn-ghost btn-xs btn-circle"
                             >
@@ -1024,6 +1052,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                             type="button"
                             phx-click="toggle_tracking"
                             phx-value-uuid={a.uuid}
+                            phx-disable-with={gettext("Saving…")}
                             class="badge badge-ghost badge-sm gap-1 cursor-pointer hover:badge-primary"
                             title={gettext("Track progress as a percentage")}
                           >
@@ -1056,6 +1085,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                               phx-click="remove_dependency"
                               phx-value-assignment={a.uuid}
                               phx-value-depends_on={dep.depends_on_uuid}
+                              phx-disable-with={gettext("Removing…")}
                               class="hover:text-error"
                             >
                               <.icon name="hero-x-mark" class="w-3 h-3" />

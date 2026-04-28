@@ -274,3 +274,41 @@ Severity levels for review findings:
 ## Commit message rules
 
 Start with action verbs: `Add`, `Update`, `Fix`, `Remove`, `Merge`.
+
+## What this module does NOT have
+
+Pinning the deliberate non-features so future-me doesn't propose them as
+"missing":
+
+- **No tenant scoping on PubSub topics** — `projects:all` /
+  `projects:tasks` / `projects:templates` fan out to every subscriber.
+  Per-tenant scoping is a framework-wide gap (no other feature module
+  partitions PubSub by tenant either); the right shape is to thread an
+  org/tenant key through every topic when core grows that capability.
+  Per-project topic (`projects:project:<uuid>`) is already safe — you
+  need the UUID to subscribe.
+- **No mount → handle_params refactor** — `mount/3` does the initial DB
+  read in every LV. This means HTTP render + WebSocket connect each
+  query. Reviewer flagged in PR #1 review item #1; left deferred because
+  it's a per-LV behaviour change, not a quality-sweep refactor.
+- **No event-debounce / minimal-delta on OverviewLive `handle_info`** —
+  every `:projects, _, _` broadcast triggers a full dashboard reload
+  (~10 queries). Reviewer flagged in PR #1 review item #7. Same scope
+  reason as above.
+- **No status-helper extraction** — `status_color/1` /
+  `status_badge_class/1` / `status_label/1` are duplicated between
+  `OverviewLive` and `ProjectShowLive`. Cosmetic; surfaced for a future
+  extraction batch when a third call site appears.
+- **No HTTP boundary** — context calls only PostgreSQL via Ecto and
+  reads core's settings; no `Req.get` / `:httpc.request` / external
+  service. So no SSRF guard, no `Req.Test`-via-app-config stub pattern.
+- **No own migrations** — V100 (staff) and V101 (projects) live in core
+  `phoenix_kit`. Schema changes go in the next core `VNN`. Test-only
+  setup migration inlines V100 + V101 + V105 verbatim, idempotent so a
+  future Hex release containing them is a no-op.
+- **No own .po files** — gettext call sites live here, but translations
+  live in core's `priv/gettext`.
+- **No own Errors module for HTTP error shapes** — `Errors.message/1`
+  covers `:not_found` / `:template_not_found` / `:task_not_found` plus
+  a generic fallback. Add a new branch when a context fn introduces a
+  new `{:error, atom}` shape.

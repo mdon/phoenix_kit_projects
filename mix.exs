@@ -19,7 +19,15 @@ defmodule PhoenixKitProjects.MixProject do
       dialyzer: [plt_add_apps: [:phoenix_kit, :phoenix_kit_staff]],
       name: "PhoenixKitProjects",
       source_url: @source_url,
-      docs: docs()
+      docs: docs(),
+      test_coverage: [
+        ignore_modules: [
+          ~r/^PhoenixKitProjects\.Test\./,
+          PhoenixKitProjects.DataCase,
+          PhoenixKitProjects.LiveCase,
+          PhoenixKitProjects.ActivityLogAssertions
+        ]
+      ]
     ]
   end
 
