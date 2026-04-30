@@ -5,19 +5,37 @@
 #          require PostgreSQL — automatically excluded when the database
 #          is unavailable.
 #
-# To enable integration tests:
+# First-time setup:
+#
 #   createdb phoenix_kit_projects_test
+#   mix test.setup
+#
+# After that, `mix test` boots the repo and lets the Ecto sandbox handle
+# isolation. The schema is built by
+# `test/support/postgres/migrations/<timestamp>_setup_phoenix_kit.exs`,
+# which calls `PhoenixKit.Migrations.up()` for V01..V96 prereqs and
+# inlines the V100 (staff) + V101 (projects) DDL.
 
-# Support files are loaded explicitly here rather than compiled via
-# elixirc_paths — Elixir 1.19's mix test does not expose `test/support`
-# beams to the test compiler in every configuration.
-Code.require_file("support/test_repo.ex", __DIR__)
-Code.require_file("support/data_case.ex", __DIR__)
+# Elixir 1.19 quirk — see `phoenix_kit_locations` test_helper for context.
+support_dir = Path.expand("support", __DIR__)
+
+[
+  "test_repo.ex",
+  "test_layouts.ex",
+  "hooks.ex",
+  "test_router.ex",
+  "test_endpoint.ex",
+  "activity_log_assertions.ex",
+  "data_case.ex",
+  "live_case.ex"
+]
+|> Enum.each(&Code.require_file(&1, support_dir))
 
 alias PhoenixKitProjects.Test.Repo, as: TestRepo
 
-db_config = Application.get_env(:phoenix_kit_projects, TestRepo, [])
-db_name = db_config[:database] || "phoenix_kit_projects_test"
+db_name =
+  Application.get_env(:phoenix_kit_projects, TestRepo, [])[:database] ||
+    "phoenix_kit_projects_test"
 
 db_check =
   case System.cmd("psql", ["-lqt"], stderr_to_stdout: true) do
@@ -40,26 +58,13 @@ repo_available =
     IO.puts("""
 
       Test database "#{db_name}" not found — integration tests excluded.
-      Run: createdb #{db_name}
+      Run: createdb #{db_name} && mix test.setup
     """)
 
     false
   else
     try do
       {:ok, _} = TestRepo.start_link()
-
-      # Run PhoenixKit's full migration suite (V1..V101). That gives us
-      # phoenix_kit_users, phoenix_kit_settings, the V100 staff tables
-      # (for polymorphic assignee FKs), and the V101 projects tables —
-      # without reimplementing any schema here.
-      defmodule PhoenixKitProjects.Test.SetupMigration do
-        use Ecto.Migration
-        def up, do: PhoenixKit.Migrations.up()
-        def down, do: PhoenixKit.Migrations.down()
-      end
-
-      Ecto.Migrator.up(TestRepo, 1, PhoenixKitProjects.Test.SetupMigration, log: false)
-
       Ecto.Adapters.SQL.Sandbox.mode(TestRepo, :manual)
       true
     rescue
@@ -67,7 +72,7 @@ repo_available =
         IO.puts("""
 
           Could not connect to test database — integration tests excluded.
-          Run: createdb #{db_name}
+          Run: createdb #{db_name} && mix test.setup
           Error: #{Exception.message(e)}
         """)
 
@@ -77,7 +82,7 @@ repo_available =
         IO.puts("""
 
           Could not connect to test database — integration tests excluded.
-          Run: createdb #{db_name}
+          Run: createdb #{db_name} && mix test.setup
           Error: #{inspect(reason)}
         """)
 
@@ -89,6 +94,24 @@ Application.put_env(:phoenix_kit_projects, :test_repo_available, repo_available)
 
 # Minimal PhoenixKit services needed by the context layer.
 {:ok, _pid} = PhoenixKit.PubSub.Manager.start_link([])
+
+# `Staff.register_placeholder/1` (called by Projects via cross-module
+# create flows) goes through `PhoenixKit.Users.Auth.register_user/2`,
+# which calls the Hammer-backed rate limiter. Mirrors core's
+# `phoenix_kit/test/test_helper.exs:69`.
+{:ok, _pid} = PhoenixKit.Users.RateLimiter.Backend.start_link([])
+
+# Force PhoenixKit's URL prefix cache to "/" for tests so `Paths.index()`
+# etc. produce paths the test router can match. Admin paths always get
+# the default locale ("en") prefix, so our router scope is `/en/admin/projects`.
+:persistent_term.put({PhoenixKit.Config, :url_prefix}, "/")
+
+# Start the test Endpoint so Phoenix.LiveViewTest can drive our LiveViews
+# via `live/2` with real URLs. Runs with `server: false`, so no port is
+# opened. Only starts when the test DB is available.
+if repo_available do
+  {:ok, _} = PhoenixKitProjects.Test.Endpoint.start_link()
+end
 
 exclude = if repo_available, do: [], else: [:integration]
 ExUnit.start(exclude: exclude)

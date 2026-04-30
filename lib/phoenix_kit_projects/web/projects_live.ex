@@ -7,6 +7,8 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
   alias PhoenixKitProjects.{Activity, Paths, Projects}
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
 
+  require Logger
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: ProjectsPubSub.subscribe(ProjectsPubSub.topic_all())
@@ -15,7 +17,11 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
 
   @impl true
   def handle_info({:projects, _event, _payload}, socket), do: {:noreply, load_projects(socket)}
-  def handle_info(_msg, socket), do: {:noreply, socket}
+
+  def handle_info(msg, socket) do
+    Logger.debug("[ProjectsLive] unexpected handle_info: #{inspect(msg)}")
+    {:noreply, socket}
+  end
 
   defp load_projects(socket) do
     assign(socket, projects: Projects.list_projects(status: socket.assigns.status))
@@ -37,6 +43,13 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
             log_and_flash_deleted(socket, project)
 
           {:error, _} ->
+            Activity.log_failed("projects.project_deleted",
+              actor_uuid: Activity.actor_uuid(socket),
+              resource_type: "project",
+              resource_uuid: project.uuid,
+              metadata: %{"name" => project.name}
+            )
+
             {:noreply, put_flash(socket, :error, gettext("Could not delete project."))}
         end
     end

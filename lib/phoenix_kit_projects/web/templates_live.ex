@@ -7,6 +7,8 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
   alias PhoenixKitProjects.{Activity, Paths, Projects}
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
 
+  require Logger
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: ProjectsPubSub.subscribe(ProjectsPubSub.topic_templates())
@@ -20,7 +22,10 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
     {:noreply, load_templates(socket)}
   end
 
-  def handle_info(_msg, socket), do: {:noreply, socket}
+  def handle_info(msg, socket) do
+    Logger.debug("[TemplatesLive] unexpected handle_info: #{inspect(msg)}")
+    {:noreply, socket}
+  end
 
   @impl true
   def handle_event("delete", %{"uuid" => uuid}, socket) do
@@ -42,6 +47,13 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
              socket |> put_flash(:info, gettext("Template deleted.")) |> load_templates()}
 
           {:error, _} ->
+            Activity.log_failed("projects.template_deleted",
+              actor_uuid: Activity.actor_uuid(socket),
+              resource_type: "project_template",
+              resource_uuid: template.uuid,
+              metadata: %{"name" => template.name}
+            )
+
             {:noreply, put_flash(socket, :error, gettext("Could not delete template."))}
         end
     end

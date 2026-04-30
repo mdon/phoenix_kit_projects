@@ -4,7 +4,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitWeb.Gettext
 
-  alias PhoenixKitProjects.{Activity, Paths, Projects}
+  alias PhoenixKitProjects.{Activity, Errors, Paths, Projects}
   alias PhoenixKitProjects.Schemas.Project
 
   @impl true
@@ -101,7 +101,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
          |> push_navigate(to: Paths.project(project.uuid))}
 
       {:error, :template_not_found} ->
-        {:noreply, put_flash(socket, :error, gettext("Template not found."))}
+        {:noreply, put_flash(socket, :error, Errors.message(:template_not_found))}
 
       # Changeset errors that originate from the cloned project itself get
       # re-assigned to the form so the user sees inline validation.

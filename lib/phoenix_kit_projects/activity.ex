@@ -22,9 +22,33 @@ defmodule PhoenixKitProjects.Activity do
       :activity_unavailable
     end
   rescue
+    Postgrex.Error ->
+      :ok
+
+    DBConnection.OwnershipError ->
+      :ok
+
     e ->
       Logger.warning("[Projects] Activity logging error: #{Exception.message(e)}")
       {:error, e}
+  catch
+    :exit, _reason -> :ok
+  end
+
+  @doc """
+  Logs a user-driven mutation that did NOT land cleanly — the success
+  path would have called `log/2` with the same action + opts; this
+  variant tags the metadata with `db_pending: true` so audit-feed
+  readers can distinguish attempted-but-failed actions from completed
+  ones. Per the post-Apr 2026 pipeline standard
+  (publishing-Batch-3 / catalogue-Batch-4 precedent): a Drive/DB
+  outage must NOT erase admin clicks from the activity feed.
+
+  Identical signature to `log/2`. Same rescue/catch shape.
+  """
+  def log_failed(action, opts) when is_binary(action) and is_list(opts) do
+    metadata = Keyword.get(opts, :metadata, %{}) |> Map.put("db_pending", true)
+    log(action, Keyword.put(opts, :metadata, metadata))
   end
 
   @doc "Extracts `user.uuid` from the LiveView socket assigns."

@@ -7,6 +7,8 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
   alias PhoenixKitProjects.{L10n, Paths, Projects}
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
 
+  require Logger
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: ProjectsPubSub.subscribe(ProjectsPubSub.topic_all())
@@ -44,7 +46,10 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
     {:noreply, reload(socket)}
   end
 
-  def handle_info(_msg, socket), do: {:noreply, socket}
+  def handle_info(msg, socket) do
+    Logger.debug("[OverviewLive] unexpected handle_info: #{inspect(msg)}")
+    {:noreply, socket}
+  end
 
   defp status_badge_class("todo"), do: "badge-ghost"
   defp status_badge_class("in_progress"), do: "badge-warning"

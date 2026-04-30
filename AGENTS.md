@@ -190,23 +190,57 @@ Step order matters: `compile` first (warnings-as-errors catches the loud stuff),
 
 ## Testing
 
-Two levels:
+Three levels:
 
-- **Unit tests** in `test/phoenix_kit_projects/` — schemas, changesets, pure helpers (duration math, etc.). Always run.
-- **Integration tests** in `test/phoenix_kit_projects/integration/` — hit a real PostgreSQL database via the Ecto sandbox. Use `PhoenixKitProjects.DataCase`.
+- **Unit tests** in `test/phoenix_kit_projects/` — schemas,
+  changesets, pure helpers (duration math, etc.), the `Errors` atom
+  dispatcher. Always run.
+- **Integration tests** in `test/phoenix_kit_projects/integration/`
+  — hit a real PostgreSQL database via the Ecto sandbox. Use
+  `PhoenixKitProjects.DataCase`.
+- **LiveView smoke tests** in `test/phoenix_kit_projects/web/` —
+  drive LVs via `Phoenix.LiveViewTest.live/2` against the test
+  Endpoint + Router. Use `PhoenixKitProjects.LiveCase`.
 
 Test infrastructure:
 
-- `test/support/test_repo.ex` — `PhoenixKitProjects.Test.Repo` (loaded explicitly in `test_helper.exs`)
-- `test/support/data_case.ex` — `PhoenixKitProjects.DataCase`, tags tests `:integration`, sets up the SQL Sandbox
-- `test/test_helper.exs` — runs `PhoenixKit.Migrations.up()` once at boot (creates `phoenix_kit_users`, `phoenix_kit_settings`, V100 staff tables for cross-module assignee FKs, and V101 projects tables), then puts the sandbox in `:manual` mode
-- `config/test.exs` — repo config (env-var driven via `PGUSER` / `PGPASSWORD` / `PGHOST`)
+- `test/support/test_repo.ex` — `PhoenixKitProjects.Test.Repo`
+- `test/support/test_endpoint.ex` — minimal `Phoenix.Endpoint` for
+  LV tests; `server: false`, no port opened
+- `test/support/test_router.ex` — minimal Router whose paths match
+  `PhoenixKitProjects.Paths.*` (base scope `/en/admin/projects`)
+- `test/support/test_layouts.ex` — root + app layouts; `app/1`
+  renders flash divs (`#flash-info`, `#flash-error`,
+  `#flash-warning`) so smoke tests can assert flash content via
+  `render(view) =~ "Saved."` after click events
+- `test/support/hooks.ex` — `:assign_scope` `on_mount` hook that
+  reads `"phoenix_kit_test_scope"` from session and assigns
+  `phoenix_kit_current_scope` + `phoenix_kit_current_user`
+- `test/support/data_case.ex` — `PhoenixKitProjects.DataCase`, tags
+  tests `:integration`, sets up the SQL Sandbox; hosts shared
+  `fixture_task/1`, `fixture_project/1`, `fixture_template/1` and
+  `errors_on/1`
+- `test/support/live_case.ex` — `PhoenixKitProjects.LiveCase` with
+  `fake_scope/1` + `put_test_scope/2` for plugging a real
+  `%PhoenixKit.Users.Auth.Scope{}` into the test session; reuses
+  fixtures from `DataCase`
+- `test/support/activity_log_assertions.ex` —
+  `assert_activity_logged/2` and `refute_activity_logged/2`
+- `test/support/postgres/migrations/<timestamp>_setup_phoenix_kit.exs`
+  — schema migration that calls `PhoenixKit.Migrations.up()` for
+  V01..V96 prereqs and inlines V100 (staff) + V101 (projects) +
+  V105 (partial-index conversion) DDL
+- `test/test_helper.exs` — starts `PhoenixKit.PubSub.Manager`,
+  Hammer's `RateLimiter.Backend`, pins the URL prefix, starts
+  `PhoenixKitProjects.Test.Endpoint`
+- `config/test.exs` — repo + Test.Endpoint config
 
 Commands:
 
 ```bash
 # First time only:
 createdb phoenix_kit_projects_test
+mix test.setup
 
 # All runs (unit + integration if DB is reachable):
 mix test
@@ -215,7 +249,8 @@ mix test
 mix test --exclude integration
 ```
 
-Integration tests are auto-excluded if the DB isn't reachable. `mix test` never hard-fails on a missing DB.
+Integration tests are auto-excluded if the DB isn't reachable. `mix
+test` never hard-fails on a missing DB.
 
 ## CI expectations
 
@@ -239,3 +274,41 @@ Severity levels for review findings:
 ## Commit message rules
 
 Start with action verbs: `Add`, `Update`, `Fix`, `Remove`, `Merge`.
+
+## What this module does NOT have
+
+Pinning the deliberate non-features so future-me doesn't propose them as
+"missing":
+
+- **No tenant scoping on PubSub topics** — `projects:all` /
+  `projects:tasks` / `projects:templates` fan out to every subscriber.
+  Per-tenant scoping is a framework-wide gap (no other feature module
+  partitions PubSub by tenant either); the right shape is to thread an
+  org/tenant key through every topic when core grows that capability.
+  Per-project topic (`projects:project:<uuid>`) is already safe — you
+  need the UUID to subscribe.
+- **No mount → handle_params refactor** — `mount/3` does the initial DB
+  read in every LV. This means HTTP render + WebSocket connect each
+  query. Reviewer flagged in PR #1 review item #1; left deferred because
+  it's a per-LV behaviour change, not a quality-sweep refactor.
+- **No event-debounce / minimal-delta on OverviewLive `handle_info`** —
+  every `:projects, _, _` broadcast triggers a full dashboard reload
+  (~10 queries). Reviewer flagged in PR #1 review item #7. Same scope
+  reason as above.
+- **No status-helper extraction** — `status_color/1` /
+  `status_badge_class/1` / `status_label/1` are duplicated between
+  `OverviewLive` and `ProjectShowLive`. Cosmetic; surfaced for a future
+  extraction batch when a third call site appears.
+- **No HTTP boundary** — context calls only PostgreSQL via Ecto and
+  reads core's settings; no `Req.get` / `:httpc.request` / external
+  service. So no SSRF guard, no `Req.Test`-via-app-config stub pattern.
+- **No own migrations** — V100 (staff) and V101 (projects) live in core
+  `phoenix_kit`. Schema changes go in the next core `VNN`. Test-only
+  setup migration inlines V100 + V101 + V105 verbatim, idempotent so a
+  future Hex release containing them is a no-op.
+- **No own .po files** — gettext call sites live here, but translations
+  live in core's `priv/gettext`.
+- **No own Errors module for HTTP error shapes** — `Errors.message/1`
+  covers `:not_found` / `:template_not_found` / `:task_not_found` plus
+  a generic fallback. Add a new branch when a context fn introduces a
+  new `{:error, atom}` shape.

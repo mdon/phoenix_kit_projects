@@ -12,6 +12,8 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Schemas.Task, as: TaskSchema
 
+  require Logger
+
   @impl true
   def mount(%{"id" => id}, _session, socket) do
     case Projects.get_project(id) do
@@ -79,7 +81,10 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
      |> push_navigate(to: Paths.projects())}
   end
 
-  def handle_info(_msg, socket), do: {:noreply, socket}
+  def handle_info(msg, socket) do
+    Logger.debug("[ProjectShowLive] unexpected handle_info: #{inspect(msg)}")
+    {:noreply, socket}
+  end
 
   defp load_assignments(socket) do
     project_uuid = socket.assigns.project.uuid
@@ -113,7 +118,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     case Projects.update_assignment_status(a, attrs) do
       {:ok, _} ->
         Activity.log(action_name,
-          actor_uuid: actor_uuid(socket),
+          actor_uuid: Activity.actor_uuid(socket),
           resource_type: "assignment",
           resource_uuid: a.uuid,
           metadata: Keyword.get(opts, :metadata, %{})
@@ -122,6 +127,13 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         {:ok, socket}
 
       {:error, cs} ->
+        Activity.log_failed(action_name,
+          actor_uuid: Activity.actor_uuid(socket),
+          resource_type: "assignment",
+          resource_uuid: a.uuid,
+          metadata: Keyword.get(opts, :metadata, %{})
+        )
+
         {:error, socket, error_summary(cs, gettext("Could not update task."))}
     end
   end
@@ -134,23 +146,44 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     {:noreply, put_flash(socket, :error, msg)}
   end
 
+  # Translates Ecto validator messages through the gettext "errors"
+  # domain — Ecto emits English literals like `"is invalid"` /
+  # `"must be greater than 0"` from `validate_*` plus interpolation
+  # bindings; `Gettext.dngettext/6` is the canonical translator for
+  # those (matches the Phoenix scaffolding pattern). Without this,
+  # the inline error summary (e.g. on a failed `complete` from a
+  # validation-rejected status transition) renders English regardless
+  # of the user's locale — Phase 1 PR #1 review item #15, deferred
+  # then to Phase 2 C3 + closed in this re-validation batch.
+  #
+  # Named `translate_validator_error/1` (not `translate_error/1`) to
+  # avoid shadowing `PhoenixKitWeb.Components.Core.Input.translate_error/1`
+  # which is auto-imported by `use PhoenixKitWeb, :live_view`.
   defp error_summary(%Ecto.Changeset{errors: errors}, fallback) do
     case errors do
       [] ->
         fallback
 
       errs ->
-        Enum.map_join(errs, ", ", fn {k, {m, _}} -> "#{k}: #{m}" end)
+        Enum.map_join(errs, ", ", fn {k, {msg, opts}} ->
+          "#{k}: #{translate_validator_error({msg, opts})}"
+        end)
     end
   end
 
-  defp error_summary(_, fallback), do: fallback
+  defp translate_validator_error({msg, opts}) do
+    if count = opts[:count] do
+      Gettext.dngettext(PhoenixKitWeb.Gettext, "errors", msg, msg, count, opts)
+    else
+      Gettext.dgettext(PhoenixKitWeb.Gettext, "errors", msg, opts)
+    end
+  end
 
   defp sync_project_completion(socket) do
     case Projects.recompute_project_completion(socket.assigns.project.uuid) do
       {:completed, project} ->
         Activity.log("projects.project_completed",
-          actor_uuid: actor_uuid(socket),
+          actor_uuid: Activity.actor_uuid(socket),
           resource_type: "project",
           resource_uuid: project.uuid,
           metadata: %{"name" => project.name}
@@ -162,7 +195,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
 
       {:reopened, project} ->
         Activity.log("projects.project_reopened",
-          actor_uuid: actor_uuid(socket),
+          actor_uuid: Activity.actor_uuid(socket),
           resource_type: "project",
           resource_uuid: project.uuid,
           metadata: %{"name" => project.name}
@@ -175,13 +208,6 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
 
       _ ->
         socket
-    end
-  end
-
-  defp actor_uuid(socket) do
-    case socket.assigns[:phoenix_kit_current_user] do
-      %{uuid: uuid} -> uuid
-      _ -> nil
     end
   end
 
@@ -207,7 +233,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         attrs = %{
           status: "done",
           progress_pct: 100,
-          completed_by_uuid: actor_uuid(socket),
+          completed_by_uuid: Activity.actor_uuid(socket),
           completed_at: DateTime.utc_now()
         }
 
@@ -298,7 +324,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         case Projects.update_assignment_form(a, attrs) do
           {:ok, _} ->
             Activity.log("projects.assignment_duration_changed",
-              actor_uuid: actor_uuid(socket),
+              actor_uuid: Activity.actor_uuid(socket),
               resource_type: "assignment",
               resource_uuid: uuid,
               metadata: %{
@@ -331,7 +357,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         case Projects.delete_assignment(a) do
           {:ok, _} ->
             Activity.log("projects.assignment_removed",
-              actor_uuid: actor_uuid(socket),
+              actor_uuid: Activity.actor_uuid(socket),
               resource_type: "assignment",
               resource_uuid: uuid,
               metadata: %{"task" => a.task.title}
@@ -344,6 +370,13 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
              |> load_assignments()}
 
           {:error, _} ->
+            Activity.log_failed("projects.assignment_removed",
+              actor_uuid: Activity.actor_uuid(socket),
+              resource_type: "assignment",
+              resource_uuid: uuid,
+              metadata: %{"task" => a.task.title}
+            )
+
             {:noreply, put_flash(socket, :error, gettext("Could not remove task."))}
         end
     end
@@ -367,7 +400,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         case Projects.update_assignment_form(a, %{track_progress: new_value}) do
           {:ok, _} ->
             Activity.log("projects.assignment_tracking_toggled",
-              actor_uuid: actor_uuid(socket),
+              actor_uuid: Activity.actor_uuid(socket),
               resource_type: "assignment",
               resource_uuid: uuid,
               metadata: %{"task" => a.task.title, "track_progress" => new_value}
@@ -376,6 +409,13 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
             {:noreply, load_assignments(socket)}
 
           {:error, _} ->
+            Activity.log_failed("projects.assignment_tracking_toggled",
+              actor_uuid: Activity.actor_uuid(socket),
+              resource_type: "assignment",
+              resource_uuid: uuid,
+              metadata: %{"task" => a.task.title, "track_progress" => new_value}
+            )
+
             {:noreply, put_flash(socket, :error, gettext("Could not toggle tracking."))}
         end
     end
@@ -388,7 +428,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
          %{} <- scoped_assignment(socket, d_uuid),
          {:ok, _} <- Projects.remove_dependency(a_uuid, d_uuid) do
       Activity.log("projects.dependency_removed",
-        actor_uuid: actor_uuid(socket),
+        actor_uuid: Activity.actor_uuid(socket),
         resource_type: "assignment",
         resource_uuid: a_uuid,
         target_uuid: d_uuid,
@@ -405,7 +445,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     case Projects.start_project(socket.assigns.project) do
       {:ok, project} ->
         Activity.log("projects.project_started",
-          actor_uuid: actor_uuid(socket),
+          actor_uuid: Activity.actor_uuid(socket),
           resource_type: "project",
           resource_uuid: project.uuid,
           metadata: %{"name" => project.name}
@@ -415,6 +455,13 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
          assign(socket, project: project) |> put_flash(:info, gettext("Project started!"))}
 
       {:error, _} ->
+        Activity.log_failed("projects.project_started",
+          actor_uuid: Activity.actor_uuid(socket),
+          resource_type: "project",
+          resource_uuid: socket.assigns.project.uuid,
+          metadata: %{"name" => socket.assigns.project.name}
+        )
+
         {:noreply, put_flash(socket, :error, gettext("Could not start project."))}
     end
   end
@@ -432,7 +479,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     do: %{
       progress_pct: 100,
       status: "done",
-      completed_by_uuid: actor_uuid(socket),
+      completed_by_uuid: Activity.actor_uuid(socket),
       completed_at: DateTime.utc_now()
     }
 
@@ -460,7 +507,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     case Projects.update_assignment_status(a, attrs) do
       {:ok, _} ->
         Activity.log(progress_action(pct, a.status),
-          actor_uuid: actor_uuid(socket),
+          actor_uuid: Activity.actor_uuid(socket),
           resource_type: "assignment",
           resource_uuid: a.uuid,
           metadata: %{"task" => a.task.title, "progress_pct" => pct}
@@ -784,7 +831,12 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
             <span class="text-sm">
               {gettext("Scheduled for %{date}", date: L10n.format_date(@project.scheduled_start_date))}
             </span>
-            <button type="button" phx-click="start_project" class="btn btn-success btn-xs ml-auto">
+            <button
+              type="button"
+              phx-click="start_project"
+              phx-disable-with={gettext("Starting…")}
+              class="btn btn-success btn-xs ml-auto"
+            >
               {gettext("Start now")}
             </button>
           <% true -> %>
@@ -793,6 +845,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
             <button
               type="button"
               phx-click="start_project"
+              phx-disable-with={gettext("Starting…")}
               data-confirm={gettext("Start this project now?")}
               class="btn btn-success btn-xs ml-auto"
             >
@@ -893,15 +946,30 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                         <%= if not @is_template do %>
                           <%= cond do %>
                             <% a.status == "todo" -> %>
-                              <button phx-click="start_task" phx-value-uuid={a.uuid} class="btn btn-warning btn-xs">
+                              <button
+                                phx-click="start_task"
+                                phx-value-uuid={a.uuid}
+                                phx-disable-with={gettext("Starting…")}
+                                class="btn btn-warning btn-xs"
+                              >
                                 {gettext("Start")}
                               </button>
                             <% a.status == "in_progress" -> %>
-                              <button phx-click="complete" phx-value-uuid={a.uuid} class="btn btn-success btn-xs">
+                              <button
+                                phx-click="complete"
+                                phx-value-uuid={a.uuid}
+                                phx-disable-with={gettext("Saving…")}
+                                class="btn btn-success btn-xs"
+                              >
                                 <.icon name="hero-check" class="w-3.5 h-3.5" /> {gettext("Done")}
                               </button>
                             <% a.status == "done" -> %>
-                              <button phx-click="reopen" phx-value-uuid={a.uuid} class="btn btn-ghost btn-xs">
+                              <button
+                                phx-click="reopen"
+                                phx-value-uuid={a.uuid}
+                                phx-disable-with={gettext("Reopening…")}
+                                class="btn btn-ghost btn-xs"
+                              >
                                 {gettext("Reopen")}
                               </button>
                           <% end %>
@@ -913,6 +981,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                         <button
                           phx-click="remove_assignment"
                           phx-value-uuid={a.uuid}
+                          phx-disable-with={gettext("Removing…")}
                           data-confirm={gettext("Remove \"%{title}\"?", title: a.task.title)}
                           class="btn btn-ghost btn-xs text-error"
                         >
@@ -1020,6 +1089,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                               type="button"
                               phx-click="toggle_tracking"
                               phx-value-uuid={a.uuid}
+                              phx-disable-with={gettext("Saving…")}
                               title={gettext("Disable percentage tracking")}
                               class="btn btn-ghost btn-xs btn-circle"
                             >
@@ -1031,6 +1101,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                             type="button"
                             phx-click="toggle_tracking"
                             phx-value-uuid={a.uuid}
+                            phx-disable-with={gettext("Saving…")}
                             class="badge badge-ghost badge-sm gap-1 cursor-pointer hover:badge-primary"
                             title={gettext("Track progress as a percentage")}
                           >
@@ -1063,6 +1134,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                               phx-click="remove_dependency"
                               phx-value-assignment={a.uuid}
                               phx-value-depends_on={dep.depends_on_uuid}
+                              phx-disable-with={gettext("Removing…")}
                               class="hover:text-error"
                             >
                               <.icon name="hero-x-mark" class="w-3 h-3" />

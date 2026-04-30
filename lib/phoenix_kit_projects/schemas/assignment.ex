@@ -21,6 +21,39 @@ defmodule PhoenixKitProjects.Schemas.Assignment do
   @statuses ~w(todo in_progress done)
   @duration_units ~w(minutes hours days weeks fortnights months years)
 
+  @type t :: %__MODULE__{
+          uuid: UUIDv7.t() | nil,
+          project_uuid: UUIDv7.t() | nil,
+          project: Project.t() | Ecto.Association.NotLoaded.t() | nil,
+          task_uuid: UUIDv7.t() | nil,
+          task: Task.t() | Ecto.Association.NotLoaded.t() | nil,
+          status: String.t() | nil,
+          position: integer() | nil,
+          description: String.t() | nil,
+          estimated_duration: integer() | nil,
+          estimated_duration_unit: String.t() | nil,
+          counts_weekends: boolean() | nil,
+          progress_pct: integer() | nil,
+          track_progress: boolean() | nil,
+          # Cross-module assoc fields use `struct()` rather than the precise
+          # `PhoenixKitStaff.Schemas.<X>.t()` because phoenix_kit_staff
+          # Hex 0.1.0 doesn't ship `@type t` declarations on its schemas
+          # (the workspace version does — once it publishes 0.1.1, tighten
+          # these back to the named types).
+          assigned_team_uuid: UUIDv7.t() | nil,
+          assigned_team: struct() | Ecto.Association.NotLoaded.t() | nil,
+          assigned_department_uuid: UUIDv7.t() | nil,
+          assigned_department: struct() | Ecto.Association.NotLoaded.t() | nil,
+          assigned_person_uuid: UUIDv7.t() | nil,
+          assigned_person: struct() | Ecto.Association.NotLoaded.t() | nil,
+          completed_by_uuid: UUIDv7.t() | nil,
+          completed_by: User.t() | Ecto.Association.NotLoaded.t() | nil,
+          completed_at: DateTime.t() | nil,
+          dependencies: [Dependency.t()] | Ecto.Association.NotLoaded.t(),
+          inserted_at: DateTime.t() | nil,
+          updated_at: DateTime.t() | nil
+        }
+
   schema "phoenix_kit_project_assignments" do
     field(:status, :string, default: "todo")
     field(:position, :integer, default: 0)
@@ -94,13 +127,15 @@ defmodule PhoenixKitProjects.Schemas.Assignment do
     |> validate_single_assignee()
     |> check_constraint(:assigned_team_uuid,
       name: :phoenix_kit_project_assignments_single_assignee,
-      message: gettext("only one of team, department, or person can be assigned")
+      message: single_assignee_message()
     )
   end
 
   # Mirrors the DB-level CHECK constraint on the assignee triple so
   # changesets fail fast with a friendly message instead of a raw
-  # Postgrex error on concurrent inserts.
+  # Postgrex error on concurrent inserts. Both the validator and the
+  # check_constraint surface the same translated message — single
+  # source kept here so the wording can't drift.
   defp validate_single_assignee(changeset) do
     set =
       Enum.count(
@@ -109,15 +144,14 @@ defmodule PhoenixKitProjects.Schemas.Assignment do
       )
 
     if set > 1 do
-      add_error(
-        changeset,
-        :assigned_team_uuid,
-        gettext("only one of team, department, or person can be assigned")
-      )
+      add_error(changeset, :assigned_team_uuid, single_assignee_message())
     else
       changeset
     end
   end
+
+  defp single_assignee_message,
+    do: gettext("only one of team, department, or person can be assigned")
 
   def statuses, do: @statuses
 end

@@ -14,6 +14,15 @@ defmodule PhoenixKitProjects.Schemas.Dependency do
   @primary_key {:uuid, UUIDv7, autogenerate: true}
   @foreign_key_type UUIDv7
 
+  @type t :: %__MODULE__{
+          uuid: UUIDv7.t() | nil,
+          assignment_uuid: UUIDv7.t() | nil,
+          assignment: Assignment.t() | Ecto.Association.NotLoaded.t() | nil,
+          depends_on_uuid: UUIDv7.t() | nil,
+          depends_on: Assignment.t() | Ecto.Association.NotLoaded.t() | nil,
+          inserted_at: DateTime.t() | nil
+        }
+
   schema "phoenix_kit_project_dependencies" do
     belongs_to(:assignment, Assignment, foreign_key: :assignment_uuid, references: :uuid)
     belongs_to(:depends_on, Assignment, foreign_key: :depends_on_uuid, references: :uuid)
