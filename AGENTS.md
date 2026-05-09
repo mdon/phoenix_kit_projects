@@ -279,6 +279,44 @@ Severity levels for review findings:
 
 Start with action verbs: `Add`, `Update`, `Fix`, `Remove`, `Merge`.
 
+## Soft-hide / archive
+
+Archive is a **timestamp**, not a status enum. `projects.archived_at`
+(added in core V112) follows the workspace's `trashed_at` convention
+used by publishing posts and core files: null = visible, non-null =
+hidden + audit-friendly "archived at."
+
+Public API: `Projects.archive_project/1` and `Projects.unarchive_project/1`.
+The dashboard buckets and `list_projects/1` filter on
+`is_nil(archived_at)`. `Projects.list_projects/1` accepts `:archived`
+opt — `false` (default, visible only), `true` (archived only), `:all`.
+
+The derived state from `Project.derived_status/2` returns `:archived`
+as the highest-priority bucket, so an archived project is always
+labeled "archived" in the UI regardless of its other timestamps.
+
+### Legacy `status` column — kept, unused
+
+The pre-V112 `status` string column (`"active"` / `"archived"`) is
+**still in the table** but no longer cast by the changeset, never read
+by application code, and no longer surfaced in any UI. V112 backfilled
+`archived_at = updated_at` for any row that was `status = 'archived'`
+at migration time, so the soft-hide state survived the move.
+
+The column is preserved deliberately so a future workflow concept that
+legitimately wants a string lifecycle state (e.g. `"paused"`,
+`"blocked"`, `"on_hold"`) can reuse the slot without another migration.
+Anyone wiring such a feature must:
+
+1. Re-introduce `status` to `Project.@optional` and `Project.changeset/2`.
+2. Add a fresh `validate_inclusion(:status, …)` for the new vocabulary.
+3. Update `Project.derived_status/2` priority order if the new state
+   should outrank the existing buckets.
+4. Decide whether to backfill existing `"active"`/`"archived"` rows.
+
+If after a reasonable interval no such feature lands, drop the column
+in a future Vxxx.
+
 ## What this module does NOT have
 
 Pinning the deliberate non-features so future-me doesn't propose them as

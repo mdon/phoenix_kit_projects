@@ -504,6 +504,56 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     end
   end
 
+  def handle_event("archive_project", _params, socket) do
+    case Projects.archive_project(socket.assigns.project) do
+      {:ok, project} ->
+        Activity.log("projects.project_archived",
+          actor_uuid: Activity.actor_uuid(socket),
+          resource_type: "project",
+          resource_uuid: project.uuid,
+          metadata: %{"name" => project.name}
+        )
+
+        {:noreply,
+         assign(socket, project: project) |> put_flash(:info, gettext("Project archived."))}
+
+      {:error, _} ->
+        Activity.log_failed("projects.project_archived",
+          actor_uuid: Activity.actor_uuid(socket),
+          resource_type: "project",
+          resource_uuid: socket.assigns.project.uuid,
+          metadata: %{"name" => socket.assigns.project.name}
+        )
+
+        {:noreply, put_flash(socket, :error, gettext("Could not archive project."))}
+    end
+  end
+
+  def handle_event("unarchive_project", _params, socket) do
+    case Projects.unarchive_project(socket.assigns.project) do
+      {:ok, project} ->
+        Activity.log("projects.project_unarchived",
+          actor_uuid: Activity.actor_uuid(socket),
+          resource_type: "project",
+          resource_uuid: project.uuid,
+          metadata: %{"name" => project.name}
+        )
+
+        {:noreply,
+         assign(socket, project: project) |> put_flash(:info, gettext("Project unarchived."))}
+
+      {:error, _} ->
+        Activity.log_failed("projects.project_unarchived",
+          actor_uuid: Activity.actor_uuid(socket),
+          resource_type: "project",
+          resource_uuid: socket.assigns.project.uuid,
+          metadata: %{"name" => socket.assigns.project.name}
+        )
+
+        {:noreply, put_flash(socket, :error, gettext("Could not unarchive project."))}
+    end
+  end
+
   # ── Helpers ─────────────────────────────────────────────────────
 
   defp parse_pct(pct_str) do
@@ -811,6 +861,11 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                 <.icon name="hero-check-circle" class="w-3.5 h-3.5" /> {gettext("Completed")}
               </span>
             <% end %>
+            <%= if @project.archived_at do %>
+              <span class="badge badge-ghost gap-1">
+                <.icon name="hero-archive-box" class="w-3.5 h-3.5" /> {gettext("Archived")}
+              </span>
+            <% end %>
           </div>
           <div class="flex gap-2">
             <.link navigate={Paths.new_assignment(@project.uuid)} class="btn btn-primary btn-sm">
@@ -822,6 +877,30 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
             >
               <.icon name="hero-pencil" class="w-4 h-4" /> {gettext("Edit")}
             </.link>
+            <%= if not @is_template do %>
+              <%= if @project.archived_at do %>
+                <button
+                  type="button"
+                  phx-click="unarchive_project"
+                  phx-disable-with={gettext("Unarchiving…")}
+                  class="btn btn-ghost btn-sm"
+                  title={gettext("Restore from archive")}
+                >
+                  <.icon name="hero-arrow-uturn-left" class="w-4 h-4" /> {gettext("Unarchive")}
+                </button>
+              <% else %>
+                <button
+                  type="button"
+                  phx-click="archive_project"
+                  phx-disable-with={gettext("Archiving…")}
+                  data-confirm={gettext("Archive this project? It will be hidden from the main lists but kept in the database.")}
+                  class="btn btn-ghost btn-sm"
+                  title={gettext("Hide from main lists")}
+                >
+                  <.icon name="hero-archive-box" class="w-4 h-4" /> {gettext("Archive")}
+                </button>
+              <% end %>
+            <% end %>
           </div>
         </div>
         <div :if={@project.description} class="text-sm text-base-content/60 mt-1">

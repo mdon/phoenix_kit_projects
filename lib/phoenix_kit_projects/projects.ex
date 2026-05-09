@@ -192,15 +192,22 @@ defmodule PhoenixKitProjects.Projects do
 
   # ── Projects ───────────────────────────────────────────────────────
 
-  @doc "Lists projects. Accepts `:status` filter and `:include_templates` (default false)."
+  @doc """
+  Lists projects.
+
+  Options:
+    * `:archived` — `false` (default) hides archived; `true` shows only
+      archived; `:all` returns both.
+    * `:include_templates` — default `false`.
+  """
   @spec list_projects(keyword()) :: [Project.t()]
   def list_projects(opts \\ []) do
-    status = Keyword.get(opts, :status)
+    archived = Keyword.get(opts, :archived, false)
     include_templates = Keyword.get(opts, :include_templates, false)
 
     Project
     |> maybe_exclude_templates(include_templates)
-    |> maybe_filter_project_status(status)
+    |> maybe_filter_archived(archived)
     |> order_by([p], asc: fragment("lower(?)", p.name), asc: p.uuid)
     |> repo().all()
   end
@@ -208,9 +215,9 @@ defmodule PhoenixKitProjects.Projects do
   defp maybe_exclude_templates(q, true), do: q
   defp maybe_exclude_templates(q, _), do: where(q, [p], p.is_template == false)
 
-  defp maybe_filter_project_status(q, nil), do: q
-  defp maybe_filter_project_status(q, ""), do: q
-  defp maybe_filter_project_status(q, s), do: where(q, [p], p.status == ^s)
+  defp maybe_filter_archived(q, :all), do: q
+  defp maybe_filter_archived(q, true), do: where(q, [p], not is_nil(p.archived_at))
+  defp maybe_filter_archived(q, _false_or_nil), do: where(q, [p], is_nil(p.archived_at))
 
   @doc "Fetches a project by uuid, or `nil` if not found."
   @spec get_project(uuid()) :: Project.t() | nil
@@ -250,7 +257,12 @@ defmodule PhoenixKitProjects.Projects do
   end
 
   defp project_payload(p) do
-    %{uuid: p.uuid, name: p.name, is_template: p.is_template, status: p.status}
+    %{
+      uuid: p.uuid,
+      name: p.name,
+      is_template: p.is_template,
+      archived: not is_nil(p.archived_at)
+    }
   end
 
   @doc "Total number of projects (including templates)."
@@ -274,13 +286,13 @@ defmodule PhoenixKitProjects.Projects do
     |> repo().aggregate(:count, :uuid)
   end
 
-  @doc "Active, in-flight projects (started but not yet completed)."
+  @doc "Running projects (started, not archived, not yet completed)."
   @spec list_active_projects() :: [Project.t()]
   def list_active_projects do
     Project
     |> where(
       [p],
-      p.is_template == false and p.status == "active" and not is_nil(p.started_at) and
+      p.is_template == false and is_nil(p.archived_at) and not is_nil(p.started_at) and
         is_nil(p.completed_at)
     )
     |> order_by([p], desc: p.started_at)
@@ -293,7 +305,7 @@ defmodule PhoenixKitProjects.Projects do
     Project
     |> where(
       [p],
-      p.is_template == false and p.status == "active" and not is_nil(p.completed_at)
+      p.is_template == false and is_nil(p.archived_at) and not is_nil(p.completed_at)
     )
     |> order_by([p], desc: p.completed_at)
     |> limit(^limit)
@@ -306,7 +318,7 @@ defmodule PhoenixKitProjects.Projects do
     Project
     |> where(
       [p],
-      p.is_template == false and p.status == "active" and is_nil(p.started_at) and
+      p.is_template == false and is_nil(p.archived_at) and is_nil(p.started_at) and
         p.start_mode == "scheduled" and not is_nil(p.scheduled_start_date)
     )
     |> order_by([p], asc: p.scheduled_start_date)
@@ -319,7 +331,7 @@ defmodule PhoenixKitProjects.Projects do
     Project
     |> where(
       [p],
-      p.is_template == false and p.status == "active" and is_nil(p.started_at) and
+      p.is_template == false and is_nil(p.archived_at) and is_nil(p.started_at) and
         p.start_mode == "immediate"
     )
     |> order_by([p], desc: p.inserted_at)
@@ -330,7 +342,7 @@ defmodule PhoenixKitProjects.Projects do
   Counts of assignments by status across active non-template projects.
   Returns a map like %{"todo" => 5, "in_progress" => 2, "done" => 10}.
 
-  Filters on `p.status == "active"` to match the dashboard's intent —
+  Filters on `is_nil(p.archived_at)` to match the dashboard's intent —
   assignments inside archived projects shouldn't inflate the workload
   stats shown alongside `list_active_projects/0`.
   """
@@ -339,7 +351,7 @@ defmodule PhoenixKitProjects.Projects do
     from(a in Assignment,
       join: p in Project,
       on: p.uuid == a.project_uuid,
-      where: p.is_template == false and p.status == "active",
+      where: p.is_template == false and is_nil(p.archived_at),
       group_by: a.status,
       select: {a.status, count(a.uuid)}
     )
@@ -372,7 +384,7 @@ defmodule PhoenixKitProjects.Projects do
           on: p.uuid == a.project_uuid,
           where:
             a.assigned_person_uuid == ^person.uuid and a.status != "done" and
-              p.is_template == false and p.status == "active",
+              p.is_template == false and is_nil(p.archived_at),
           order_by: [asc: a.status, asc: a.inserted_at],
           preload: [:task, :project]
         )
@@ -534,6 +546,26 @@ defmodule PhoenixKitProjects.Projects do
     with {:ok, updated} <-
            p |> Project.changeset(%{started_at: DateTime.utc_now()}) |> repo().update() do
       ProjectsPubSub.broadcast_project(:project_started, project_payload(updated))
+      {:ok, updated}
+    end
+  end
+
+  @doc "Soft-hides the project by stamping `archived_at`. Idempotent — re-archiving rewrites the timestamp."
+  @spec archive_project(Project.t()) :: {:ok, Project.t()} | {:error, Ecto.Changeset.t()}
+  def archive_project(%Project{} = p) do
+    with {:ok, updated} <-
+           p |> Project.changeset(%{archived_at: DateTime.utc_now()}) |> repo().update() do
+      ProjectsPubSub.broadcast_project(:project_archived, project_payload(updated))
+      {:ok, updated}
+    end
+  end
+
+  @doc "Restores an archived project by clearing `archived_at`."
+  @spec unarchive_project(Project.t()) :: {:ok, Project.t()} | {:error, Ecto.Changeset.t()}
+  def unarchive_project(%Project{} = p) do
+    with {:ok, updated} <-
+           p |> Project.changeset(%{archived_at: nil}) |> repo().update() do
+      ProjectsPubSub.broadcast_project(:project_unarchived, project_payload(updated))
       {:ok, updated}
     end
   end

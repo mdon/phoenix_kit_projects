@@ -103,7 +103,7 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div class="card bg-base-100 shadow-sm border border-base-200">
           <div class="card-body p-3">
-            <div class="text-xs text-base-content/60">{gettext("Active projects")}</div>
+            <div class="text-xs text-base-content/60">{gettext("Running")}</div>
             <div class="text-2xl font-bold">{@active_count}</div>
           </div>
         </div>
@@ -133,16 +133,21 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
           <div class="card-body">
             <div class="flex items-center justify-between">
               <h2 class="card-title text-lg">
-                <.icon name="hero-play" class="w-5 h-5 text-success" /> {gettext("Active projects")}
+                <.icon name="hero-play" class="w-5 h-5 text-success" /> {gettext("Running")}
               </h2>
+              <p class="text-xs text-base-content/50 -mt-1">
+                {gettext("Started and not yet completed.")}
+              </p>
               <.link navigate={Paths.projects()} class="link link-hover text-sm">{gettext("View all →")}</.link>
             </div>
 
             <%= if @active_summaries == [] do %>
               <div class="text-center py-10 text-base-content/60">
                 <.icon name="hero-clipboard-document-list" class="w-10 h-10 mx-auto mb-2 opacity-40" />
-                <p class="text-sm">{gettext("No active projects yet.")}</p>
-                <.link navigate={Paths.new_project()} class="link link-primary text-sm">{gettext("Start one")}</.link>
+                <p class="text-sm">{gettext("Nothing running right now.")}</p>
+                <p class="text-xs text-base-content/50 mt-1">
+                  {gettext("Open a project from below and click Start to begin.")}
+                </p>
               </div>
             <% else %>
               <div class="flex flex-col gap-2 mt-2">

@@ -12,7 +12,7 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: ProjectsPubSub.subscribe(ProjectsPubSub.topic_all())
-    {:ok, assign(socket, page_title: gettext("Projects"), status: "") |> load_projects()}
+    {:ok, assign(socket, page_title: gettext("Projects"), show: "visible") |> load_projects()}
   end
 
   @impl true
@@ -24,12 +24,16 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
   end
 
   defp load_projects(socket) do
-    assign(socket, projects: Projects.list_projects(status: socket.assigns.status))
+    assign(socket, projects: Projects.list_projects(archived: archived_opt(socket.assigns.show)))
   end
 
+  defp archived_opt("archived"), do: true
+  defp archived_opt("all"), do: :all
+  defp archived_opt(_visible), do: false
+
   @impl true
-  def handle_event("filter", %{"status" => s}, socket) do
-    {:noreply, socket |> assign(status: s) |> load_projects()}
+  def handle_event("filter", %{"show" => s}, socket) do
+    {:noreply, socket |> assign(show: s) |> load_projects()}
   end
 
   def handle_event("delete", %{"uuid" => uuid}, socket) do
@@ -55,9 +59,29 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
     end
   end
 
-  defp project_status_label("active"), do: gettext("active")
-  defp project_status_label("archived"), do: gettext("archived")
-  defp project_status_label(other), do: other
+  defp derived_status_label(:running), do: gettext("running")
+  defp derived_status_label(:completed), do: gettext("completed")
+  defp derived_status_label(:overdue), do: gettext("overdue")
+  defp derived_status_label(:scheduled), do: gettext("scheduled")
+  defp derived_status_label(:setup), do: gettext("setup")
+  defp derived_status_label(:archived), do: gettext("archived")
+  defp derived_status_label(:template), do: gettext("template")
+
+  defp derived_status_class(:running), do: "badge-success"
+  defp derived_status_class(:completed), do: "badge-success badge-outline"
+  defp derived_status_class(:overdue), do: "badge-error"
+  defp derived_status_class(:scheduled), do: "badge-info"
+  defp derived_status_class(:setup), do: "badge-warning"
+  defp derived_status_class(:archived), do: "badge-ghost"
+  defp derived_status_class(:template), do: "badge-info badge-outline"
+
+  defp derived_status_icon(:running), do: "hero-play"
+  defp derived_status_icon(:completed), do: "hero-check-circle"
+  defp derived_status_icon(:overdue), do: "hero-exclamation-triangle"
+  defp derived_status_icon(:scheduled), do: "hero-calendar"
+  defp derived_status_icon(:setup), do: "hero-clock"
+  defp derived_status_icon(:archived), do: "hero-archive-box"
+  defp derived_status_icon(:template), do: "hero-document-duplicate"
 
   defp log_and_flash_deleted(socket, project) do
     Activity.log("projects.project_deleted",
@@ -87,10 +111,14 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
       <div class="bg-base-200 rounded-lg p-3">
         <.form for={%{}} phx-change="filter" class="flex gap-3 items-end">
           <.select
-            name="status"
-            label={gettext("Status")}
-            value={@status}
-            options={[{gettext("All"), ""}, {gettext("Active"), "active"}, {gettext("Archived"), "archived"}]}
+            name="show"
+            label={gettext("Show")}
+            value={@show}
+            options={[
+              {gettext("Active only"), "visible"},
+              {gettext("Archived only"), "archived"},
+              {gettext("All"), "all"}
+            ]}
           />
         </.form>
       </div>
@@ -117,18 +145,15 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
                     <.link navigate={Paths.project(p.uuid)} class="link link-hover font-medium">
                       {p.name}
                     </.link>
-                    <%= if p.completed_at do %>
-                      <span class="badge badge-success badge-xs ml-2">
-                        <.icon name="hero-check-circle" class="w-3 h-3" /> {gettext("completed")}
-                      </span>
-                    <% end %>
                     <div :if={p.description} class="text-xs text-base-content/60 truncate max-w-md">
                       {p.description}
                     </div>
                   </td>
                   <td>
-                    <span class={"badge badge-sm #{if p.status == "active", do: "badge-success", else: "badge-ghost"}"}>
-                      {project_status_label(p.status)}
+                    <% state = PhoenixKitProjects.Schemas.Project.derived_status(p) %>
+                    <span class={"badge badge-sm gap-1 #{derived_status_class(state)}"}>
+                      <.icon name={derived_status_icon(state)} class="w-3 h-3" />
+                      {derived_status_label(state)}
                     </span>
                   </td>
                   <td class="text-right">

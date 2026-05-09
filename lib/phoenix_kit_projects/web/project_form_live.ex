@@ -188,11 +188,6 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
             <% end %>
             <.input field={@form[:name]} label={gettext("Name")} required />
             <.textarea field={@form[:description]} label={gettext("Description")} />
-            <.select
-              field={@form[:status]}
-              label={gettext("Status")}
-              options={[{gettext("Active"), "active"}, {gettext("Archived"), "archived"}]}
-            />
             <label class="flex items-center gap-2 cursor-pointer">
               <input
                 type="hidden"
