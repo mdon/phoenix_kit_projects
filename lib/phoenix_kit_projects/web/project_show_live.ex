@@ -47,9 +47,18 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
            duration_form:
              to_form(%{"estimated_duration" => "", "estimated_duration_unit" => "hours"}),
            start_modal_open: false,
-           start_form: to_form(%{"start_at" => default_start_at_local()})
+           start_form: to_form(%{"start_at" => default_start_at_local()}),
+           # Comments drawer state. `comments_resource` is `nil` when
+           # closed; a `%{type, uuid, title}` map when open. The
+           # `CommentsComponent` is keyed on `{type, uuid}` so opening
+           # different resources doesn't reuse stale state.
+           comments_resource: nil,
+           comments_enabled: comments_available?(),
+           project_comment_count: 0,
+           assignment_comment_counts: %{}
          )
-         |> load_assignments()}
+         |> load_assignments()
+         |> load_comment_counts()}
     end
   end
 
@@ -84,6 +93,16 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
      socket
      |> put_flash(:info, gettext("This project was deleted."))
      |> push_navigate(to: Paths.projects())}
+  end
+
+  # `CommentsComponent` notifies its parent LV after every create /
+  # delete so the button badges can refresh without an extra round
+  # trip. We reload the full count map regardless of which resource
+  # changed — both project and assignment counts cost a single
+  # query each, and the message carries an `action` (`:created |
+  # :deleted`) that we don't need to discriminate on here.
+  def handle_info({:comments_updated, _payload}, socket) do
+    {:noreply, load_comment_counts(socket)}
   end
 
   def handle_info(msg, socket) do
@@ -535,6 +554,42 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   defp parse_start_at(_),
     do: {:error, gettext("Invalid date — please pick a valid date and time.")}
 
+  # True only when the `phoenix_kit_comments` module is loaded AND
+  # admin-enabled. Off-by-default `enabled?/0` rescues any error
+  # (missing tables, sandbox-down) and returns false, so this stays
+  # safe in early-install or test environments.
+  defp comments_available? do
+    Code.ensure_loaded?(PhoenixKitComments) and PhoenixKitComments.enabled?()
+  end
+
+  # Refreshes both the project-level and per-assignment comment
+  # counts. Called from mount + after `:comments_updated` so the
+  # button badges stay in sync with reality. Cheap: project count is
+  # one query, assignment counts are one batched query keyed by
+  # uuid — no N+1 even with long timelines.
+  defp load_comment_counts(socket) do
+    if socket.assigns[:comments_enabled] do
+      project_uuid = socket.assigns.project.uuid
+
+      project_count =
+        try do
+          PhoenixKitComments.count_comments("project", project_uuid, status: "published")
+        rescue
+          _ -> 0
+        end
+
+      assignment_uuids = Enum.map(socket.assigns.assignments, & &1.uuid)
+      assignment_counts = Projects.comment_counts_for_assignments(assignment_uuids)
+
+      assign(socket,
+        project_comment_count: project_count,
+        assignment_comment_counts: assignment_counts
+      )
+    else
+      socket
+    end
+  end
+
   # Default value for `<input type="datetime-local">`: today at the
   # current hour:minute, formatted `YYYY-MM-DDTHH:mm` (the format the
   # browser expects). Built from UTC so the prefilled value matches
@@ -604,6 +659,24 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
 
         {:noreply, put_flash(socket, :error, gettext("Could not archive project."))}
     end
+  end
+
+  # Comments drawer. Opening sets `comments_resource` to the
+  # `(type, uuid, title)` triple of the target so the drawer header
+  # can show context and the embedded `CommentsComponent` is keyed
+  # uniquely per resource. Closing clears the assign — the
+  # component unmounts and any in-flight reply state is dropped
+  # (intended: drawer-close is a "step away" affordance).
+  def handle_event("open_comments", %{"type" => type, "uuid" => uuid} = params, socket)
+      when type in ["project", "assignment"] do
+    title = Map.get(params, "title", "")
+
+    {:noreply,
+     assign(socket, comments_resource: %{type: type, uuid: uuid, title: title})}
+  end
+
+  def handle_event("close_comments", _params, socket) do
+    {:noreply, assign(socket, comments_resource: nil)}
   end
 
   # SortableGrid drop handler. Validates the new order against the
@@ -993,6 +1066,21 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
             <.link navigate={Paths.new_assignment(@project.uuid)} class="btn btn-primary btn-sm">
               <.icon name="hero-plus" class="w-4 h-4" /> {gettext("Add task")}
             </.link>
+            <button
+              :if={@comments_enabled}
+              type="button"
+              phx-click="open_comments"
+              phx-value-type="project"
+              phx-value-uuid={@project.uuid}
+              phx-value-title={Project.localized_name(@project, L10n.current_content_lang())}
+              class="btn btn-ghost btn-sm gap-1"
+              title={gettext("Open project comments")}
+            >
+              <.icon name="hero-chat-bubble-left-right" class="w-4 h-4" /> {gettext("Comments")}
+              <span :if={@project_comment_count > 0} class="badge badge-sm badge-primary">
+                {@project_comment_count}
+              </span>
+            </button>
             <.link
               navigate={if @is_template, do: Paths.edit_template(@project.uuid), else: Paths.edit_project(@project.uuid)}
               class="btn btn-ghost btn-sm"
@@ -1237,6 +1325,22 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                           <% end %>
                         <% end %>
 
+                        <% a_comment_count = Map.get(@assignment_comment_counts, a.uuid, 0) %>
+                        <button
+                          :if={@comments_enabled and not @is_template}
+                          type="button"
+                          phx-click="open_comments"
+                          phx-value-type="assignment"
+                          phx-value-uuid={a.uuid}
+                          phx-value-title={TaskSchema.localized_title(a.task, L10n.current_content_lang())}
+                          class="btn btn-ghost btn-xs gap-1"
+                          title={gettext("Open comments")}
+                        >
+                          <.icon name="hero-chat-bubble-left" class="w-3.5 h-3.5" />
+                          <span :if={a_comment_count > 0} class="badge badge-xs badge-primary">
+                            {a_comment_count}
+                          </span>
+                        </button>
                         <.link navigate={Paths.edit_assignment(@project.uuid, a.uuid)} class="btn btn-ghost btn-xs">
                           <.icon name="hero-pencil" class="w-3.5 h-3.5" />
                         </.link>
@@ -1454,6 +1558,71 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
           </div>
           <button type="button" phx-click="close_start_modal" class="modal-backdrop" aria-label={gettext("Close")}></button>
         </dialog>
+      <% end %>
+
+      <%!-- Slide-in comments drawer. Right-side fixed panel that
+           hosts `PhoenixKitComments.Web.CommentsComponent` for either
+           the project or one of its assignments. The component is
+           keyed on `{type, uuid}` so opening a different resource
+           re-mounts with its own state instead of leaking the
+           previous resource's reply-in-progress / pagination.
+
+           Esc + backdrop click both fire `close_comments`. The
+           component's "comments_updated" message is unhandled here
+           (we don't need to react to project-level comment counts
+           in the timeline yet) — the catch-all `handle_info` clause
+           logs it at debug and moves on. --%>
+      <%!-- z-[60] / z-[70] so we paint over the admin header
+           (`fixed top-0 z-50` in the layout wrapper). At z-40 the
+           backdrop sat behind the header and looked broken. --%>
+      <%= if @comments_resource do %>
+        <div
+          class="fixed inset-0 z-[60] bg-black/40"
+          phx-click="close_comments"
+          phx-window-keydown="close_comments"
+          phx-key="Escape"
+          aria-hidden="true"
+        ></div>
+
+        <aside
+          class="fixed top-0 right-0 z-[70] h-screen w-full max-w-md bg-base-100 shadow-2xl flex flex-col"
+          role="dialog"
+          aria-modal="true"
+          aria-label={gettext("Comments")}
+        >
+          <header class="flex items-start gap-2 p-4 border-b border-base-200 shrink-0">
+            <div class="flex-1 min-w-0">
+              <div class="text-xs uppercase tracking-wide text-base-content/60">
+                <%= if @comments_resource.type == "project" do %>
+                  {gettext("Project")}
+                <% else %>
+                  {gettext("Task")}
+                <% end %>
+              </div>
+              <h2 class="font-bold text-lg truncate">{@comments_resource.title}</h2>
+            </div>
+            <button
+              type="button"
+              phx-click="close_comments"
+              class="btn btn-ghost btn-sm btn-square"
+              aria-label={gettext("Close")}
+            >
+              <.icon name="hero-x-mark" class="w-5 h-5" />
+            </button>
+          </header>
+
+          <div class="flex-1 min-h-0 overflow-y-auto p-4">
+            <.live_component
+              module={PhoenixKitComments.Web.CommentsComponent}
+              id={"comments-drawer-#{@comments_resource.type}-#{@comments_resource.uuid}"}
+              resource_type={@comments_resource.type}
+              resource_uuid={@comments_resource.uuid}
+              current_user={@phoenix_kit_current_scope && @phoenix_kit_current_scope.user}
+              title=""
+              show_likes={true}
+            />
+          </div>
+        </aside>
       <% end %>
     </div>
     """

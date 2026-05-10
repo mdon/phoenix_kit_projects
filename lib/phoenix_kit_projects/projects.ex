@@ -146,6 +146,41 @@ defmodule PhoenixKitProjects.Projects do
   def count_tasks, do: repo().aggregate(Task, :count, :uuid)
 
   @doc """
+  Returns `%{assignment_uuid => published_comment_count}` for the
+  given assignment uuids. Single grouped query (no N queries).
+
+  Returns `%{}` if the `phoenix_kit_comments` module isn't loaded
+  (host hasn't installed it) or if anything goes wrong at the query
+  level — the comments badge is purely informational, never blocking,
+  so any failure degrades silently.
+  """
+  @spec comment_counts_for_assignments([uuid()]) ::
+          %{optional(String.t()) => non_neg_integer()}
+  def comment_counts_for_assignments([]), do: %{}
+
+  def comment_counts_for_assignments(assignment_uuids) when is_list(assignment_uuids) do
+    if Code.ensure_loaded?(PhoenixKitComments.Comment) do
+      do_count_assignment_comments(assignment_uuids)
+    else
+      %{}
+    end
+  rescue
+    _ -> %{}
+  end
+
+  defp do_count_assignment_comments(assignment_uuids) do
+    from(c in PhoenixKitComments.Comment,
+      where:
+        c.resource_type == "assignment" and c.resource_uuid in ^assignment_uuids and
+          c.status == "published",
+      group_by: c.resource_uuid,
+      select: {c.resource_uuid, count(c.uuid)}
+    )
+    |> repo().all()
+    |> Map.new()
+  end
+
+  @doc """
   Re-indexes the supplied task uuids into positions `1..N`. Used by
   the task-library list-view DnD handler.
 
