@@ -544,114 +544,6 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     end
   end
 
-  # `<input type="datetime-local">` posts `YYYY-MM-DDTHH:mm` (no
-  # seconds, no timezone). Treat as UTC — what the user typed is what
-  # gets stored. Pad seconds when missing so `NaiveDateTime` accepts it.
-  defp parse_start_at(value) when is_binary(value) do
-    with_seconds = if String.length(value) == 16, do: value <> ":00", else: value
-
-    case NaiveDateTime.from_iso8601(with_seconds) do
-      {:ok, ndt} ->
-        {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
-
-      {:error, _} ->
-        {:error, gettext("Invalid date — please pick a valid date and time.")}
-    end
-  end
-
-  defp parse_start_at(_),
-    do: {:error, gettext("Invalid date — please pick a valid date and time.")}
-
-  # True only when the `phoenix_kit_comments` module is loaded AND
-  # admin-enabled. Off-by-default `enabled?/0` rescues any error
-  # (missing tables, sandbox-down) and returns false, so this stays
-  # safe in early-install or test environments.
-  defp comments_available? do
-    Code.ensure_loaded?(PhoenixKitComments) and PhoenixKitComments.enabled?()
-  end
-
-  # Refreshes both the project-level and per-assignment comment
-  # counts. Called from mount + after `:comments_updated` so the
-  # button badges stay in sync with reality. Cheap: project count is
-  # one query, assignment counts are one batched query keyed by
-  # uuid — no N+1 even with long timelines.
-  defp load_comment_counts(socket) do
-    if socket.assigns[:comments_enabled] do
-      project_uuid = socket.assigns.project.uuid
-
-      # Rescue narrowed to the shapes we actually expect: comments are
-      # optional (UndefinedFunctionError when the module is absent
-      # mid-install / mid-Hex-bump) and DB transients shouldn't break
-      # the badge. Anything else surfaces and gets fixed.
-      project_count =
-        try do
-          PhoenixKitComments.count_comments("project", project_uuid, status: "published")
-        rescue
-          UndefinedFunctionError -> 0
-          Postgrex.Error -> 0
-          DBConnection.OwnershipError -> 0
-        catch
-          :exit, _reason -> 0
-        end
-
-      assignment_uuids = Enum.map(socket.assigns.assignments, & &1.uuid)
-      assignment_counts = Projects.comment_counts_for_assignments(assignment_uuids)
-
-      assign(socket,
-        project_comment_count: project_count,
-        assignment_comment_counts: assignment_counts
-      )
-    else
-      socket
-    end
-  end
-
-  # Default value for `<input type="datetime-local">`: today at the
-  # current hour:minute, formatted `YYYY-MM-DDTHH:mm` (the format the
-  # browser expects). Built from UTC so the prefilled value matches
-  # what'll be persisted when the user clicks Start without changing
-  # anything.
-  defp default_start_at_local do
-    DateTime.utc_now()
-    |> DateTime.truncate(:second)
-    |> DateTime.to_naive()
-    |> NaiveDateTime.to_iso8601()
-    |> String.slice(0, 16)
-  end
-
-  defp do_start_project(socket, started_at) do
-    case Projects.start_project(socket.assigns.project, started_at) do
-      {:ok, project} ->
-        Activity.log("projects.project_started",
-          actor_uuid: Activity.actor_uuid(socket),
-          resource_type: "project",
-          resource_uuid: project.uuid,
-          metadata: %{
-            "name" => project.name,
-            "started_at" => DateTime.to_iso8601(started_at)
-          }
-        )
-
-        {:noreply,
-         socket
-         |> assign(project: project, start_modal_open: false)
-         |> put_flash(:info, gettext("Project started!"))}
-
-      {:error, _} ->
-        Activity.log_failed("projects.project_started",
-          actor_uuid: Activity.actor_uuid(socket),
-          resource_type: "project",
-          resource_uuid: socket.assigns.project.uuid,
-          metadata: %{
-            "name" => socket.assigns.project.name,
-            "started_at" => DateTime.to_iso8601(started_at)
-          }
-        )
-
-        {:noreply, put_flash(socket, :error, gettext("Could not start project."))}
-    end
-  end
-
   def handle_event("archive_project", _params, socket) do
     case Projects.archive_project(socket.assigns.project) do
       {:ok, project} ->
@@ -766,6 +658,114 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   end
 
   # ── Helpers ─────────────────────────────────────────────────────
+
+  # `<input type="datetime-local">` posts `YYYY-MM-DDTHH:mm` (no
+  # seconds, no timezone). Treat as UTC — what the user typed is what
+  # gets stored. Pad seconds when missing so `NaiveDateTime` accepts it.
+  defp parse_start_at(value) when is_binary(value) do
+    with_seconds = if String.length(value) == 16, do: value <> ":00", else: value
+
+    case NaiveDateTime.from_iso8601(with_seconds) do
+      {:ok, ndt} ->
+        {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
+
+      {:error, _} ->
+        {:error, gettext("Invalid date — please pick a valid date and time.")}
+    end
+  end
+
+  defp parse_start_at(_),
+    do: {:error, gettext("Invalid date — please pick a valid date and time.")}
+
+  # True only when the `phoenix_kit_comments` module is loaded AND
+  # admin-enabled. Off-by-default `enabled?/0` rescues any error
+  # (missing tables, sandbox-down) and returns false, so this stays
+  # safe in early-install or test environments.
+  defp comments_available? do
+    Code.ensure_loaded?(PhoenixKitComments) and PhoenixKitComments.enabled?()
+  end
+
+  # Refreshes both the project-level and per-assignment comment
+  # counts. Called from mount + after `:comments_updated` so the
+  # button badges stay in sync with reality. Cheap: project count is
+  # one query, assignment counts are one batched query keyed by
+  # uuid — no N+1 even with long timelines.
+  defp load_comment_counts(socket) do
+    if socket.assigns[:comments_enabled] do
+      project_uuid = socket.assigns.project.uuid
+
+      # Rescue narrowed to the shapes we actually expect: comments are
+      # optional (UndefinedFunctionError when the module is absent
+      # mid-install / mid-Hex-bump) and DB transients shouldn't break
+      # the badge. Anything else surfaces and gets fixed.
+      project_count =
+        try do
+          PhoenixKitComments.count_comments("project", project_uuid, status: "published")
+        rescue
+          UndefinedFunctionError -> 0
+          Postgrex.Error -> 0
+          DBConnection.OwnershipError -> 0
+        catch
+          :exit, _reason -> 0
+        end
+
+      assignment_uuids = Enum.map(socket.assigns.assignments, & &1.uuid)
+      assignment_counts = Projects.comment_counts_for_assignments(assignment_uuids)
+
+      assign(socket,
+        project_comment_count: project_count,
+        assignment_comment_counts: assignment_counts
+      )
+    else
+      socket
+    end
+  end
+
+  # Default value for `<input type="datetime-local">`: today at the
+  # current hour:minute, formatted `YYYY-MM-DDTHH:mm` (the format the
+  # browser expects). Built from UTC so the prefilled value matches
+  # what'll be persisted when the user clicks Start without changing
+  # anything.
+  defp default_start_at_local do
+    DateTime.utc_now()
+    |> DateTime.truncate(:second)
+    |> DateTime.to_naive()
+    |> NaiveDateTime.to_iso8601()
+    |> String.slice(0, 16)
+  end
+
+  defp do_start_project(socket, started_at) do
+    case Projects.start_project(socket.assigns.project, started_at) do
+      {:ok, project} ->
+        Activity.log("projects.project_started",
+          actor_uuid: Activity.actor_uuid(socket),
+          resource_type: "project",
+          resource_uuid: project.uuid,
+          metadata: %{
+            "name" => project.name,
+            "started_at" => DateTime.to_iso8601(started_at)
+          }
+        )
+
+        {:noreply,
+         socket
+         |> assign(project: project, start_modal_open: false)
+         |> put_flash(:info, gettext("Project started!"))}
+
+      {:error, _} ->
+        Activity.log_failed("projects.project_started",
+          actor_uuid: Activity.actor_uuid(socket),
+          resource_type: "project",
+          resource_uuid: socket.assigns.project.uuid,
+          metadata: %{
+            "name" => socket.assigns.project.name,
+            "started_at" => DateTime.to_iso8601(started_at)
+          }
+        )
+
+        {:noreply, put_flash(socket, :error, gettext("Could not start project."))}
+    end
+  end
 
   defp parse_pct(pct_str) do
     case Integer.parse(pct_str) do

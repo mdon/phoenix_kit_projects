@@ -135,11 +135,6 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
     save(socket, socket.assigns.live_action, attrs)
   end
 
-  defp merge_attrs(attrs, socket) do
-    in_flight = WebHelpers.in_flight_record(socket, :form, :task)
-    WebHelpers.merge_translations_attrs(attrs, in_flight, Task.translatable_fields())
-  end
-
   def handle_event("add_dep", %{"depends_on_task_uuid" => dep_uuid}, socket)
       when dep_uuid != "" do
     case Projects.add_task_dependency(socket.assigns.task.uuid, dep_uuid) do
@@ -189,6 +184,11 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
     end
 
     {:noreply, reload_task_deps(socket)}
+  end
+
+  defp merge_attrs(attrs, socket) do
+    in_flight = WebHelpers.in_flight_record(socket, :form, :task)
+    WebHelpers.merge_translations_attrs(attrs, in_flight, Task.translatable_fields())
   end
 
   defp reload_task_deps(socket) do

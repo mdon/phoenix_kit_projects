@@ -7,14 +7,14 @@ defmodule PhoenixKitProjects.Web.Components.TabsStrip do
   a single LV-managed assign.
 
   Each tab is a `<button phx-click>` (no form submission) so the
-  consumer's `handle_event/3` controls the switch — typical pattern
-  is `phx-click="set_task_mode" phx-value-mode="new"`.
+  consumer's `handle_event/3` controls the switch. The clicked
+  tab's value is delivered as `phx-value-value`, so handlers
+  match on `%{"value" => v}`.
 
   ## Example
 
       <.tabs_strip
         event="set_task_mode"
-        value_attr="mode"
         active={@task_mode}
         tabs={[
           {"existing", gettext("From library"), "hero-rectangle-stack"},
@@ -28,7 +28,6 @@ defmodule PhoenixKitProjects.Web.Components.TabsStrip do
   import PhoenixKitWeb.Components.Core.Icon
 
   attr :event, :string, required: true
-  attr :value_attr, :string, default: "value", doc: "phx-value-<attr> name"
   attr :active, :string, required: true
 
   attr :tabs, :list,
@@ -43,7 +42,7 @@ defmodule PhoenixKitProjects.Web.Components.TabsStrip do
         type="button"
         role="tab"
         phx-click={@event}
-        {phx_value(@value_attr, value)}
+        phx-value-value={value}
         class={["tab gap-2", @active == value && "tab-active"]}
       >
         <.icon name={icon} class="w-4 h-4" /> {label}
@@ -51,6 +50,4 @@ defmodule PhoenixKitProjects.Web.Components.TabsStrip do
     </div>
     """
   end
-
-  defp phx_value(attr, value), do: %{"phx-value-#{attr}" => value}
 end

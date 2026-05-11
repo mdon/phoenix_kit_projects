@@ -259,7 +259,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   # the hidden form input picks up the new value on the next
   # `phx-change` so `validate`/`save` see it via params (no separate
   # socket-assign read path needed).
-  def handle_event("set_task_mode", %{"mode" => mode}, socket)
+  def handle_event("set_task_mode", %{"value" => mode}, socket)
       when mode in ~w(existing new) do
     {:noreply, assign(socket, task_mode: mode)}
   end
@@ -342,11 +342,6 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
      )}
   end
 
-  defp merge_attrs(attrs, socket) do
-    in_flight = WebHelpers.in_flight_record(socket, :form, :assignment)
-    WebHelpers.merge_translations_attrs(attrs, in_flight, Assignment.translatable_fields())
-  end
-
   # ── Dependency management (edit mode) ───────────────────────────
 
   def handle_event("add_assignment_dep", %{"depends_on_uuid" => dep_uuid}, socket)
@@ -420,6 +415,11 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
       {:new, _} -> save_new(socket, attrs)
       {:edit, _} -> save_edit(socket, attrs)
     end
+  end
+
+  defp merge_attrs(attrs, socket) do
+    in_flight = WebHelpers.in_flight_record(socket, :form, :assignment)
+    WebHelpers.merge_translations_attrs(attrs, in_flight, Assignment.translatable_fields())
   end
 
   defp save_with_new_task(socket, attrs, params) do
@@ -937,7 +937,6 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
               <input type="hidden" name="task_mode" value={@task_mode} />
               <.tabs_strip
                 event="set_task_mode"
-                value_attr="mode"
                 active={@task_mode}
                 tabs={[
                   {"existing", gettext("From library"), "hero-rectangle-stack"},
