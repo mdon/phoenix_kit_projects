@@ -45,8 +45,6 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
            project: project,
            is_template: is_template,
            editing_duration_uuid: nil,
-           duration_form:
-             to_form(%{"estimated_duration" => "", "estimated_duration_unit" => "hours"}),
            start_modal_open: false,
            start_form: to_form(%{"start_at" => default_start_at_local()}),
            # Comments drawer state. `comments_resource` is `nil` when
@@ -324,17 +322,11 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       nil ->
         {:noreply, socket}
 
-      a ->
-        {:noreply,
-         assign(socket,
-           editing_duration_uuid: uuid,
-           duration_form:
-             to_form(%{
-               "estimated_duration" =>
-                 (a.estimated_duration && to_string(a.estimated_duration)) || "",
-               "estimated_duration_unit" => a.estimated_duration_unit || "hours"
-             })
-         )}
+      _a ->
+        # Just flip the assign — the template sources the prefilled
+        # values directly from the assignment row via the `:for=` loop
+        # variable, so there's nothing to stage into a form here.
+        {:noreply, assign(socket, editing_duration_uuid: uuid)}
     end
   end
 
@@ -1443,18 +1435,24 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                     <div class="flex flex-wrap items-center gap-2 text-xs">
                       <%!-- Duration (clickable to edit) --%>
                       <%= if @editing_duration_uuid == a.uuid do %>
-                        <.form for={@duration_form} phx-submit="save_duration" class="flex items-center gap-1">
+                        <%!-- Inline editor. All three controls (input,
+                             select, buttons) need matching `*-xs`
+                             modifiers — without `select-xs` daisyUI's
+                             default select-md renders ~2x taller and the
+                             row visually staggers. --%>
+                        <form phx-submit="save_duration" class="flex items-center gap-1">
                           <input
                             type="number"
                             name="estimated_duration"
-                            value={@duration_form[:estimated_duration].value}
+                            value={a.estimated_duration}
                             class="input input-xs w-16"
                             min="1"
                           />
                           <.select
                             name="estimated_duration_unit"
-                            value={@duration_form[:estimated_duration_unit].value}
+                            value={a.estimated_duration_unit || "hours"}
                             options={duration_unit_options()}
+                            class="select-xs w-auto"
                           />
                           <button
                             type="submit"
@@ -1466,14 +1464,21 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                           <button type="button" phx-click="cancel_edit_duration" class="btn btn-ghost btn-xs">
                             <.icon name="hero-x-mark" class="w-3 h-3" />
                           </button>
-                        </.form>
+                        </form>
                       <% else %>
                         <% dur = format_duration(a) %>
                         <%= if dur != "—" do %>
+                          <%!-- Explicit Tailwind hover utilities instead
+                               of `hover:badge-primary` — daisyUI's class
+                               composition collapses text-color to the
+                               outline color, which on some themes is
+                               near-white once the bg flips to primary.
+                               Forcing bg + text + border together keeps
+                               contrast theme-independent. --%>
                           <button
                             phx-click="edit_duration"
                             phx-value-uuid={a.uuid}
-                            class="badge badge-outline badge-sm gap-1 cursor-pointer hover:badge-primary"
+                            class="badge badge-outline badge-sm gap-1 cursor-pointer hover:bg-primary hover:text-primary-content hover:border-primary transition-colors"
                           >
                             <.icon name="hero-clock" class="w-3 h-3" />
                             {dur}
@@ -1482,7 +1487,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                           <button
                             phx-click="edit_duration"
                             phx-value-uuid={a.uuid}
-                            class="badge badge-ghost badge-sm gap-1 cursor-pointer"
+                            class="badge badge-ghost badge-sm gap-1 cursor-pointer hover:bg-base-300 transition-colors"
                           >
                             <.icon name="hero-clock" class="w-3 h-3" /> {gettext("Set duration")}
                           </button>
