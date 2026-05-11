@@ -899,6 +899,12 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   defp build_schedule(project, total_hours, effective_done) do
     now = DateTime.utc_now()
     calendar_hours = DateTime.diff(now, project.started_at, :second) / 3600
+    # `planned_end_for/2` honors `counts_weekends`: for weekday-only
+    # projects weekend days don't consume the work budget.
+    planned_end = Project.planned_end_for(project, total_hours)
+    remaining_hours = max(total_hours - effective_done, 0)
+    past_planned_end? = DateTime.compare(now, planned_end) == :gt
+    done? = remaining_hours <= 0
 
     # Planned-elapsed = work hours under the project's schedule rules.
     # Velocity-elapsed uses calendar time when weekend work has pulled us ahead.
@@ -912,14 +918,37 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         do: calendar_hours,
         else: planned_elapsed_hours
 
-    expected_pct = min(planned_elapsed_hours / total_hours * 100, 100)
-    actual_pct = effective_done / total_hours * 100
+    # Cap expected at 100% once calendar time has blown past the
+    # planned end. Otherwise a project with all weekends elapsed and a
+    # short total can report "0% expected" — which then makes a 0%-done
+    # project look "on time" instead of overdue.
+    raw_expected_pct = planned_elapsed_hours / total_hours * 100
+
+    expected_pct =
+      cond do
+        past_planned_end? and not done? -> 100.0
+        true -> min(raw_expected_pct, 100)
+      end
+
+    # Cap defensively: nothing rendered should exceed 100% even if
+    # `effective_done` somehow drifts past `total_hours` (e.g. task
+    # durations edited downward after work was logged).
+    actual_pct = min(effective_done / total_hours * 100, 100)
     delta_pct = actual_pct - expected_pct
+    overdue? = past_planned_end? and not done?
 
-    {delta_value, delta_unit} = humanize_hours(abs(delta_pct / 100 * total_hours))
+    # When overdue, report calendar lateness ("1 day overdue") rather
+    # than work-hours-equivalent — for a 52-minute task that's 2 days
+    # late, "< 1 hour behind" reads as nearly-on-time, which is wrong.
+    delta_label =
+      cond do
+        overdue? ->
+          delta_days(now, planned_end)
 
-    planned_end = DateTime.add(project.started_at, round(total_hours * 3600), :second)
-    remaining_hours = max(total_hours - effective_done, 0)
+        true ->
+          {v, u} = humanize_hours(abs(delta_pct / 100 * total_hours))
+          "#{v} #{u}"
+      end
 
     %{
       total_hours: total_hours,
@@ -928,8 +957,9 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       expected_pct: round(expected_pct),
       actual_pct: round(actual_pct),
       delta_pct: round(delta_pct),
-      ahead?: delta_pct >= 0,
-      delta_label: "#{delta_value} #{delta_unit}",
+      ahead?: delta_pct >= 0 and not overdue?,
+      overdue?: overdue?,
+      delta_label: delta_label,
       planned_end: planned_end,
       projected_end:
         projected_end(
@@ -959,29 +989,54 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     DateTime.add(DateTime.utc_now(), extra_seconds, :second)
   end
 
-  defp work_hours_elapsed(from, to) do
-    total_hours = DateTime.diff(to, from, :second) / 3600
-    total_days = total_hours / 24
-    full_weeks = trunc(total_days / 7)
-    remaining_days = total_days - full_weeks * 7
+  # Mirrors `Project.planned_end_for/2`'s weekday-only model: each
+  # weekday's calendar time contributes work hours at the 3:1 ratio
+  # (24 calendar hours = 8 work hours); weekend days contribute zero.
+  # Walks the calendar day-by-day clipping the start/end days.
+  defp work_hours_elapsed(%DateTime{} = from, %DateTime{} = to) do
+    if DateTime.compare(from, to) != :lt do
+      0
+    else
+      sum_weekday_calendar_hours(from, to) / 3.0
+    end
+  end
 
-    start_dow = Date.day_of_week(DateTime.to_date(from))
+  defp sum_weekday_calendar_hours(from, to) do
+    from_date = DateTime.to_date(from)
+    to_date = DateTime.to_date(to)
 
-    weekend_days_in_remainder =
-      Enum.count(0..trunc(remaining_days), fn d ->
-        dow = rem(start_dow + d - 1, 7) + 1
-        dow >= 6
-      end)
+    Date.range(from_date, to_date)
+    |> Enum.reduce(0.0, fn date, acc ->
+      if Date.day_of_week(date) <= 5 do
+        acc + weekday_calendar_hours_on(date, from, to)
+      else
+        acc
+      end
+    end)
+  end
 
-    work_days = full_weeks * 5 + (remaining_days - weekend_days_in_remainder)
-    max(work_days * 8, 0)
+  defp weekday_calendar_hours_on(date, from, to) do
+    sod = DateTime.new!(date, ~T[00:00:00.000], from.time_zone)
+    eod = DateTime.new!(date, ~T[23:59:59.999], from.time_zone)
+
+    window_start = if DateTime.compare(from, sod) == :gt, do: from, else: sod
+    window_end = if DateTime.compare(to, eod) == :lt, do: to, else: eod
+
+    if DateTime.compare(window_start, window_end) == :lt do
+      DateTime.diff(window_end, window_start, :second) / 3600
+    else
+      0
+    end
   end
 
   defp delta_days(later, earlier) do
-    days = DateTime.diff(later, earlier, :second) / 86_400
+    seconds = DateTime.diff(later, earlier, :second)
+    hours = seconds / 3600
+    days = hours / 24
 
     cond do
-      days < 1 -> gettext("< 1 day")
+      hours < 1 -> gettext("< 1 hour")
+      days < 1 -> ngettext("%{count} hour", "%{count} hours", round(hours))
       days < 2 -> gettext("1 day")
       days < 14 -> ngettext("%{count} day", "%{count} days", round(days))
       days < 60 -> gettext("%{n} weeks", n: Float.round(days / 7, 1))
@@ -989,11 +1044,15 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     end
   end
 
+  # Calendar-scale boundaries (1h, 24h, 7d, 30d) so unit transitions
+  # land at intuitive points. Previously transitioned at 8h/40h which
+  # came from "1 workday = 8h" and produced jarring jumps like
+  # 7.9h → "8 hours", 8h → "1.0 days".
   defp humanize_hours(h) when h < 1, do: {gettext("< 1"), gettext("hour")}
-  defp humanize_hours(h) when h < 8, do: {round(h), gettext("hours")}
-  defp humanize_hours(h) when h < 40, do: {Float.round(h / 8, 1), gettext("days")}
-  defp humanize_hours(h) when h < 160, do: {Float.round(h / 40, 1), gettext("weeks")}
-  defp humanize_hours(h), do: {Float.round(h / 160, 1), gettext("months")}
+  defp humanize_hours(h) when h < 24, do: {round(h), gettext("hours")}
+  defp humanize_hours(h) when h < 24 * 7, do: {Float.round(h / 24, 1), gettext("days")}
+  defp humanize_hours(h) when h < 24 * 30, do: {Float.round(h / (24 * 7), 1), gettext("weeks")}
+  defp humanize_hours(h), do: {Float.round(h / (24 * 30), 1), gettext("months")}
 
   defp status_color("todo"), do: "bg-base-300"
   defp status_color("in_progress"), do: "bg-warning"
@@ -1146,16 +1205,22 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
             </span>
             <%= if @schedule do %>
               <span class="text-base-content/40 mx-1">·</span>
-              <%= if @schedule.ahead? do %>
-                <span class="badge badge-success badge-sm gap-1">
-                  <.icon name="hero-arrow-trending-up" class="w-3 h-3" />
-                  {gettext("%{delta} ahead", delta: @schedule.delta_label)}
-                </span>
-              <% else %>
-                <span class="badge badge-error badge-sm gap-1">
-                  <.icon name="hero-arrow-trending-down" class="w-3 h-3" />
-                  {gettext("%{delta} behind", delta: @schedule.delta_label)}
-                </span>
+              <%= cond do %>
+                <% @schedule.overdue? -> %>
+                  <span class="badge badge-error badge-sm gap-1">
+                    <.icon name="hero-exclamation-triangle" class="w-3 h-3" />
+                    {gettext("%{delta} overdue", delta: @schedule.delta_label)}
+                  </span>
+                <% @schedule.ahead? -> %>
+                  <span class="badge badge-success badge-sm gap-1">
+                    <.icon name="hero-arrow-trending-up" class="w-3 h-3" />
+                    {gettext("%{delta} ahead", delta: @schedule.delta_label)}
+                  </span>
+                <% true -> %>
+                  <span class="badge badge-error badge-sm gap-1">
+                    <.icon name="hero-arrow-trending-down" class="w-3 h-3" />
+                    {gettext("%{delta} behind", delta: @schedule.delta_label)}
+                  </span>
               <% end %>
               <span class="text-xs text-base-content/50 ml-1">
                 {gettext("(%{actual}% done vs %{expected}% expected)", actual: @schedule.actual_pct, expected: @schedule.expected_pct)}

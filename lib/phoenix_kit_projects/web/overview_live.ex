@@ -23,6 +23,18 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
     {:ok, assign(socket, user_uuid: user_uuid) |> reload()}
   end
 
+  # How many "Running" projects to show on the dashboard. The count
+  # badge on "View all →" reveals when the total exceeds this cap.
+  @running_display_limit 10
+  # Fallback "late" threshold (days since `started_at`) when a project
+  # has no estimated durations — without sum-of-durations we can't
+  # compute a real planned_end. Projects with durations use planned_end
+  # directly (started_at + total estimated hours), per the same logic
+  # the project show page uses.
+  @late_fallback_days 14
+  # Progress percentage (>=) for the "near done" tier on the dashboard.
+  @near_done_threshold_pct 75
+
   defp reload(socket) do
     user_uuid = socket.assigns[:user_uuid]
     active_projects = Projects.list_active_projects()
@@ -34,13 +46,19 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
       active_projects != [] or completed_projects != [] or upcoming_projects != [] or
         setup_projects != []
 
+    {top_summaries, total_active} =
+      active_projects
+      |> Projects.project_summaries()
+      |> prioritize_running()
+
     assign(socket,
       page_title: gettext("Projects"),
       task_count: Projects.count_tasks(),
       project_count: Projects.count_projects(),
       template_count: Projects.count_templates(),
-      active_count: length(active_projects),
-      active_summaries: Projects.project_summaries(active_projects),
+      active_count: total_active,
+      active_summaries: top_summaries,
+      running_display_limit: @running_display_limit,
       completed_projects: completed_projects,
       upcoming_projects: upcoming_projects,
       setup_projects: setup_projects,
@@ -49,6 +67,119 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
       status_counts: Projects.assignment_status_counts()
     )
   end
+
+  # Sorts running-project summaries into four importance tiers and
+  # caps to @running_display_limit. Returns {capped_list, total_count}.
+  #
+  # Tier 0 ("late"):    started ≥ @late_threshold_days ago AND progress < 100.
+  #                     Within tier, oldest-started first (most stalled).
+  # Tier 1 ("near done"): progress ≥ @near_done_threshold_pct, not Tier 0.
+  #                     Within tier, highest progress first.
+  # Tier 2 ("rest"):    has tasks, not late, not near-done. Most-recently-started first.
+  # Tier 3 ("empty"):   total == 0 tasks. Sinks to the bottom regardless of age —
+  #                     these projects can't show meaningful progress and would
+  #                     otherwise outrank real work via the recency sort.
+  defp prioritize_running(summaries) do
+    today = Date.utc_today()
+
+    sorted =
+      summaries
+      |> Enum.map(&{running_sort_key(&1, today), &1})
+      |> Enum.sort_by(fn {key, _} -> key end)
+      |> Enum.map(fn {_, s} -> s end)
+
+    {Enum.take(sorted, @running_display_limit), length(summaries)}
+  end
+
+  # Template-facing tier label for a summary row. Late = past
+  # `planned_end` (sum of estimated durations from started_at) with
+  # progress < 100. When a project has no durations we fall back to
+  # the 14-day age heuristic since there's no real budget to compare
+  # against.
+  defp running_tier(summary) do
+    %{project: project, progress_pct: pct, total: total, planned_end: planned_end} = summary
+    now = DateTime.utc_now()
+
+    cond do
+      total == 0 ->
+        :empty
+
+      late?(planned_end, project, now, pct) ->
+        :late
+
+      pct >= @near_done_threshold_pct ->
+        :near_done
+
+      true ->
+        :on_track
+    end
+  end
+
+  defp late?(_planned_end, _project, _now, pct) when pct >= 100, do: false
+
+  defp late?(%DateTime{} = planned_end, _project, now, _pct),
+    do: DateTime.compare(now, planned_end) == :gt
+
+  defp late?(nil, %{started_at: %DateTime{} = started_at}, now, _pct),
+    do: DateTime.diff(now, started_at, :second) / 86_400 >= @late_fallback_days
+
+  defp late?(_, _, _, _), do: false
+
+  # Pill attrs for the status badge shown on every Running card.
+  # Returns {daisyUI badge class, heroicon name, gettext'd label}.
+  defp tier_pill(:late),
+    do: {"badge-error", "hero-exclamation-triangle", gettext("late")}
+
+  defp tier_pill(:near_done),
+    do: {"badge-success", "hero-flag", gettext("near done")}
+
+  defp tier_pill(:on_track),
+    do: {"badge-info badge-outline", "hero-check", gettext("on time")}
+
+  defp tier_pill(:empty),
+    do: {"badge-ghost", "hero-inbox", gettext("no tasks")}
+
+  defp running_sort_key(summary, today) do
+    %{project: project, progress_pct: pct, total: total} = summary
+    tier = running_tier(summary)
+
+    days_running =
+      case project.started_at do
+        %DateTime{} = dt -> Date.diff(today, DateTime.to_date(dt))
+        _ -> 0
+      end
+
+    case tier do
+      :late ->
+        # Tier 0: most overdue first. Use seconds-past-planned_end when
+        # available, else fall back to age. Negated for ascending sort.
+        overdue_seconds = overdue_seconds(summary)
+        {0, -overdue_seconds, project.uuid}
+
+      :near_done ->
+        # Tier 1: highest progress first.
+        {1, -pct, project.uuid}
+
+      :on_track ->
+        # Tier 2: most-recently-started first.
+        {2, days_running, project.uuid}
+
+      :empty ->
+        # Tier 3: empty projects sink to the bottom.
+        _ = total
+        {3, days_running, project.uuid}
+    end
+  end
+
+  defp overdue_seconds(%{planned_end: %DateTime{} = planned_end}) do
+    DateTime.diff(DateTime.utc_now(), planned_end, :second)
+  end
+
+  defp overdue_seconds(%{project: %{started_at: %DateTime{} = started_at}}) do
+    DateTime.diff(DateTime.utc_now(), started_at, :second)
+  end
+
+  defp overdue_seconds(_), do: 0
 
   @impl true
   def handle_info({:projects, _event, _payload}, socket) do
@@ -151,7 +282,13 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                   {gettext("Started and not yet completed.")}
                 </p>
               </div>
-              <.link navigate={Paths.projects()} class="link link-hover text-sm shrink-0 mt-1">{gettext("View all →")}</.link>
+              <.link navigate={Paths.projects()} class="link link-hover text-sm shrink-0 mt-1">
+                <%= if @active_count > @running_display_limit do %>
+                  {gettext("View all (%{count}) →", count: @active_count)}
+                <% else %>
+                  {gettext("View all →")}
+                <% end %>
+              </.link>
             </div>
 
             <%= if @active_summaries == [] do %>
@@ -183,7 +320,13 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                   class="flex items-center gap-3 p-3 rounded hover:bg-base-200 transition"
                 >
                   <div class="flex-1 min-w-0">
-                    <div class="font-medium truncate">{Project.localized_name(s.project, L10n.current_content_lang())}</div>
+                    <div class="flex items-center gap-2 min-w-0">
+                      <div class="font-medium truncate min-w-0">{Project.localized_name(s.project, L10n.current_content_lang())}</div>
+                      <% {pill_class, pill_icon, pill_label} = tier_pill(running_tier(s)) %>
+                      <span class={"badge badge-xs gap-1 shrink-0 #{pill_class}"}>
+                        <.icon name={pill_icon} class="w-3 h-3" /> {pill_label}
+                      </span>
+                    </div>
                     <div class="flex items-center gap-2 text-xs text-base-content/60 mt-1">
                       <span>{gettext("Started %{when}", when: relative_day(Date.diff(DateTime.to_date(s.project.started_at), Date.utc_today())))}</span>
                       <span>·</span>

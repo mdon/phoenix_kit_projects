@@ -99,13 +99,21 @@ defmodule PhoenixKitProjects.Schemas.ProjectBranchesTest do
     end
 
     test ":overdue for scheduled past start date" do
-      yesterday = Date.utc_today() |> Date.add(-1)
-      p = %Project{start_mode: "scheduled", scheduled_start_date: yesterday}
+      past = DateTime.add(DateTime.utc_now(), -3600, :second)
+      p = %Project{start_mode: "scheduled", scheduled_start_date: past}
+      assert Project.derived_status(p) == :overdue
+    end
+
+    test ":overdue for scheduled same-day past time" do
+      # Scheduled for 1 hour ago — must flip to :overdue even though the
+      # date is still today (time-of-day must be honored, not just date).
+      one_hour_ago = DateTime.add(DateTime.utc_now(), -3600, :second)
+      p = %Project{start_mode: "scheduled", scheduled_start_date: one_hour_ago}
       assert Project.derived_status(p) == :overdue
     end
 
     test ":scheduled for scheduled future start date" do
-      future = Date.utc_today() |> Date.add(7)
+      future = DateTime.add(DateTime.utc_now(), 7 * 86_400, :second)
       p = %Project{start_mode: "scheduled", scheduled_start_date: future}
       assert Project.derived_status(p) == :scheduled
     end

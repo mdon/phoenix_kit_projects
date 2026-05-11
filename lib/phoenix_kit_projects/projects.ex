@@ -1004,6 +1004,7 @@ defmodule PhoenixKitProjects.Projects do
 
   def project_summaries(projects) do
     uuids = Enum.map(projects, & &1.uuid)
+    projects_by_uuid = Map.new(projects, &{&1.uuid, &1})
 
     counts_by_project =
       from(a in Assignment,
@@ -1018,6 +1019,8 @@ defmodule PhoenixKitProjects.Projects do
         end)
       end)
 
+    hours_by_project = batched_planned_hours(projects_by_uuid, uuids)
+
     Enum.map(projects, fn p ->
       c = Map.get(counts_by_project, p.uuid, %{})
       done = Map.get(c, "done", 0)
@@ -1025,13 +1028,54 @@ defmodule PhoenixKitProjects.Projects do
       todo = Map.get(c, "todo", 0)
       total = done + in_progress + todo
 
+      total_hours = Map.get(hours_by_project, p.uuid, 0.0)
+
+      # `Project.planned_end_for/2` skips weekend days for weekday-only
+      # projects so the dashboard's `late` flag aligns with the project
+      # page's planned-end date.
+      planned_end = Project.planned_end_for(p, total_hours)
+
       %{
         project: p,
         total: total,
         done: done,
         in_progress: in_progress,
-        progress_pct: if(total > 0, do: round(done / total * 100), else: 0)
+        progress_pct: if(total > 0, do: round(done / total * 100), else: 0),
+        total_hours: total_hours,
+        planned_end: planned_end
       }
+    end)
+  end
+
+  # Batched sum of estimated hours per project. Joins each assignment
+  # to its task for the duration fallback (assignment.estimated_duration
+  # takes precedence; otherwise task.estimated_duration). Returns
+  # %{project_uuid => float_hours}; projects without durations are absent.
+  defp batched_planned_hours(_projects_by_uuid, []), do: %{}
+
+  defp batched_planned_hours(projects_by_uuid, uuids) do
+    from(a in Assignment,
+      join: t in assoc(a, :task),
+      where: a.project_uuid in ^uuids,
+      select: {
+        a.project_uuid,
+        a.estimated_duration,
+        a.estimated_duration_unit,
+        a.counts_weekends,
+        t.estimated_duration,
+        t.estimated_duration_unit
+      }
+    )
+    |> repo().all()
+    |> Enum.reduce(%{}, fn {puuid, a_dur, a_unit, a_cw, t_dur, t_unit}, acc ->
+      project = Map.get(projects_by_uuid, puuid)
+      cw? = if is_nil(a_cw), do: project && project.counts_weekends, else: a_cw
+
+      {dur, unit} =
+        if a_dur && a_unit, do: {a_dur, a_unit}, else: {t_dur, t_unit}
+
+      hours = Task.to_hours(dur, unit, cw?)
+      Map.update(acc, puuid, hours, &(&1 + hours))
     end)
   end
 

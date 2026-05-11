@@ -130,25 +130,95 @@ defmodule PhoenixKitProjects.Schemas.Project do
     * `:scheduled` — scheduled, start date still in the future, not started
     * `:setup`     — immediate start mode, not yet started
 
-  `today` is injected so callers can pin "now" for tests.
+  `now` is injected so callers can pin "now" for tests. The
+  scheduled-overdue check compares full timestamps, not just dates —
+  a project scheduled for today at 09:00 is `:overdue` by 17:00 the
+  same day.
   """
-  @spec derived_status(t(), Date.t()) :: derived_state()
-  def derived_status(%__MODULE__{} = p, today \\ Date.utc_today()) do
+  @spec derived_status(t(), DateTime.t()) :: derived_state()
+  def derived_status(%__MODULE__{} = p, now \\ DateTime.utc_now()) do
     cond do
       p.archived_at -> :archived
       p.is_template -> :template
       p.completed_at -> :completed
       p.started_at -> :running
-      scheduled_overdue?(p, today) -> :overdue
+      scheduled_overdue?(p, now) -> :overdue
       p.start_mode == "scheduled" -> :scheduled
       true -> :setup
     end
   end
 
-  defp scheduled_overdue?(%__MODULE__{start_mode: "scheduled", scheduled_start_date: %DateTime{} = dt}, today),
-    do: Date.compare(DateTime.to_date(dt), today) == :lt
+  defp scheduled_overdue?(
+         %__MODULE__{start_mode: "scheduled", scheduled_start_date: %DateTime{} = dt},
+         %DateTime{} = now
+       ),
+       do: DateTime.compare(dt, now) == :lt
 
   defp scheduled_overdue?(_, _), do: false
+
+  @doc """
+  Calendar `DateTime` when this project would be done if work consumes
+  `total_hours` of estimated work, starting from `started_at`.
+
+  For `counts_weekends: true` projects this is simple calendar add.
+  For weekday-only projects (`counts_weekends: false`) weekend days
+  contribute zero work hours: the calendar walks forward but only
+  weekday hours count toward the budget, scaled at the convention
+  `Task.to_hours/3` uses (8 work hours per 24-hour weekday). Starting
+  on a weekend skips to Monday before any budget is consumed.
+
+  Returns `nil` when the project hasn't started or has no estimated
+  work.
+  """
+  @spec planned_end_for(t(), number()) :: DateTime.t() | nil
+  def planned_end_for(%__MODULE__{started_at: nil}, _hours), do: nil
+  def planned_end_for(_, hours) when hours <= 0, do: nil
+
+  def planned_end_for(
+        %__MODULE__{started_at: %DateTime{} = start, counts_weekends: true},
+        hours
+      ),
+      do: DateTime.add(start, round(hours * 3600), :second)
+
+  def planned_end_for(
+        %__MODULE__{started_at: %DateTime{} = start, counts_weekends: false},
+        hours
+      ),
+      do: consume_weekday_budget(start, hours * 1.0)
+
+  # Walks calendar time forward from `current`, treating 24 calendar
+  # hours on a weekday as 8 work hours (a 3:1 calendar-to-work ratio).
+  # Weekend days advance the calendar without consuming budget.
+  defp consume_weekday_budget(current, hours_remaining) when hours_remaining <= 0,
+    do: current
+
+  defp consume_weekday_budget(%DateTime{} = current, hours_remaining) do
+    if weekday?(DateTime.to_date(current)) do
+      seconds_to_eod = seconds_until_end_of_day(current)
+      work_hours_today = seconds_to_eod / 3600 / 3.0
+
+      if hours_remaining <= work_hours_today do
+        DateTime.add(current, round(hours_remaining * 3.0 * 3600), :second)
+      else
+        next_day_start = next_calendar_day_start(current)
+        consume_weekday_budget(next_day_start, hours_remaining - work_hours_today)
+      end
+    else
+      consume_weekday_budget(next_calendar_day_start(current), hours_remaining)
+    end
+  end
+
+  defp weekday?(%Date{} = d), do: Date.day_of_week(d) <= 5
+
+  defp seconds_until_end_of_day(%DateTime{} = dt) do
+    time = DateTime.to_time(dt)
+    86_400 - (time.hour * 3600 + time.minute * 60 + time.second)
+  end
+
+  defp next_calendar_day_start(%DateTime{} = dt) do
+    next_date = Date.add(DateTime.to_date(dt), 1)
+    DateTime.new!(next_date, ~T[00:00:00.000], dt.time_zone)
+  end
 
   @doc """
   The list of fields that participate in `translations` JSONB storage.
