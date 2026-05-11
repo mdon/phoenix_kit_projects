@@ -18,6 +18,11 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
+    # `get_project/1` stays in mount/3 because the not-found path
+    # has to redirect before render, and the per-project PubSub
+    # topic needs the project.uuid to subscribe to. Everything
+    # heavier (assignment list, comment counts) moves to
+    # `handle_params/3`.
     case Projects.get_project(id) do
       nil ->
         {:ok,
@@ -39,8 +44,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         lang = L10n.current_content_lang()
 
         {:ok,
-         socket
-         |> assign(
+         assign(socket,
            page_title: Project.localized_name(project, lang),
            project: project,
            is_template: is_template,
@@ -54,11 +58,22 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
            comments_resource: nil,
            comments_enabled: comments_available?(),
            project_comment_count: 0,
-           assignment_comment_counts: %{}
-         )
-         |> load_assignments()
-         |> load_comment_counts()}
+           assignment_comment_counts: %{},
+           # Skeleton defaults so the disconnected render is coherent
+           # before `handle_params/3` loads the real data.
+           assignments: [],
+           deps_by_assignment: %{},
+           total_tasks: 0,
+           done_tasks: 0,
+           progress_pct: 0,
+           schedule: nil
+         )}
     end
+  end
+
+  @impl true
+  def handle_params(_params, _url, socket) do
+    {:noreply, socket |> load_assignments() |> load_comment_counts()}
   end
 
   # ── PubSub reactivity ─────────────────────────────────────────

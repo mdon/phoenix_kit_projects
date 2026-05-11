@@ -9,8 +9,17 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
   alias PhoenixKitProjects.Schemas.Project
 
   @impl true
-  def mount(params, _session, socket) do
-    {:ok, apply_action(socket, socket.assigns.live_action, params)}
+  def mount(_params, _session, socket) do
+    # No DB queries in mount/3 — `apply_action/3` (which fetches
+    # the project on `:edit`) is invoked from `handle_params/3` so
+    # the load doesn't run twice across the disconnected + connected
+    # lifecycle.
+    {:ok, socket}
+  end
+
+  @impl true
+  def handle_params(params, _url, socket) do
+    {:noreply, apply_action(socket, socket.assigns.live_action, params)}
   end
 
   defp apply_action(socket, :new, _params) do

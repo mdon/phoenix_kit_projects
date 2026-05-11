@@ -18,9 +18,17 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
 
   @impl true
-  def mount(params, _session, socket) do
-    socket = mount_multilang(socket)
-    {:ok, apply_action(socket, socket.assigns.live_action, params)}
+  def mount(_params, _session, socket) do
+    # No DB queries in mount/3 — `apply_action/3` (which fetches
+    # project / assignment / task list / closure tree) is invoked
+    # from `handle_params/3` so the heavy load doesn't run twice on
+    # the disconnected + connected lifecycle.
+    {:ok, mount_multilang(socket)}
+  end
+
+  @impl true
+  def handle_params(params, _url, socket) do
+    {:noreply, apply_action(socket, socket.assigns.live_action, params)}
   end
 
   # Recursive function component for the closure-pull tree. Renders

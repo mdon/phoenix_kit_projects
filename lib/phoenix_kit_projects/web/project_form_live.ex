@@ -12,9 +12,17 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
 
   @impl true
-  def mount(params, _session, socket) do
-    socket = mount_multilang(socket)
-    {:ok, apply_action(socket, socket.assigns.live_action, params)}
+  def mount(_params, _session, socket) do
+    # No DB queries in mount/3 — `apply_action/3` fetches templates
+    # (on `:new`) or the project being edited; it runs from
+    # `handle_params/3` so the load doesn't fire twice across the
+    # disconnected + connected lifecycle.
+    {:ok, mount_multilang(socket)}
+  end
+
+  @impl true
+  def handle_params(params, _url, socket) do
+    {:noreply, apply_action(socket, socket.assigns.live_action, params)}
   end
 
   defp apply_action(socket, :new, params) do
