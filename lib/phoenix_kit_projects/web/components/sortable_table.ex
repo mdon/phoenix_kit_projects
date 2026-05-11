@@ -41,16 +41,16 @@ defmodule PhoenixKitProjects.Web.Components.SortableTable do
 
   import PhoenixKitWeb.Components.Core.Icon
 
-  attr :id, :string, required: true
-  attr :rows, :list, required: true
-  attr :row_id, :any, required: true, doc: "1-arity fn returning the uuid for a row"
-  attr :event, :string, required: true
-  attr :draggable, :boolean, default: true
-  attr :row_class, :string, default: nil
+  attr(:id, :string, required: true)
+  attr(:rows, :list, required: true)
+  attr(:row_id, :any, required: true, doc: "1-arity fn returning the uuid for a row")
+  attr(:event, :string, required: true)
+  attr(:draggable, :boolean, default: true)
+  attr(:row_class, :string, default: nil)
 
   slot :col, required: true do
-    attr :label, :string, required: true
-    attr :class, :string
+    attr(:label, :string, required: true)
+    attr(:class, :string)
   end
 
   def sortable_table(assigns) do

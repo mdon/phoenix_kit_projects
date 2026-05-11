@@ -186,7 +186,11 @@ defmodule PhoenixKitProjects.Web.Helpers do
           atom()
         ]) ::
           Phoenix.LiveView.Socket.t()
-  def maybe_switch_to_primary_on_error(socket, %Ecto.Changeset{errors: errors}, translatable_fields) do
+  def maybe_switch_to_primary_on_error(
+        socket,
+        %Ecto.Changeset{errors: errors},
+        translatable_fields
+      ) do
     on_secondary? =
       socket.assigns[:multilang_enabled] == true and
         socket.assigns[:current_lang] != socket.assigns[:primary_language]

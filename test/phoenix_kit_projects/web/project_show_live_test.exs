@@ -281,7 +281,9 @@ defmodule PhoenixKitProjects.Web.ProjectShowLiveTest do
       # Submitting the modal's form with today's datetime stamps started_at.
       # `<input type="datetime-local">` posts "YYYY-MM-DDTHH:mm" — same
       # shape the LV's `parse_start_at/1` accepts (UTC, no offset).
-      today = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second) |> NaiveDateTime.to_iso8601()
+      today =
+        NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second) |> NaiveDateTime.to_iso8601()
+
       _ = render_click(view, "confirm_start_project", %{"start_at" => today})
 
       reread = Projects.get_project!(project.uuid)

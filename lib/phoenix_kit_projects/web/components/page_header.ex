@@ -35,11 +35,11 @@ defmodule PhoenixKitProjects.Web.Components.PageHeader do
 
   use Phoenix.Component
 
-  attr :title, :string, required: true
-  attr :description, :string, default: nil
+  attr(:title, :string, required: true)
+  attr(:description, :string, default: nil)
 
-  slot :actions
-  slot :back_link
+  slot(:actions)
+  slot(:back_link)
 
   def page_header(assigns) do
     ~H"""

@@ -52,7 +52,9 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
         socket
         |> assign(
           page_title:
-            gettext("Edit %{name}", name: Project.localized_name(project, L10n.current_content_lang())),
+            gettext("Edit %{name}",
+              name: Project.localized_name(project, L10n.current_content_lang())
+            ),
           project: project,
           live_action: :edit,
           templates: [],

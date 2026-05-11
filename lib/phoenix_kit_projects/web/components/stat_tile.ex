@@ -17,9 +17,9 @@ defmodule PhoenixKitProjects.Web.Components.StatTile do
 
   use Phoenix.Component
 
-  attr :label, :string, required: true
-  attr :value, :any, required: true
-  attr :value_class, :string, default: nil
+  attr(:label, :string, required: true)
+  attr(:value, :any, required: true)
+  attr(:value_class, :string, default: nil)
 
   def stat_tile(assigns) do
     ~H"""

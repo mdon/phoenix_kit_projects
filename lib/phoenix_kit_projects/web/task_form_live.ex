@@ -62,7 +62,9 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
         socket
         |> assign(
           page_title:
-            gettext("Edit %{title}", title: Task.localized_title(task, L10n.current_content_lang())),
+            gettext("Edit %{title}",
+              title: Task.localized_title(task, L10n.current_content_lang())
+            ),
           task: task,
           live_action: :edit,
           assign_type: assign_type,

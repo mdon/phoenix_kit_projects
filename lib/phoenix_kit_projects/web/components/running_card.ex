@@ -32,10 +32,10 @@ defmodule PhoenixKitProjects.Web.Components.RunningCard do
 
   alias PhoenixKitProjects.Schemas.Project
 
-  attr :summary, :map, required: true
-  attr :tier, :atom, required: true, values: [:late, :near_done, :on_track, :empty]
-  attr :navigate, :string, required: true
-  attr :lang, :string, default: nil
+  attr(:summary, :map, required: true)
+  attr(:tier, :atom, required: true, values: [:late, :near_done, :on_track, :empty])
+  attr(:navigate, :string, required: true)
+  attr(:lang, :string, default: nil)
 
   def running_card(assigns) do
     ~H"""

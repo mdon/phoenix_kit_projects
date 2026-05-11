@@ -27,12 +27,13 @@ defmodule PhoenixKitProjects.Web.Components.TabsStrip do
 
   import PhoenixKitWeb.Components.Core.Icon
 
-  attr :event, :string, required: true
-  attr :active, :string, required: true
+  attr(:event, :string, required: true)
+  attr(:active, :string, required: true)
 
-  attr :tabs, :list,
+  attr(:tabs, :list,
     required: true,
     doc: "list of {value, label, icon} tuples"
+  )
 
   def tabs_strip(assigns) do
     ~H"""

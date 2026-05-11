@@ -18,9 +18,10 @@ defmodule PhoenixKitProjects.Web.Components.DerivedStatusBadge do
 
   alias PhoenixKitProjects.Schemas.Project
 
-  attr :state, :atom,
+  attr(:state, :atom,
     required: true,
     values: [:running, :completed, :overdue, :scheduled, :setup, :archived, :template]
+  )
 
   def derived_status_badge(assigns) do
     ~H"""
@@ -31,7 +32,7 @@ defmodule PhoenixKitProjects.Web.Components.DerivedStatusBadge do
   end
 
   @doc "Convenience wrapper for the common pattern of badge'ing a project struct."
-  attr :project, Project, required: true
+  attr(:project, Project, required: true)
 
   def project_status_badge(assigns) do
     assigns = assign(assigns, :state, Project.derived_status(assigns.project))

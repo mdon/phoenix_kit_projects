@@ -579,8 +579,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       when type in ["project", "assignment"] do
     title = Map.get(params, "title", "")
 
-    {:noreply,
-     assign(socket, comments_resource: %{type: type, uuid: uuid, title: title})}
+    {:noreply, assign(socket, comments_resource: %{type: type, uuid: uuid, title: title})}
   end
 
   def handle_event("close_comments", _params, socket) do
@@ -941,9 +940,10 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     raw_expected_pct = planned_elapsed_hours / total_hours * 100
 
     expected_pct =
-      cond do
-        past_planned_end? and not done? -> 100.0
-        true -> min(raw_expected_pct, 100)
+      if past_planned_end? and not done? do
+        100.0
+      else
+        min(raw_expected_pct, 100)
       end
 
     # Cap defensively: nothing rendered should exceed 100% even if
@@ -957,13 +957,11 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     # than work-hours-equivalent — for a 52-minute task that's 2 days
     # late, "< 1 hour behind" reads as nearly-on-time, which is wrong.
     delta_label =
-      cond do
-        overdue? ->
-          delta_days(now, planned_end)
-
-        true ->
-          {v, u} = humanize_hours(abs(delta_pct / 100 * total_hours))
-          "#{v} #{u}"
+      if overdue? do
+        delta_days(now, planned_end)
+      else
+        {v, u} = humanize_hours(abs(delta_pct / 100 * total_hours))
+        "#{v} #{u}"
       end
 
     %{

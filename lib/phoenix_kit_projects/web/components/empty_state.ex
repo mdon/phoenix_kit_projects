@@ -23,12 +23,12 @@ defmodule PhoenixKitProjects.Web.Components.EmptyState do
   use Phoenix.Component
   import PhoenixKitWeb.Components.Core.Icon
 
-  attr :icon, :string, default: "hero-clipboard-document-list"
-  attr :title, :string, required: true
-  attr :description, :string, default: nil
-  attr :class, :string, default: "py-16"
+  attr(:icon, :string, default: "hero-clipboard-document-list")
+  attr(:title, :string, required: true)
+  attr(:description, :string, default: nil)
+  attr(:class, :string, default: "py-16")
 
-  slot :cta
+  slot(:cta)
 
   def empty_state(assigns) do
     ~H"""

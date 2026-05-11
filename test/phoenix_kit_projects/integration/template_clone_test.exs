@@ -87,16 +87,24 @@ defmodule PhoenixKitProjects.Integration.TemplateCloneTest do
       base = %{"start_mode" => "immediate"}
 
       assert {:ok, %Project{is_template: true}} =
-               Projects.create_project(Map.merge(base, %{"name" => shared_name, "is_template" => "true"}))
+               Projects.create_project(
+                 Map.merge(base, %{"name" => shared_name, "is_template" => "true"})
+               )
 
       assert {:ok, %Project{is_template: true}} =
-               Projects.create_project(Map.merge(base, %{"name" => shared_name, "is_template" => "true"}))
+               Projects.create_project(
+                 Map.merge(base, %{"name" => shared_name, "is_template" => "true"})
+               )
 
       assert {:ok, %Project{is_template: false}} =
-               Projects.create_project(Map.merge(base, %{"name" => shared_name, "is_template" => "false"}))
+               Projects.create_project(
+                 Map.merge(base, %{"name" => shared_name, "is_template" => "false"})
+               )
 
       assert {:ok, %Project{is_template: false}} =
-               Projects.create_project(Map.merge(base, %{"name" => shared_name, "is_template" => "false"}))
+               Projects.create_project(
+                 Map.merge(base, %{"name" => shared_name, "is_template" => "false"})
+               )
     end
   end
 end

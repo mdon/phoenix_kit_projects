@@ -24,11 +24,13 @@ defmodule PhoenixKitProjects.Web.Components.TierPill do
 
   @type tier :: :late | :near_done | :on_track | :empty
 
-  attr :tier, :atom, required: true, values: [:late, :near_done, :on_track, :empty]
+  attr(:tier, :atom, required: true, values: [:late, :near_done, :on_track, :empty])
 
   def tier_pill(assigns) do
     {pill_class, pill_icon, pill_label} = pill_attrs(assigns.tier)
-    assigns = assign(assigns, pill_class: pill_class, pill_icon: pill_icon, pill_label: pill_label)
+
+    assigns =
+      assign(assigns, pill_class: pill_class, pill_icon: pill_icon, pill_label: pill_label)
 
     ~H"""
     <span class={"badge badge-xs gap-1 shrink-0 #{@pill_class}"}>

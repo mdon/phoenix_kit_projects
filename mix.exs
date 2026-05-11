@@ -1,7 +1,7 @@
 defmodule PhoenixKitProjects.MixProject do
   use Mix.Project
 
-  @version "0.1.1"
+  @version "0.2.0"
   @source_url "https://github.com/BeamLabEU/phoenix_kit_projects"
 
   def project do
@@ -60,9 +60,11 @@ defmodule PhoenixKitProjects.MixProject do
   defp deps do
     [
       {:phoenix_kit, "~> 1.7"},
+      {:phoenix_kit_staff, "~> 0.1"},
+      {:phoenix_kit_comments, "~> 0.2"},
+
       # Hard dep: assignment/task schemas reference PhoenixKitStaff.Schemas.*
       # for polymorphic assignee FKs (team / department / person).
-      {:phoenix_kit_staff, "~> 0.1"},
       {:phoenix_live_view, "~> 1.1"},
       {:ecto_sql, "~> 3.13"},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},

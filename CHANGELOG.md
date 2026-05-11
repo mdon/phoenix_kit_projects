@@ -1,5 +1,63 @@
 # Changelog
 
+## 0.2.0
+
+### Added
+
+- **Multilang content** — project name/description, task title/description, and
+  assignment description are now translatable via core's Languages module.
+  Forms auto-render `<.multilang_tabs>` when 2+ languages are enabled; primary
+  values stay in their columns, overrides live in a `translations JSONB`.
+- **Task groups view** — task templates can be grouped by dependency tree in the
+  task-library UI, with visual `→ X` badges showing outgoing edges.
+- **Drag-and-drop reorder** — projects, templates, and tasks can be reordered
+  via sortable tables with `phx-reorder` events. Dedup logic guarantees
+  last-write-wins on duplicate UUIDs.
+- **Closure-pull cascade** — adding a task to a project can optionally pull in
+  its entire upstream dependency closure with automatic `Dependency` wiring and
+  execution-order position assignment.
+- **Slide-in comments drawer** — `ProjectShowLive` now supports a per-resource
+  comments side-panel with live count badges.
+- **Running dashboard prioritization** — the Overview tab now surfaces late and
+  near-done projects first, with tier pills (`:late`, `:near_done`, `:on_track`).
+- **Derived status + soft-hide archive** — replaced the string `status` column
+  with `archived_at` timestamp. `Project.derived_status/2` returns `:running`,
+  `:completed`, `:overdue`, `:scheduled`, `:setup`, `:archived`, or `:template`.
+  `Projects.archive_project/1` / `unarchive_project/1` are the public API.
+- **Reusable UI components** — extracted `<.derived_status_badge>`,
+  `<.empty_state>`, `<.page_header>`, `<.running_card>`, `<.sortable_table>`,
+  `<.stat_tile>`, `<.tabs_strip>`, and `<.tier_pill>` from the large LiveViews
+  into individual `PhoenixKitProjects.Web.Components.*` modules.
+- **`handle_params/3` refactor** — all list, show, and form LiveViews moved their
+  initial DB queries from `mount/3` to `handle_params/3` so HTTP render and
+  WebSocket connect share a single query path.
+- **Translations JSONB validation** — schema changesets now validate the shape
+  of incoming `translations` maps to prevent malformed JSONB inserts.
+
+### Changed
+
+- `build_group_tree/4` and `build_closure_tree/3` switched from `cond do` with
+  a single non-`true` clause to `if/else` (credo compliance).
+- `wire_closure_dependencies/3` nesting reduced by extracting
+  `wire_child_dependency/4` and `wire_assignment_dependency/2`.
+- `is_template_attr?/1` renamed to `template_attr?/1` per Elixir naming
+  conventions.
+
+### Fixed
+
+- **Diamond-dependency skip in closure pull** — a task reachable via both an
+  excluded and a non-excluded parent is now correctly emitted once when the
+  non-excluded branch reaches it.
+- **O(n²) topo append eliminated** — `topological_insertion_order/2` now builds
+  the list in reverse and flips once at the end.
+- **Duration editor prefill** — the inline duration editor in `ProjectShowLive`
+  now falls back to the task template's default values when the assignment has
+  no explicit duration.
+- **Inline duration editor UX** — improved hover contrast, control sizing, and
+  input prefill behavior.
+- **Precommit hygiene** — resolved all credo strict issues and suppressed a
+  Dialyzer false-positive on recursive `MapSet` opacity.
+
 ## 0.1.1
 
 Quality sweep + re-validation pass (PR #2) plus post-merge follow-up

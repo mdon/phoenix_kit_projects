@@ -10,6 +10,11 @@ defmodule PhoenixKitProjects.Projects do
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Schemas.{Assignment, Dependency, Project, Task, TaskDependency}
 
+  # Dialyzer loses opacity on MapSet.t() when it flows through recursive
+  # private helpers that don't return the set. The standard-lib functions
+  # are used correctly; the warning is a false positive.
+  @dialyzer {:no_opaque, [build_group_tree: 4, build_closure_tree: 3]}
+
   @typedoc "UUIDv7 string or raw 16-byte binary (Ecto accepts either)."
   @type uuid :: String.t() | <<_::128>>
 
@@ -397,31 +402,30 @@ defmodule PhoenixKitProjects.Projects do
     %{trees: trees, standalone: standalone}
   end
 
+  @spec build_group_tree(uuid(), MapSet.t(), map(), map()) :: closure_node() | nil
   defp build_group_tree(task_uuid, visited, task_by_uuid, out_edges) do
-    cond do
-      MapSet.member?(visited, task_uuid) ->
-        case Map.get(task_by_uuid, task_uuid) do
-          nil -> nil
-          task -> %{task: task, children: [], cycle?: true, already_in_project?: false}
-        end
+    if MapSet.member?(visited, task_uuid) do
+      case Map.get(task_by_uuid, task_uuid) do
+        nil -> nil
+        task -> %{task: task, children: [], cycle?: true, already_in_project?: false}
+      end
+    else
+      case Map.get(task_by_uuid, task_uuid) do
+        nil ->
+          nil
 
-      true ->
-        case Map.get(task_by_uuid, task_uuid) do
-          nil ->
-            nil
+        task ->
+          next_visited = MapSet.put(visited, task_uuid)
+          children_uuids = Map.get(out_edges, task_uuid, [])
 
-          task ->
-            next_visited = MapSet.put(visited, task_uuid)
-            children_uuids = Map.get(out_edges, task_uuid, [])
+          children =
+            children_uuids
+            |> Enum.sort()
+            |> Enum.map(&build_group_tree(&1, next_visited, task_by_uuid, out_edges))
+            |> Enum.reject(&is_nil/1)
 
-            children =
-              children_uuids
-              |> Enum.sort()
-              |> Enum.map(&build_group_tree(&1, next_visited, task_by_uuid, out_edges))
-              |> Enum.reject(&is_nil/1)
-
-            %{task: task, children: children, cycle?: false, already_in_project?: false}
-        end
+          %{task: task, children: children, cycle?: false, already_in_project?: false}
+      end
     end
   end
 
@@ -533,43 +537,42 @@ defmodule PhoenixKitProjects.Projects do
     build_closure_tree(root_task_uuid, MapSet.new(), in_project)
   end
 
+  @spec build_closure_tree(uuid(), MapSet.t(), MapSet.t()) :: closure_node() | nil
   defp build_closure_tree(task_uuid, visited, in_project) do
-    cond do
-      MapSet.member?(visited, task_uuid) ->
-        case get_task(task_uuid) do
-          nil ->
-            nil
+    if MapSet.member?(visited, task_uuid) do
+      case get_task(task_uuid) do
+        nil ->
+          nil
 
-          task ->
-            %{
-              task: task,
-              children: [],
-              cycle?: true,
-              already_in_project?: MapSet.member?(in_project, task_uuid)
-            }
-        end
+        task ->
+          %{
+            task: task,
+            children: [],
+            cycle?: true,
+            already_in_project?: MapSet.member?(in_project, task_uuid)
+          }
+      end
+    else
+      case get_task(task_uuid) do
+        nil ->
+          nil
 
-      true ->
-        case get_task(task_uuid) do
-          nil ->
-            nil
+        task ->
+          next_visited = MapSet.put(visited, task_uuid)
+          dep_uuids = list_task_dependency_uuids(task_uuid)
 
-          task ->
-            next_visited = MapSet.put(visited, task_uuid)
-            dep_uuids = list_task_dependency_uuids(task_uuid)
+          children =
+            dep_uuids
+            |> Enum.map(&build_closure_tree(&1, next_visited, in_project))
+            |> Enum.reject(&is_nil/1)
 
-            children =
-              dep_uuids
-              |> Enum.map(&build_closure_tree(&1, next_visited, in_project))
-              |> Enum.reject(&is_nil/1)
-
-            %{
-              task: task,
-              children: children,
-              cycle?: false,
-              already_in_project?: MapSet.member?(in_project, task_uuid)
-            }
-        end
+          %{
+            task: task,
+            children: children,
+            cycle?: false,
+            already_in_project?: MapSet.member?(in_project, task_uuid)
+          }
+      end
     end
   end
 
@@ -715,7 +718,7 @@ defmodule PhoenixKitProjects.Projects do
     # the project list or the template list (whichever the row
     # belongs to). Caller-supplied positions still win; covers the
     # template-clone path and any future bulk insert.
-    is_template? = is_template_attr?(attrs)
+    is_template? = template_attr?(attrs)
     attrs = put_default_position(attrs, fn -> next_project_position(is_template?) end)
 
     with {:ok, project} <- %Project{} |> Project.changeset(attrs) |> repo().insert() do
@@ -724,7 +727,7 @@ defmodule PhoenixKitProjects.Projects do
     end
   end
 
-  defp is_template_attr?(attrs) do
+  defp template_attr?(attrs) do
     val = Map.get(attrs, "is_template") || Map.get(attrs, :is_template)
     val in [true, "true", "1", 1, "on"]
   end
@@ -1562,37 +1565,49 @@ defmodule PhoenixKitProjects.Projects do
          map,
          excluded
        ) do
-    if not cycle? do
+    if cycle? do
+      :ok
+    else
       Enum.each(children, fn child ->
-        child_task_uuid = child.task.uuid
-
-        # Skip the parent→child edge entirely when the child is a
-        # cycle terminator. The child *is* an already-visited ancestor;
-        # adding this edge would close the cycle in the project's
-        # dependency graph and trigger `add_dependency/2`'s cycle guard,
-        # rolling back the whole closure insert. The cycle node itself
-        # didn't contribute an insert (per `do_topo/5`), so there's no
-        # row to wire to anyway.
-        if not child.cycle? and
-             not MapSet.member?(excluded, parent.uuid) and
-             not MapSet.member?(excluded, child_task_uuid) do
-          parent_assignment = Map.get(map, parent.uuid)
-          child_assignment = Map.get(map, child_task_uuid)
-
-          if parent_assignment && child_assignment do
-            case add_dependency(parent_assignment, child_assignment) do
-              {:ok, _} ->
-                :ok
-
-              # Duplicate pair = idempotent; cycle = halt.
-              {:error, %Ecto.Changeset{} = cs} ->
-                if duplicate_constraint?(cs), do: :ok, else: repo().rollback(cs)
-            end
-          end
-        end
-
+        wire_child_dependency(parent, child, map, excluded)
         wire_closure_dependencies(child, map, excluded)
       end)
+    end
+  end
+
+  defp wire_child_dependency(parent, child, map, excluded) do
+    child_task_uuid = child.task.uuid
+
+    # Skip the parent→child edge entirely when the child is a
+    # cycle terminator. The child *is* an already-visited ancestor;
+    # adding this edge would close the cycle in the project's
+    # dependency graph and trigger `add_dependency/2`'s cycle guard,
+    # rolling back the whole closure insert. The cycle node itself
+    # didn't contribute an insert (per `do_topo/5`), so there's no
+    # row to wire to anyway.
+    if child.cycle? or
+         MapSet.member?(excluded, parent.uuid) or
+         MapSet.member?(excluded, child_task_uuid) do
+      :ok
+    else
+      parent_assignment = Map.get(map, parent.uuid)
+      child_assignment = Map.get(map, child_task_uuid)
+
+      wire_assignment_dependency(parent_assignment, child_assignment)
+    end
+  end
+
+  defp wire_assignment_dependency(nil, _), do: :ok
+  defp wire_assignment_dependency(_, nil), do: :ok
+
+  defp wire_assignment_dependency(parent_assignment, child_assignment) do
+    case add_dependency(parent_assignment, child_assignment) do
+      {:ok, _} ->
+        :ok
+
+      # Duplicate pair = idempotent; cycle = halt.
+      {:error, %Ecto.Changeset{} = cs} ->
+        if duplicate_constraint?(cs), do: :ok, else: repo().rollback(cs)
     end
   end
 
