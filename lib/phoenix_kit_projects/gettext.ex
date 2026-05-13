@@ -21,5 +21,9 @@ defmodule PhoenixKitProjects.Gettext do
   simultaneously.
   """
 
+  # Generated Gettext.Backend callbacks trigger `call_without_opaque`
+  # warnings from Expo.PluralForms — known false positive in gettext ≥ 0.26.
+  @dialyzer {:no_opaque, []}
+
   use Gettext.Backend, otp_app: :phoenix_kit_projects
 end

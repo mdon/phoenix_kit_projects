@@ -16,7 +16,10 @@ defmodule PhoenixKitProjects.MixProject do
       description:
         "Projects module for PhoenixKit — projects, reusable tasks, assignments, and dependencies.",
       package: package(),
-      dialyzer: [plt_add_apps: [:phoenix_kit, :phoenix_kit_staff]],
+      dialyzer: [
+        plt_add_apps: [:phoenix_kit, :phoenix_kit_staff],
+        ignore_warnings: ".dialyzer_ignore.exs"
+      ],
       name: "PhoenixKitProjects",
       source_url: @source_url,
       docs: docs(),

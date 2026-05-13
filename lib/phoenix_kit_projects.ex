@@ -38,15 +38,13 @@ defmodule PhoenixKitProjects do
   end
 
   @impl PhoenixKit.Module
-  def version, do: "0.2.0"
+  def version, do: "0.2.1"
 
   @impl PhoenixKit.Module
   def permission_metadata do
     %{
       key: module_key(),
       label: "Projects",
-      gettext_backend: PhoenixKitProjects.Gettext,
-      gettext_domain: "default",
       icon: "hero-clipboard-document-list",
       description: "Manage projects, tasks, and assignments"
     }
