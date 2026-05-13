@@ -316,11 +316,12 @@ defmodule PhoenixKitProjects.Web.Helpers do
   # Accepts absolute paths under the current host (`/admin/...`,
   # `/host/orders/123`). Rejects schemes (`https://...`,
   # `javascript:...`) and protocol-relative URLs (`//evil.example.com/...`).
+  # Only called from `navigate_after_save/2` where the outer `case` has
+  # already narrowed the value to a non-empty binary — no catch-all
+  # clause needed (Dialyzer flagged it as unreachable).
   defp safe_internal_path?(path) when is_binary(path) do
     String.starts_with?(path, "/") and
       not String.starts_with?(path, "//") and
       not String.contains?(path, "://")
   end
-
-  defp safe_internal_path?(_), do: false
 end

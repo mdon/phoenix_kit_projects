@@ -45,8 +45,7 @@ defmodule PhoenixKitProjects.Integration.BroadcastsTest do
       # is_template. Subscribers needing archived state re-read the
       # project via `get_project/1` (the source of truth is the
       # `archived_at` column on the schema).
-      assert_receive {:projects, :project_created,
-                      %{uuid: uuid, name: _, is_template: false}},
+      assert_receive {:projects, :project_created, %{uuid: uuid, name: _, is_template: false}},
                      500
 
       assert uuid == project.uuid
