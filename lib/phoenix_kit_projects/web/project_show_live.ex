@@ -930,23 +930,20 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     now = DateTime.utc_now()
     calendar_hours = DateTime.diff(now, project.started_at, :second) / 3600
     # `planned_end_for/2` honors `counts_weekends`: for weekday-only
-    # projects weekend days don't consume the work budget.
+    # projects weekend days don't consume the work budget. We keep it
+    # internal (drives the overdue/expected math) — it isn't displayed
+    # to the user; the started-at date + the per-row durations + the
+    # ETA below already tell the same story.
     planned_end = Project.planned_end_for(project, total_hours)
     remaining_hours = max(total_hours - effective_done, 0)
     past_planned_end? = DateTime.compare(now, planned_end) == :gt
     done? = remaining_hours <= 0
 
     # Planned-elapsed = work hours under the project's schedule rules.
-    # Velocity-elapsed uses calendar time when weekend work has pulled us ahead.
     planned_elapsed_hours =
       if project.counts_weekends,
         do: calendar_hours,
         else: work_hours_elapsed(project.started_at, now)
-
-    velocity_elapsed_hours =
-      if effective_done > 0 and calendar_hours > planned_elapsed_hours,
-        do: calendar_hours,
-        else: planned_elapsed_hours
 
     # Cap expected at 100% once calendar time has blown past the
     # planned end. Otherwise a project with all weekends elapsed and a
@@ -982,6 +979,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     %{
       total_hours: total_hours,
       done_hours: effective_done,
+      remaining_hours: remaining_hours,
       elapsed_hours: planned_elapsed_hours,
       expected_pct: round(expected_pct),
       actual_pct: round(actual_pct),
@@ -989,34 +987,19 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       ahead?: delta_pct >= 0 and not overdue?,
       overdue?: overdue?,
       delta_label: delta_label,
-      planned_end: planned_end,
-      projected_end:
-        projected_end(
-          project,
-          planned_end,
-          remaining_hours,
-          effective_done,
-          velocity_elapsed_hours
-        )
+      projected_end: projected_end(project, now, remaining_hours)
     }
   end
 
-  defp projected_end(%{completed_at: %DateTime{} = at}, _, _, _, _), do: at
-  defp projected_end(_, _, 0, _, _), do: DateTime.utc_now()
-  defp projected_end(_, planned_end, _remaining, done, _) when done <= 0, do: planned_end
-
-  defp projected_end(
-         _project,
-         _planned_end,
-         remaining_hours,
-         effective_done,
-         velocity_elapsed_hours
-       ) do
-    safe_elapsed = max(velocity_elapsed_hours, 1)
-    velocity = effective_done / safe_elapsed
-    extra_seconds = round(remaining_hours / velocity * 3600)
-    DateTime.add(DateTime.utc_now(), extra_seconds, :second)
-  end
+  # ETA = "if work continues at the original pace from now, this is
+  # when you'll finish". For completed projects, return the actual
+  # completion time. For unfinished projects, anchor on `now` and walk
+  # `remaining_hours` forward through the project's weekday/weekend
+  # rules — same machinery `planned_end_for/2` uses, just with a
+  # different start anchor (see `Project.eta_from/3`).
+  defp projected_end(%{completed_at: %DateTime{} = at}, _now, _remaining), do: at
+  defp projected_end(_project, now, remaining) when remaining <= 0, do: now
+  defp projected_end(project, now, remaining), do: Project.eta_from(project, now, remaining)
 
   # Mirrors `Project.planned_end_for/2`'s weekday-only model: each
   # weekday's calendar time contributes work hours at the 3:1 ratio
@@ -1281,34 +1264,34 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       </div>
 
       <%= if @project.started_at != nil and @schedule do %>
-        <% same_day = Date.compare(DateTime.to_date(@schedule.planned_end), DateTime.to_date(@schedule.projected_end)) == :eq %>
-        <div class="flex flex-wrap items-center gap-4 bg-base-200/50 rounded-lg px-4 py-2 text-xs">
-          <div class="flex items-center gap-2">
-            <.icon name="hero-flag" class="w-4 h-4 text-base-content/60" />
-            <span class="text-base-content/60">{gettext("Planned:")}</span>
-            <span class="font-medium">{L10n.format_date(@schedule.planned_end)}</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <.icon name="hero-arrow-trending-up" class={"w-4 h-4 #{if @schedule.ahead?, do: "text-success", else: "text-error"}"} />
-            <span class="text-base-content/60">
-              <%= if @project.completed_at, do: gettext("Finished:"), else: gettext("Projected:") %>
-            </span>
-            <span class={[
-              "font-medium",
-              not same_day && @schedule.ahead? && "text-success",
-              not same_day && not @schedule.ahead? && "text-error"
-            ]}>
-              {L10n.format_date(@schedule.projected_end)}
-            </span>
-            <%= cond do %>
-              <% same_day -> %>
-                <span class="text-base-content/40">{gettext("(on track)")}</span>
-              <% @schedule.ahead? -> %>
-                <span class="text-success">{gettext("(%{delta} earlier)", delta: delta_days(@schedule.planned_end, @schedule.projected_end))}</span>
-              <% true -> %>
-                <span class="text-error">{gettext("(%{delta} later)", delta: delta_days(@schedule.projected_end, @schedule.planned_end))}</span>
-            <% end %>
-          </div>
+        <% {rem_v, rem_u} = humanize_hours(@schedule.remaining_hours) %>
+        <div class="flex flex-wrap items-center gap-3 bg-base-200/50 rounded-lg px-4 py-2 text-xs">
+          <%= if @project.completed_at do %>
+            <div class="flex items-center gap-2">
+              <.icon name="hero-check-circle" class="w-4 h-4 text-success" />
+              <span class="text-base-content/60">{gettext("Finished:")}</span>
+              <span class="font-medium">{L10n.format_datetime(@schedule.projected_end)}</span>
+            </div>
+          <% else %>
+            <div class="flex items-center gap-2">
+              <.icon name="hero-clock" class="w-4 h-4 text-base-content/60" />
+              <span class="text-base-content/60">{gettext("Remaining:")}</span>
+              <span class="font-medium">{rem_v} {rem_u}</span>
+            </div>
+            <span class="text-base-content/40">·</span>
+            <div class="flex items-center gap-2">
+              <.icon name="hero-arrow-trending-up" class={"w-4 h-4 #{if @schedule.ahead?, do: "text-success", else: "text-error"}"} />
+              <span class="text-base-content/60">{gettext("ETA:")}</span>
+              <span class={[
+                "font-medium",
+                @schedule.ahead? && "text-success",
+                not @schedule.ahead? && "text-error"
+              ]}>
+                {L10n.format_datetime(@schedule.projected_end)}
+              </span>
+              <span class="text-base-content/40">{gettext("at planned pace")}</span>
+            </div>
+          <% end %>
         </div>
       <% end %>
 
