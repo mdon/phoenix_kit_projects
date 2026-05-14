@@ -512,6 +512,48 @@ defmodule PhoenixKitProjects.Web.PopupHostLiveTest do
     end
   end
 
+  describe "C11 pinning: R7 root-frame ID disambiguation" do
+    test "two PopupHostLive instances with different topics get distinct root IDs",
+         %{conn: conn} do
+      # Pre-R7: both renders used a hardcoded id like "embed-root-overview_live"
+      # — duplicates in the DOM broke Phoenix LV's client-side targeting.
+      # The R7 fix appends a topic-derived sha256 suffix to disambiguate.
+
+      {:ok, _v1, html1} =
+        live_isolated(conn, PhoenixKitProjects.Web.PopupHostLive,
+          session: %{
+            "pubsub_topic" => "host:orders:111",
+            "root_view" => %{
+              "lv" => "Elixir.PhoenixKitProjects.Web.OverviewLive",
+              "session" => %{}
+            }
+          }
+        )
+
+      {:ok, _v2, html2} =
+        live_isolated(conn, PhoenixKitProjects.Web.PopupHostLive,
+          session: %{
+            "pubsub_topic" => "host:orders:222",
+            "root_view" => %{
+              "lv" => "Elixir.PhoenixKitProjects.Web.OverviewLive",
+              "session" => %{}
+            }
+          }
+        )
+
+      # Extract the root LV's id attribute. Both renders should contain
+      # `embed-root-overview_live-<12-char-suffix>`. Without R7's suffix
+      # they'd share the literal id "embed-root-overview_live".
+      [id1] = Regex.run(~r/id="(embed-root-overview_live-[^"]+)"/, html1, capture: :all_but_first)
+      [id2] = Regex.run(~r/id="(embed-root-overview_live-[^"]+)"/, html2, capture: :all_but_first)
+
+      assert id1 != id2, "two PopupHost instances must produce distinct root LV IDs"
+
+      assert String.length(id1) > String.length("embed-root-overview_live"),
+             "id must include the topic-suffix disambiguator"
+    end
+  end
+
   describe "locale threading through the popup host (issue #8 follow-up)" do
     test "host locale flows into the root_view child LV", %{conn: conn} do
       topic = unique_topic()

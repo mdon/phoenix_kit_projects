@@ -986,6 +986,65 @@ defmodule PhoenixKitProjects.Web.EmbeddingEmitTest do
     end
   end
 
+  # ─────────────────────────────────────────────────────────────────
+  # C11 pinning: per-row kebab action menus
+  # ─────────────────────────────────────────────────────────────────
+  #
+  # The Edit + Delete actions on each list/show LV's row were converted
+  # to `<.table_row_menu>` (3-dots dropdown) matching the canonical
+  # pattern from phoenix_kit_entities/DataNavigator. If someone reverts
+  # the conversion (puts inline pencil/trash buttons back in the row),
+  # the assertions below fail.
+
+  describe "C11 pinning: row-action kebab menus" do
+    test "ProjectsLive rows carry the Actions kebab trigger", %{conn: conn} do
+      _project = fixture_project(%{"name" => "Doomed list row"})
+
+      {:ok, _view, html} =
+        live_isolated(conn, PhoenixKitProjects.Web.ProjectsLive, session: %{})
+
+      # `data-row-menu-trigger` is the structural attr on the ⋮ button
+      # rendered by `<.table_row_menu>`. If row actions revert to inline
+      # buttons (raw <.link navigate> / <button phx-click="delete">), no
+      # element with this attr ships.
+      assert html =~ ~s(data-row-menu-trigger)
+    end
+
+    test "TasksLive rows carry the Actions kebab trigger", %{conn: conn} do
+      _task = fixture_task(%{"title" => "Doomed task row"})
+
+      {:ok, _view, html} =
+        live_isolated(conn, PhoenixKitProjects.Web.TasksLive, session: %{})
+
+      assert html =~ ~s(data-row-menu-trigger)
+    end
+
+    test "TemplatesLive rows carry the Actions kebab trigger", %{conn: conn} do
+      _template = fixture_template(%{"name" => "Doomed template row"})
+
+      {:ok, _view, html} =
+        live_isolated(conn, PhoenixKitProjects.Web.TemplatesLive, session: %{})
+
+      assert html =~ ~s(data-row-menu-trigger)
+    end
+
+    test "ProjectShowLive header + assignments carry kebab triggers", %{conn: conn} do
+      project = fixture_project(%{"name" => "Header + row kebab"})
+
+      {:ok, _view, html} =
+        live_isolated(conn, PhoenixKitProjects.Web.ProjectShowLive,
+          session: %{"id" => project.uuid}
+        )
+
+      # The project header has Edit + Archive in a kebab; assignment rows
+      # have Edit + Remove. The header always renders, even with no
+      # assignments, so a single project_show mount should always have
+      # at least the header trigger.
+      triggers = Regex.scan(~r/data-row-menu-trigger/, html) |> length()
+      assert triggers >= 1, "expected at least the header kebab trigger"
+    end
+  end
+
   defp unique_topic do
     "emit-test-#{System.unique_integer([:positive])}"
   end
