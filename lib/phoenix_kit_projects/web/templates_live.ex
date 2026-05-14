@@ -181,26 +181,25 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
             </span>
           </:col>
           <:col :let={t} label={gettext("Actions")} class="text-right">
-            <div class="flex items-center justify-end gap-1">
-              <.smart_link
+            <.table_row_menu id={"template-menu-#{t.uuid}"}>
+              <.smart_menu_link
                 navigate={Paths.edit_template(t.uuid)}
                 emit={{PhoenixKitProjects.Web.TemplateFormLive, %{"live_action" => "edit", "id" => t.uuid}}}
                 embed_mode={@embed_mode}
-                class="btn btn-ghost btn-xs"
-              >
-                <.icon name="hero-pencil" class="w-3.5 h-3.5" />
-              </.smart_link>
-              <button
-                type="button"
+                icon="hero-pencil"
+                label={gettext("Edit")}
+              />
+              <.table_row_menu_divider />
+              <.table_row_menu_button
                 phx-click="delete"
                 phx-value-uuid={t.uuid}
                 phx-disable-with={gettext("Deleting…")}
                 data-confirm={gettext("Delete template \"%{name}\"?", name: Project.localized_name(t, lang))}
-                class="btn btn-ghost btn-xs text-error"
-              >
-                <.icon name="hero-trash" class="w-3.5 h-3.5" />
-              </button>
-            </div>
+                icon="hero-trash"
+                label={gettext("Delete")}
+                variant="error"
+              />
+            </.table_row_menu>
           </:col>
         </.sortable_table>
       <% end %>

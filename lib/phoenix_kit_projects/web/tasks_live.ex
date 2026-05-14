@@ -371,26 +371,25 @@ defmodule PhoenixKitProjects.Web.TasksLive do
             </:col>
             <:col :let={task} label={gettext("Duration")}>{format_duration(task)}</:col>
             <:col :let={task} label={gettext("Actions")} class="text-right">
-              <div class="flex items-center justify-end gap-1">
-                <.smart_link
+              <.table_row_menu id={"task-menu-#{task.uuid}"}>
+                <.smart_menu_link
                   navigate={Paths.edit_task(task.uuid)}
                   emit={{PhoenixKitProjects.Web.TaskFormLive, %{"live_action" => "edit", "id" => task.uuid}}}
                   embed_mode={@embed_mode}
-                  class="btn btn-ghost btn-xs"
-                >
-                  <.icon name="hero-pencil" class="w-3.5 h-3.5" />
-                </.smart_link>
-                <button
-                  type="button"
+                  icon="hero-pencil"
+                  label={gettext("Edit")}
+                />
+                <.table_row_menu_divider />
+                <.table_row_menu_button
                   phx-click="delete"
                   phx-value-uuid={task.uuid}
                   phx-disable-with={gettext("Deleting…")}
                   data-confirm={gettext("Delete task \"%{title}\"? Assignments using it will also be removed.", title: TaskSchema.localized_title(task, lang))}
-                  class="btn btn-ghost btn-xs text-error"
-                >
-                  <.icon name="hero-trash" class="w-3.5 h-3.5" />
-                </button>
-              </div>
+                  icon="hero-trash"
+                  label={gettext("Delete")}
+                  variant="error"
+                />
+              </.table_row_menu>
             </:col>
           </.sortable_table>
         <% end %>

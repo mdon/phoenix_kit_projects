@@ -1186,9 +1186,12 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
           <.icon name="hero-arrow-left" class="w-4 h-4 inline" />
           {if @is_template, do: gettext("Templates"), else: gettext("Projects")}
         </.smart_link>
-        <div class="flex items-center justify-between mt-1">
-          <div class="flex items-center gap-2">
-            <h1 class="text-2xl font-bold">{Project.localized_name(@project, L10n.current_content_lang())}</h1>
+        <div class="flex flex-col gap-2 mt-1">
+          <%!-- Title + status badges. Min-width: 0 lets the h1 truncate
+               instead of pushing siblings around. Long project names
+               wrap rather than overflowing the column. --%>
+          <div class="flex flex-wrap items-center gap-2 min-w-0">
+            <h1 class="text-2xl font-bold break-words">{Project.localized_name(@project, L10n.current_content_lang())}</h1>
             <%= if @is_template do %>
               <span class="badge badge-info badge-sm">{gettext("Template")}</span>
             <% end %>
@@ -1203,7 +1206,9 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
               </span>
             <% end %>
           </div>
-          <div class="flex gap-2">
+          <%!-- Action buttons. Separate row so a long title never crowds
+               them out; `flex-wrap` keeps the row tidy on narrow viewports. --%>
+          <div class="flex flex-wrap gap-2">
             <.smart_link
               navigate={Paths.new_assignment(@project.uuid)}
               emit={{PhoenixKitProjects.Web.AssignmentFormLive, %{"live_action" => "new", "project_id" => @project.uuid}}}
@@ -1513,23 +1518,25 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                             {a_comment_count}
                           </span>
                         </button>
-                        <.smart_link
-                          navigate={Paths.edit_assignment(@project.uuid, a.uuid)}
-                          emit={{PhoenixKitProjects.Web.AssignmentFormLive, %{"live_action" => "edit", "project_id" => @project.uuid, "id" => a.uuid}}}
-                          embed_mode={@embed_mode}
-                          class="btn btn-ghost btn-xs"
-                        >
-                          <.icon name="hero-pencil" class="w-3.5 h-3.5" />
-                        </.smart_link>
-                        <button
-                          phx-click="remove_assignment"
-                          phx-value-uuid={a.uuid}
-                          phx-disable-with={gettext("Removing…")}
-                          data-confirm={gettext("Remove \"%{title}\"?", title: TaskSchema.localized_title(a.task, L10n.current_content_lang()))}
-                          class="btn btn-ghost btn-xs text-error"
-                        >
-                          <.icon name="hero-trash" class="w-3.5 h-3.5" />
-                        </button>
+                        <.table_row_menu id={"assignment-menu-#{a.uuid}"}>
+                          <.smart_menu_link
+                            navigate={Paths.edit_assignment(@project.uuid, a.uuid)}
+                            emit={{PhoenixKitProjects.Web.AssignmentFormLive, %{"live_action" => "edit", "project_id" => @project.uuid, "id" => a.uuid}}}
+                            embed_mode={@embed_mode}
+                            icon="hero-pencil"
+                            label={gettext("Edit")}
+                          />
+                          <.table_row_menu_divider />
+                          <.table_row_menu_button
+                            phx-click="remove_assignment"
+                            phx-value-uuid={a.uuid}
+                            phx-disable-with={gettext("Removing…")}
+                            data-confirm={gettext("Remove \"%{title}\"?", title: TaskSchema.localized_title(a.task, L10n.current_content_lang()))}
+                            icon="hero-trash"
+                            label={gettext("Remove")}
+                            variant="error"
+                          />
+                        </.table_row_menu>
                       </div>
                     </div>
 

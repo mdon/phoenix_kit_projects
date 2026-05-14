@@ -24,6 +24,7 @@ defmodule PhoenixKitProjects.Web.Components do
       import PhoenixKitProjects.Web.Components.DerivedStatusBadge
       import PhoenixKitProjects.Web.Components.TabsStrip
       import PhoenixKitProjects.Web.Components.SmartLink
+      import PhoenixKitProjects.Web.Components.SmartMenuLink
       import PhoenixKitProjects.Web.Components.PopupHost
     end
   end
