@@ -1206,6 +1206,12 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
               </span>
             <% end %>
           </div>
+          <%!-- Description sits directly under the title, above the buttons —
+               title + subtitle as a stacked pair before the action row. --%>
+          <% desc = Project.localized_description(@project, L10n.current_content_lang()) %>
+          <p :if={desc} class="text-sm text-base-content/60">
+            {desc}
+          </p>
           <%!-- Action buttons. Separate row so a long title never crowds
                them out; `flex-wrap` keeps the row tidy on narrow viewports. --%>
           <div class="flex flex-wrap gap-2">
@@ -1232,51 +1238,45 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                 {@project_comment_count}
               </span>
             </button>
-            <.smart_link
-              navigate={if @is_template, do: Paths.edit_template(@project.uuid), else: Paths.edit_project(@project.uuid)}
-              emit={
-                if @is_template,
-                  do:
-                    {PhoenixKitProjects.Web.TemplateFormLive,
-                     %{"live_action" => "edit", "id" => @project.uuid}},
-                  else:
-                    {PhoenixKitProjects.Web.ProjectFormLive,
-                     %{"live_action" => "edit", "id" => @project.uuid}}
-              }
-              embed_mode={@embed_mode}
-              class="btn btn-ghost btn-sm"
-            >
-              <.icon name="hero-pencil" class="w-4 h-4" /> {gettext("Edit")}
-            </.smart_link>
-            <%= if not @is_template do %>
-              <%= if @project.archived_at do %>
-                <button
-                  type="button"
-                  phx-click="unarchive_project"
-                  phx-disable-with={gettext("Unarchiving…")}
-                  class="btn btn-ghost btn-sm"
-                  title={gettext("Restore from archive")}
-                >
-                  <.icon name="hero-arrow-uturn-left" class="w-4 h-4" /> {gettext("Unarchive")}
-                </button>
-              <% else %>
-                <button
-                  type="button"
-                  phx-click="archive_project"
-                  phx-disable-with={gettext("Archiving…")}
-                  data-confirm={gettext("Archive this project? It will be hidden from the main lists but kept in the database.")}
-                  class="btn btn-ghost btn-sm"
-                  title={gettext("Hide from main lists")}
-                >
-                  <.icon name="hero-archive-box" class="w-4 h-4" /> {gettext("Archive")}
-                </button>
+            <%!-- Edit + (Un)archive go into a kebab dropdown to match the
+                 per-row action pattern used elsewhere in the module. --%>
+            <.table_row_menu id={"project-header-menu-#{@project.uuid}"}>
+              <.smart_menu_link
+                navigate={if @is_template, do: Paths.edit_template(@project.uuid), else: Paths.edit_project(@project.uuid)}
+                emit={
+                  if @is_template,
+                    do:
+                      {PhoenixKitProjects.Web.TemplateFormLive,
+                       %{"live_action" => "edit", "id" => @project.uuid}},
+                    else:
+                      {PhoenixKitProjects.Web.ProjectFormLive,
+                       %{"live_action" => "edit", "id" => @project.uuid}}
+                }
+                embed_mode={@embed_mode}
+                icon="hero-pencil"
+                label={gettext("Edit")}
+              />
+              <%= if not @is_template do %>
+                <.table_row_menu_divider />
+                <%= if @project.archived_at do %>
+                  <.table_row_menu_button
+                    phx-click="unarchive_project"
+                    phx-disable-with={gettext("Unarchiving…")}
+                    icon="hero-arrow-uturn-left"
+                    label={gettext("Unarchive")}
+                  />
+                <% else %>
+                  <.table_row_menu_button
+                    phx-click="archive_project"
+                    phx-disable-with={gettext("Archiving…")}
+                    data-confirm={gettext("Archive this project? It will be hidden from the main lists but kept in the database.")}
+                    icon="hero-archive-box"
+                    label={gettext("Archive")}
+                  />
+                <% end %>
               <% end %>
-            <% end %>
+            </.table_row_menu>
           </div>
-        </div>
-        <% desc = Project.localized_description(@project, L10n.current_content_lang()) %>
-        <div :if={desc} class="text-sm text-base-content/60 mt-1">
-          {desc}
         </div>
       </div>
 
