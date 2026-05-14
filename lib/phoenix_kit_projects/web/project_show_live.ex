@@ -20,7 +20,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   # Default wrapper class for the standalone admin page. Embedders can
   # override via `live_render(... session: %{"wrapper_class" => "..."})`
   # to drop `mx-auto max-w-4xl` and fill a wider host layout.
-  @default_wrapper_class "flex flex-col mx-auto max-w-4xl px-4 py-6 gap-4"
+  @default_wrapper_class "flex flex-col w-full px-4 py-6 gap-4"
 
   # Embedded entry: when nested via `live_render`, params arrives as
   # `:not_mounted_at_router` and `session` carries the project id (plus

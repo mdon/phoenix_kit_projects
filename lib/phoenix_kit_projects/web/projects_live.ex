@@ -15,7 +15,7 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
 
   # Default wrapper class for the standalone admin page. Embedders can
   # override via `live_render(... session: %{"wrapper_class" => "..."})`.
-  @default_wrapper_class "flex flex-col mx-auto max-w-5xl px-4 py-6 gap-4"
+  @default_wrapper_class "flex flex-col w-full px-4 py-6 gap-4"
 
   @impl true
   def mount(_params, session, socket) do
