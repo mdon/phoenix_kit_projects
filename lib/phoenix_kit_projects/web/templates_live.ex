@@ -6,6 +6,7 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
   use PhoenixKitProjects.Web.Components
 
   alias PhoenixKitProjects.{Activity, L10n, Paths, Projects}
+  alias PhoenixKitProjects.Web.Helpers
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Schemas.Project
 
@@ -17,6 +18,8 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
 
   @impl true
   def mount(_params, session, socket) do
+    Helpers.maybe_put_locale(session)
+
     if connected?(socket), do: ProjectsPubSub.subscribe(ProjectsPubSub.topic_templates())
 
     wrapper_class = Map.get(session, "wrapper_class", @default_wrapper_class)

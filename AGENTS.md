@@ -122,6 +122,11 @@ Contract (all keys optional unless noted):
   Each LV defaults to its standalone-admin class
   (`mx-auto max-w-{xl,4xl,5xl,6xl} px-4 py-6 gap-{4,6}`); pass any
   host-friendly Tailwind class string.
+- `session["locale"]` — optional locale code (e.g. `"ru"`, `"et"`).
+  When set, both `PhoenixKitWeb.Gettext` and the process-global Gettext
+  locale are restored inside the embedded LV's mount so translations
+  render in the host's language. Backward-compatible — absent key is a
+  no-op and the backend default (English) is used.
 - `session["redirect_to"]` — form LVs only. String path. When set,
   `push_navigate` on save / mount-error fires to this path instead of
   the admin default. Lets the host close a modal, refresh state, etc.

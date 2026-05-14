@@ -10,6 +10,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   use PhoenixKitProjects.Web.Components
 
   alias PhoenixKitProjects.{Activity, L10n, Paths, Projects}
+  alias PhoenixKitProjects.Web.Helpers
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Schemas.{Assignment, Project}
   alias PhoenixKitProjects.Schemas.Task, as: TaskSchema
@@ -27,10 +28,13 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   # mount logic stays single-sourced.
   @impl true
   def mount(:not_mounted_at_router, %{"id" => id} = session, socket) do
+    Helpers.maybe_put_locale(session)
     mount(%{"id" => id}, session, socket)
   end
 
   def mount(%{"id" => id}, session, socket) do
+    Helpers.maybe_put_locale(session)
+
     # `get_project/1` stays in mount/3 because the not-found path
     # has to redirect before render, and the per-project PubSub
     # topic needs the project.uuid to subscribe to. The heavier

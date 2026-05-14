@@ -111,6 +111,22 @@ defmodule PhoenixKitProjects.Web.ProjectShowLiveTest do
       assert html =~ "flex flex-col w-full px-4 py-6 gap-4"
       refute html =~ "max-w-4xl"
     end
+
+    test "locale from session is applied to embedded mount", %{conn: conn} do
+      project = fixture_project()
+
+      {:ok, _view, html} =
+        live_isolated(conn, PhoenixKitProjects.Web.ProjectShowLive,
+          session: %{
+            "id" => project.uuid,
+            "locale" => "et"
+          }
+        )
+
+      # The back-link breadcrumb renders "Projects" translated.
+      assert html =~ "Projektid"
+      refute html =~ "Projects"
+    end
   end
 
   describe "status-transition events" do

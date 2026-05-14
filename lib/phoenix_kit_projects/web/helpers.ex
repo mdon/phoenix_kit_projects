@@ -229,6 +229,27 @@ defmodule PhoenixKitProjects.Web.Helpers do
   end
 
   @doc """
+  Restores the Gettext locale in an embedded LiveView process.
+
+  When an LV is mounted via `live_render/3`, Phoenix spawns a new process
+  that does not inherit the parent's process dictionary. The active Gettext
+  locale is lost, so all translations fall back to the backend default
+  (English). Embedders can pass the current locale via
+  `session["locale"]`; calling this helper at the top of `mount/3`
+  reapplies it before any `gettext/1` or `L10n.current_content_lang/0`
+  call runs.
+
+  Backward-compatible: when `"locale"` is absent, this is a no-op.
+  """
+  @spec maybe_put_locale(map()) :: :ok | nil
+  def maybe_put_locale(session) do
+    if locale = Map.get(session, "locale") do
+      Gettext.put_locale(PhoenixKitWeb.Gettext, locale)
+      Gettext.put_locale(locale)
+    end
+  end
+
+  @doc """
   Resolves the `live_action` for the embedded mount path.
 
   Router-mounted LVs get `live_action` set by Phoenix LV before

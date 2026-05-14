@@ -17,6 +17,8 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
 
   @impl true
   def mount(params, session, socket) do
+    WebHelpers.maybe_put_locale(session)
+
     wrapper_class = Map.get(session, "wrapper_class", @default_wrapper_class)
     redirect_to = Map.get(session, "redirect_to")
     live_action = WebHelpers.resolve_live_action(socket, session)

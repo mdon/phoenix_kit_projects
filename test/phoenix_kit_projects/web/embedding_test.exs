@@ -62,6 +62,14 @@ defmodule PhoenixKitProjects.Web.EmbeddingTest do
       assert html =~ "flex flex-col w-full px-4 py-6 gap-6"
       refute html =~ "max-w-6xl"
     end
+
+    test "locale from session is applied to embedded mount", %{conn: conn} do
+      {:ok, _view, html} =
+        live_isolated(conn, PhoenixKitProjects.Web.OverviewLive, session: %{"locale" => "et"})
+
+      assert html =~ "Projektid"
+      refute html =~ "Projects"
+    end
   end
 
   describe "ProjectsLive embed" do
