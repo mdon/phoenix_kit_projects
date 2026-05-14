@@ -512,6 +512,68 @@ defmodule PhoenixKitProjects.Web.PopupHostLiveTest do
     end
   end
 
+  describe "locale threading through the popup host (issue #8 follow-up)" do
+    test "host locale flows into the root_view child LV", %{conn: conn} do
+      topic = unique_topic()
+
+      {:ok, _view, html} =
+        live_isolated(conn, PhoenixKitProjects.Web.PopupHostLive,
+          session: %{
+            "pubsub_topic" => topic,
+            "locale" => "et",
+            "root_view" => %{
+              "lv" => "Elixir.PhoenixKitProjects.Web.OverviewLive",
+              "session" => %{}
+            }
+          }
+        )
+
+      # OverviewLive's heading is "Projects" in EN, "Projektid" in ET.
+      # If locale didn't thread through the popup host into the root LV's
+      # session, the live_render child mount would render English.
+      assert html =~ "Projektid"
+      refute html =~ "Projects · Phoenix Framework"
+    end
+
+    test "host locale flows into stacked modal frames too", %{conn: conn} do
+      topic = unique_topic()
+
+      {:ok, view, _} =
+        live_isolated(conn, PhoenixKitProjects.Web.PopupHostLive,
+          session: %{"pubsub_topic" => topic, "locale" => "et"}
+        )
+
+      # Open a modal frame for OverviewLive — host locale should be
+      # stamped into the stacked child's session.
+      ProjectsPubSub.broadcast_embed(topic, :opened, %{
+        lv: PhoenixKitProjects.Web.OverviewLive,
+        session: %{},
+        frame_ref: nil
+      })
+
+      html = render(view)
+      assert html =~ "Projektid"
+    end
+
+    test "absent locale is a no-op (English baseline)", %{conn: conn} do
+      topic = unique_topic()
+
+      {:ok, _view, html} =
+        live_isolated(conn, PhoenixKitProjects.Web.PopupHostLive,
+          session: %{
+            "pubsub_topic" => topic,
+            "root_view" => %{
+              "lv" => "Elixir.PhoenixKitProjects.Web.OverviewLive",
+              "session" => %{}
+            }
+          }
+        )
+
+      assert html =~ "Projects"
+      refute html =~ "Projektid"
+    end
+  end
+
   describe "stack depth cap" do
     test "refuses to push beyond max_stack_depth (5)", %{conn: conn} do
       topic = unique_topic()

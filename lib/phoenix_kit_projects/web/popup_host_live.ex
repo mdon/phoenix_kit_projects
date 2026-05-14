@@ -70,6 +70,13 @@ defmodule PhoenixKitProjects.Web.PopupHostLive do
 
   @impl true
   def mount(_params, session, socket) do
+    # Restore the locale in this process so anything PopupHost itself
+    # renders (flash text, error markers) reads the right language.
+    # Same fix as `WebHelpers.maybe_put_locale/1` applied in every
+    # embeddable LV — `live_render` spawns a fresh process without the
+    # parent's Gettext locale in its dict. See dev_docs/embedding_audit.md.
+    WebHelpers.maybe_put_locale(session)
+
     topic =
       case Map.get(session, "pubsub_topic") do
         s when is_binary(s) and s != "" ->
@@ -81,23 +88,25 @@ defmodule PhoenixKitProjects.Web.PopupHostLive do
       end
 
     wrapper_class = Map.get(session, "wrapper_class", @default_wrapper_class)
+    host_locale = Map.get(session, "locale")
 
     if connected?(socket), do: ProjectsPubSub.subscribe(topic)
 
-    root_view = decode_root_view(Map.get(session, "root_view"), topic)
+    root_view = decode_root_view(Map.get(session, "root_view"), topic, host_locale)
 
     {:ok,
      assign(socket,
        host_topic: topic,
+       host_locale: host_locale,
        wrapper_class: wrapper_class,
        modal_stack: [],
        root_view: root_view
      )}
   end
 
-  defp decode_root_view(nil, _topic), do: nil
+  defp decode_root_view(nil, _topic, _locale), do: nil
 
-  defp decode_root_view(%{"lv" => lv_str} = config, topic) do
+  defp decode_root_view(%{"lv" => lv_str} = config, topic, locale) do
     with {:ok, lv} <- WebHelpers.decode_embeddable_lv(lv_str),
          {:ok, session} <- WebHelpers.decode_session(Map.get(config, "session")) do
       child_session =
@@ -105,6 +114,7 @@ defmodule PhoenixKitProjects.Web.PopupHostLive do
         |> Map.put("mode", "emit")
         |> Map.put("pubsub_topic", topic)
         |> Map.put_new("wrapper_class", @default_root_wrapper_class)
+        |> maybe_put_locale_key(locale)
 
       %{
         lv: lv,
@@ -125,13 +135,24 @@ defmodule PhoenixKitProjects.Web.PopupHostLive do
     end
   end
 
-  defp decode_root_view(other, _topic) do
+  defp decode_root_view(other, _topic, _locale) do
     Logger.warning(
       ~s([PopupHostLive] root_view must be a map with "lv" and "session" keys, got #{inspect(other)})
     )
 
     nil
   end
+
+  # Threads the host's `session["locale"]` into the child LV's session
+  # so it survives the `live_render` process boundary. Without this,
+  # every modal frame's child mount falls back to backend default
+  # English regardless of what locale the host page is running.
+  defp maybe_put_locale_key(session, locale)
+       when is_binary(locale) and locale != "" do
+    Map.put_new(session, "locale", locale)
+  end
+
+  defp maybe_put_locale_key(session, _), do: session
 
   defp lv_slug(mod) when is_atom(mod) do
     mod
@@ -330,6 +351,7 @@ defmodule PhoenixKitProjects.Web.PopupHostLive do
       |> Map.put("mode", "emit")
       |> Map.put("pubsub_topic", socket.assigns.host_topic)
       |> Map.put("frame_ref", frame_ref)
+      |> maybe_put_locale_key(socket.assigns[:host_locale])
 
     frame = %{
       frame_ref: frame_ref,
