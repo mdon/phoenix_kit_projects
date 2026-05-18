@@ -16,7 +16,6 @@ defmodule PhoenixKitProjects.Web.Components do
   defmacro __using__(_opts) do
     quote do
       import PhoenixKitProjects.Web.Components.PageHeader
-      import PhoenixKitProjects.Web.Components.EmptyState
       import PhoenixKitProjects.Web.Components.StatTile
       import PhoenixKitProjects.Web.Components.TierPill
       import PhoenixKitProjects.Web.Components.RunningCard
