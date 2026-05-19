@@ -70,9 +70,92 @@ sweep batch.
   request a deeper stack when needed. Moduledoc + the session
   contract table both updated to document the new key.
 
-## Skipped (with rationale)
+## Fixed (Batch 2 — 2026-05-19, Phase 2 quality sweep)
 
-None. All four findings were fixed in this batch.
+Phase 2 triage (three Explore agents per `agents.md:251-263`) surfaced
+the following beyond the Claude-review findings of Batch 1. All
+actionable items were resolved; the no-op items are recorded below
+with rationale.
+
+- ~~**Broad `rescue _` in `emit_telemetry/2`.**~~ Fixed.
+  `lib/phoenix_kit_projects/web/helpers.ex:805-820` — narrowed the
+  rescue clause from `_` to the exception shapes that
+  `:telemetry.execute/3` and host-attached handlers can actually raise
+  (`ArgumentError`, `KeyError`, `FunctionClauseError`, `RuntimeError`,
+  `MatchError`). Bugs in this module's metadata construction now
+  surface as crashes during development instead of being silently
+  swallowed. `Logger.warning` records the raised exception for
+  postmortem visibility. The "telemetry must never crash the embed
+  flow" contract is preserved for the realistic-error shapes.
+
+- ~~**Duplicated assignment-status helpers across
+  `ProjectShowLive` + `OverviewLive`.**~~ Fixed by extraction.
+  `lib/phoenix_kit_projects/web/components/assignment_status_badge.ex`
+  (new) holds public `color/1`, `badge_class/1`, `label/1` functions
+  plus an `<.assignment_status_badge>` component sugar. Mirrors the
+  shape of `DerivedStatusBadge` (project-lifecycle) for assignment-
+  lifecycle. `ProjectShowLive` (line 1135-1148 deleted; call sites at
+  ~1455 + ~1473 switched) and `OverviewLive` (line 212-220 deleted;
+  call site at ~387 switched to component) now share one source of
+  truth. `Web.Components.__using__` imports the module so the
+  component shorthand is available everywhere the others are.
+
+- ~~**`OverviewLive.handle_info/2` catch-all.**~~ Verified present at
+  `lib/phoenix_kit_projects/web/overview_live.ex:207-210` with the
+  same shape as the other LVs — drops the message with a
+  `Logger.debug` to avoid unmatched-message process crashes.
+
+- **Project + Dependency schema test coverage gaps.** Added.
+  `test/phoenix_kit_projects/schemas/project_test.exs` (new, 26
+  tests) — covers required/length validation, `start_mode` enum,
+  scheduled-date conditional requirement, translations shape guard,
+  the `derived_status/2` priority cascade across all 7 lifecycle
+  states, `planned_end_for/2` + `eta_from/3` zero-hour and weekend
+  branches, plus `translatable_fields/0` + `start_modes/0` exposure.
+  `test/phoenix_kit_projects/schemas/dependency_test.exs` (new) —
+  required-field validation, valid-pair acceptance, self-reference
+  rejection, and a guard against the self-ref check firing on
+  half-built inputs. Pure changeset tests (no DB) — the DB-backed
+  cycle-detection + cross-project rejection paths stay covered by
+  `projects_context_test.exs`.
+
+## Skipped (Batch 2 — with rationale)
+
+- **`@spec` gaps on public functions in `projects.ex`.** None
+  observed. The Phase 2 triage flagged ~10 gaps but every public
+  function in `lib/phoenix_kit_projects/projects.ex` already has a
+  preceding `@spec` — the false positives came from multi-line specs
+  where the `def` line was >4 lines below the spec start. Verified by
+  manual walk through all 70+ public defs.
+
+- **Hardcoded `"done"` literal across the codebase.** The Phase 2
+  triage suggested wrapping all sites in a `Assignment.done_status()`
+  helper. The status field's allowed set is already enforced by
+  `Assignment.@statuses` + `validate_inclusion/3`; the literal `"done"`
+  appears in ~14 sites (filters, conditional UI rendering, completion
+  setters, Map.get keys) and threading them through a wrapper adds
+  verbosity without symbolic gain since the magic string is already
+  centralized in the schema's enum list. Marking as a deliberate
+  not-fix.
+
+## Files touched (Batch 2)
+
+| File | Change |
+|---|---|
+| `lib/phoenix_kit_projects/web/helpers.ex` | Narrow `emit_telemetry/2` rescue + `Logger.warning` |
+| `lib/phoenix_kit_projects/web/components/assignment_status_badge.ex` | New — public `color/1` + `badge_class/1` + `label/1` + `<.assignment_status_badge>` component |
+| `lib/phoenix_kit_projects/web/components.ex` | Import the new component module |
+| `lib/phoenix_kit_projects/web/project_show_live.ex` | Drop local `status_color`/`badge_class`/`label` defps, alias the new component module, switch the two call sites |
+| `lib/phoenix_kit_projects/web/overview_live.ex` | Drop local `status_badge_class`/`status_label` defps, switch call site to component |
+| `test/phoenix_kit_projects/schemas/project_test.exs` | New — Project changeset + derived_status + planned_end coverage |
+| `test/phoenix_kit_projects/schemas/dependency_test.exs` | New — Dependency changeset coverage |
+| `test/phoenix_kit_projects/web/project_show_live_test.exs` | Update redirect assertion to `/admin/projects/list` (downstream of phoenix_kit PR #551 prefix-strip) |
+
+## Verification (Batch 2)
+
+- `mix test` (path-override mode against current local phoenix_kit) —
+  531 tests, 0 failures.
+- `mix compile` clean against the parent workspace.
 
 ## Files touched
 

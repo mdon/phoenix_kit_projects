@@ -807,8 +807,14 @@ defmodule PhoenixKitProjects.Web.Helpers do
       Map.new(metadata)
     )
   rescue
-    # Telemetry handler errors must never crash the embed flow.
-    _ -> :ok
+    # Telemetry handler errors must never crash the embed flow — they're
+    # observability, not load-bearing. Narrowed to the exception shapes
+    # `:telemetry.execute/3` and host-attached handlers can actually
+    # raise so genuine programmer errors (e.g. a bug in this module's
+    # metadata construction) still surface instead of being swallowed.
+    e in [ArgumentError, KeyError, FunctionClauseError, RuntimeError, MatchError] ->
+      Logger.warning("[phoenix_kit_projects] telemetry handler raised: #{inspect(e)}")
+      :ok
   end
 
   # Accepts absolute paths under the current host (`/admin/...`,
