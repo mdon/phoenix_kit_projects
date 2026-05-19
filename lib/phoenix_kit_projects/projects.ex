@@ -7,6 +7,7 @@ defmodule PhoenixKitProjects.Projects do
 
   require Logger
 
+  alias PhoenixKit.Utils.Reorder
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Schemas.{Assignment, Dependency, Project, Task, TaskDependency}
 
@@ -802,7 +803,7 @@ defmodule PhoenixKitProjects.Projects do
   constraint. Same shape as `reorder_tasks/2`.
   """
   @spec reorder_projects([uuid()], keyword()) ::
-          :ok | {:error, :too_many_uuids | :wrong_scope | term()}
+          :ok | {:error, :too_many_uuids | :wrong_scope}
   def reorder_projects(ordered_uuids, opts \\ []),
     do: reorder_projects_in_scope(false, "project", ordered_uuids, opts)
 
@@ -812,7 +813,7 @@ defmodule PhoenixKitProjects.Projects do
   distinguishes the two.
   """
   @spec reorder_templates([uuid()], keyword()) ::
-          :ok | {:error, :too_many_uuids | :wrong_scope | term()}
+          :ok | {:error, :too_many_uuids | :wrong_scope}
   def reorder_templates(ordered_uuids, opts \\ []),
     do: reorder_projects_in_scope(true, "template", ordered_uuids, opts)
 
@@ -866,7 +867,7 @@ defmodule PhoenixKitProjects.Projects do
     # outer reorder_projects_in_scope/4 already runs the raw-length
     # cap + scope check, so we pass our own cap through so Reorder's
     # default (500) doesn't reject payloads our outer guard accepts.
-    PhoenixKit.Utils.Reorder.reorder(Project, unique_uuids, :position,
+    Reorder.reorder(Project, unique_uuids, :position,
       repo: repo(),
       max_uuids: @reorder_max_uuids
     )

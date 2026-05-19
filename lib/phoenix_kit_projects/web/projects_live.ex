@@ -89,13 +89,6 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
          |> put_flash(:error, gettext("Project list changed; please try again."))
          |> push_event("sortable:flash", %{uuid: moved_id, status: "error"})
          |> load_projects()}
-
-      {:error, _reason} ->
-        {:noreply,
-         socket
-         |> put_flash(:error, gettext("Could not reorder projects."))
-         |> push_event("sortable:flash", %{uuid: moved_id, status: "error"})
-         |> load_projects()}
     end
   end
 

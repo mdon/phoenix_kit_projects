@@ -18,7 +18,12 @@ defmodule PhoenixKitProjects.Schemas.ProjectTest do
     end
 
     test "name max length 255" do
-      cs = Project.changeset(%Project{}, %{"name" => String.duplicate("x", 256), "start_mode" => "immediate"})
+      cs =
+        Project.changeset(%Project{}, %{
+          "name" => String.duplicate("x", 256),
+          "start_mode" => "immediate"
+        })
+
       refute cs.valid?
       assert {:name, {_, _}} = List.keyfind(cs.errors, :name, 0)
     end
@@ -93,7 +98,12 @@ defmodule PhoenixKitProjects.Schemas.ProjectTest do
 
   describe "derived_status/2" do
     test ":archived wins over every other state" do
-      p = %Project{archived_at: ~U[2026-01-01 00:00:00Z], is_template: true, started_at: ~U[2026-01-01 00:00:00Z]}
+      p = %Project{
+        archived_at: ~U[2026-01-01 00:00:00Z],
+        is_template: true,
+        started_at: ~U[2026-01-01 00:00:00Z]
+      }
+
       assert Project.derived_status(p) == :archived
     end
 

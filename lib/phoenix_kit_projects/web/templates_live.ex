@@ -77,13 +77,6 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
          |> put_flash(:error, gettext("Template list changed; please try again."))
          |> push_event("sortable:flash", %{uuid: moved_id, status: "error"})
          |> load_templates()}
-
-      {:error, _reason} ->
-        {:noreply,
-         socket
-         |> put_flash(:error, gettext("Could not reorder templates."))
-         |> push_event("sortable:flash", %{uuid: moved_id, status: "error"})
-         |> load_templates()}
     end
   end
 
