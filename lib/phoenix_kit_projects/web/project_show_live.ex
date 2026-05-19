@@ -35,7 +35,12 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   # Fail-closed: emit-session lacking `"id"` lands here. Without this
   # clause the mount/3 dispatch raises `FunctionClauseError`. Render
   # placeholders + flash + close so the host pops the modal.
+  #
+  # `maybe_put_locale/1` first so the "Project not found." flash
+  # renders in the host's locale — matches every other LV's mount/3
+  # contract and avoids an English flash on a misrouted modal.
   def mount(:not_mounted_at_router, session, socket) do
+    WebHelpers.maybe_put_locale(session)
     socket = WebHelpers.assign_embed_state(socket, session)
 
     {:ok,
