@@ -468,10 +468,11 @@ defmodule PhoenixKitProjects.Web.ProjectShowLiveTest do
       send(view.pid, {:projects, :project_deleted, %{}})
 
       # The LV pushes a navigate via `push_navigate/2` after putting a
-      # flash. `assert_redirect/2` takes a string `to`, so we read it
-      # from the redirect tuple — a regex assertion is more permissive.
-      # Default locale `en` strips its prefix from admin paths (phoenix_kit PR #551).
-      assert_redirect(view, "/admin/projects/list")
+      # flash. phoenix_kit core PR #552 made the primary-locale strip
+      # on `Routes.admin_path/2` conditional on the site-wide
+      # `default_language_no_prefix` setting (default `false`), so the
+      # canonical primary-admin shape is back to `/en/admin/...`.
+      assert_redirect(view, "/en/admin/projects/list")
     end
   end
 end

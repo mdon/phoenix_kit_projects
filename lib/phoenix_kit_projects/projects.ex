@@ -712,6 +712,48 @@ defmodule PhoenixKitProjects.Projects do
   def get_project!(uuid), do: repo().get!(Project, uuid)
 
   @doc """
+  Fetches multiple projects by uuid in a single query, returning a
+  `%{uuid => Project.t()}` map. Missing uuids are silently dropped from
+  the result rather than raising — callers can detect them by checking
+  `Map.has_key?/2` or comparing the result's keys to the input list.
+
+  Avoids the per-row N+1 host apps would otherwise write to render a
+  list of records with linked projects (e.g. an orders index page
+  showing each row's project name). Nil + duplicate uuids in the input
+  are tolerated.
+
+  Returns an empty map for an empty list.
+
+  ## Examples
+
+      iex> %{name: name} = Projects.get_projects([uuid_a, uuid_b])[uuid_a]
+      iex> name
+      "Alpha"
+
+      iex> Projects.get_projects([])
+      %{}
+
+  """
+  @spec get_projects([uuid() | nil]) :: %{uuid() => Project.t()}
+  def get_projects([]), do: %{}
+
+  def get_projects(uuids) when is_list(uuids) do
+    uuids
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> case do
+      [] ->
+        %{}
+
+      cleaned ->
+        Project
+        |> where([p], p.uuid in ^cleaned)
+        |> repo().all()
+        |> Map.new(&{&1.uuid, &1})
+    end
+  end
+
+  @doc """
   Returns a changeset for the given project.
 
   Accepts the same `opts` as `Project.changeset/3` — notably
@@ -1047,6 +1089,20 @@ defmodule PhoenixKitProjects.Projects do
         end)
       end)
 
+    # Per-project sum of `progress_pct` across all assignments. The
+    # rollup is the average of all assignments' progress percentages
+    # — a half-finished task contributes 50%, not 0%. Sum is fetched
+    # batched in a single query alongside the status-count query
+    # above so summaries stay O(1) per project.
+    progress_sum_by_project =
+      from(a in Assignment,
+        where: a.project_uuid in ^uuids,
+        group_by: a.project_uuid,
+        select: {a.project_uuid, sum(a.progress_pct)}
+      )
+      |> repo().all()
+      |> Map.new()
+
     hours_by_project = batched_planned_hours(projects_by_uuid, uuids)
 
     Enum.map(projects, fn p ->
@@ -1055,6 +1111,8 @@ defmodule PhoenixKitProjects.Projects do
       in_progress = Map.get(c, "in_progress", 0)
       todo = Map.get(c, "todo", 0)
       total = done + in_progress + todo
+
+      progress_sum = progress_sum_by_project |> Map.get(p.uuid, 0) |> Kernel.||(0)
 
       total_hours = Map.get(hours_by_project, p.uuid, 0.0)
 
@@ -1068,7 +1126,7 @@ defmodule PhoenixKitProjects.Projects do
         total: total,
         done: done,
         in_progress: in_progress,
-        progress_pct: if(total > 0, do: round(done / total * 100), else: 0),
+        progress_pct: if(total > 0, do: round(progress_sum / total), else: 0),
         total_hours: total_hours,
         planned_end: planned_end
       }

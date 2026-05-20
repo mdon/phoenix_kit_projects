@@ -5,7 +5,9 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
   use Gettext, backend: PhoenixKitProjects.Gettext
   use PhoenixKitProjects.Web.Components
 
-  alias PhoenixKitProjects.{Activity, Paths, Projects}
+  import PhoenixKitWeb.Components.MultilangForm
+
+  alias PhoenixKitProjects.{Activity, L10n, Paths, Projects}
   alias PhoenixKitProjects.Schemas.Project
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
 
@@ -27,6 +29,7 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
     # `live_render`. See dev_docs/embedding_audit.md.
     socket =
       socket
+      |> mount_multilang()
       |> assign(
         wrapper_class: wrapper_class,
         embed_redirect_to: redirect_to,
@@ -66,7 +69,10 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
       project ->
         socket
         |> assign(
-          page_title: gettext("Edit %{name}", name: project.name),
+          page_title:
+            gettext("Edit %{name}",
+              name: Project.localized_name(project, L10n.current_content_lang())
+            ),
           project: project,
           live_action: :edit
         )
@@ -91,19 +97,36 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
   defp assign_form(socket, cs), do: assign(socket, form: to_form(cs))
 
   @impl true
+  def handle_event("switch_language", %{"lang" => lang_code}, socket) do
+    {:noreply, handle_switch_language(socket, lang_code)}
+  end
+
   def handle_event("validate", %{"project" => attrs}, socket) do
-    attrs = Map.put(attrs, "is_template", "true")
+    attrs = attrs |> Map.put("is_template", "true") |> merge_attrs(socket)
     cs = socket.assigns.project |> Projects.change_project(attrs) |> Map.put(:action, :validate)
     {:noreply, assign_form(socket, cs)}
   end
 
   def handle_event("save", %{"project" => attrs}, socket) do
-    attrs = Map.merge(attrs, %{"is_template" => "true", "start_mode" => "immediate"})
+    attrs =
+      attrs
+      |> Map.merge(%{"is_template" => "true", "start_mode" => "immediate"})
+      |> merge_attrs(socket)
+
     save(socket, socket.assigns.live_action, attrs)
   end
 
   def handle_event("cancel", _params, socket) do
     {:noreply, WebHelpers.close_or_navigate(socket, Paths.templates())}
+  end
+
+  # Folds the in-flight secondary-language translation map into `attrs`
+  # so the changeset writes both the primary column (when on the
+  # primary tab) and the JSONB `translations` map (when on a secondary
+  # tab). Mirrors `ProjectFormLive.merge_attrs/2`.
+  defp merge_attrs(attrs, socket) do
+    in_flight = WebHelpers.in_flight_record(socket, :form, :project)
+    WebHelpers.merge_translations_attrs(attrs, in_flight, Project.translatable_fields())
   end
 
   defp save(socket, :new, attrs) do
@@ -187,11 +210,73 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
         </:back_link>
       </.page_header>
 
-      <div class="card bg-base-100 shadow">
-        <div class="card-body">
-          <.form for={@form} id="template-form" phx-change="validate" phx-submit="save" phx-debounce="300" class="flex flex-col gap-3">
-            <.input field={@form[:name]} label={gettext("Name")} required />
-            <.textarea field={@form[:description]} label={gettext("Description")} />
+      <.form for={@form} id="template-form" phx-change="validate" phx-submit="save" phx-debounce="300" class="flex flex-col gap-4">
+        <%!-- Translatable card: name + description with language tabs.
+             Wrapper id keys on @current_lang so morphdom re-mounts the
+             inputs when the user switches languages — that's what swaps
+             primary-column inputs for JSONB-backed secondary inputs.
+             Matches `ProjectFormLive`'s shape. --%>
+        <div class="card bg-base-100 shadow">
+          <.multilang_tabs
+            multilang_enabled={@multilang_enabled}
+            language_tabs={@language_tabs}
+            current_lang={@current_lang}
+          />
+
+          <.multilang_fields_wrapper
+            multilang_enabled={@multilang_enabled}
+            current_lang={@current_lang}
+            skeleton_class="card-body pt-4 space-y-4"
+            fields_class="card-body pt-4 space-y-4"
+          >
+            <:skeleton>
+              <div class="space-y-2">
+                <div class="skeleton h-4 w-24"></div>
+                <div class="skeleton h-12 w-full"></div>
+              </div>
+              <div class="space-y-2">
+                <div class="skeleton h-4 w-24"></div>
+                <div class="skeleton h-24 w-full"></div>
+              </div>
+            </:skeleton>
+
+            <.translatable_field
+              field_name="name"
+              form_prefix="project"
+              changeset={@form.source}
+              schema_field={:name}
+              multilang_enabled={@multilang_enabled}
+              current_lang={@current_lang}
+              primary_language={@primary_language}
+              lang_data={WebHelpers.lang_data(@form, @current_lang)}
+              secondary_name={"project[translations][#{@current_lang}][name]"}
+              lang_data_key="name"
+              label={gettext("Name")}
+              required
+            />
+
+            <.translatable_field
+              field_name="description"
+              form_prefix="project"
+              changeset={@form.source}
+              schema_field={:description}
+              multilang_enabled={@multilang_enabled}
+              current_lang={@current_lang}
+              primary_language={@primary_language}
+              lang_data={WebHelpers.lang_data(@form, @current_lang)}
+              secondary_name={"project[translations][#{@current_lang}][description]"}
+              lang_data_key="description"
+              label={gettext("Description")}
+              type="textarea"
+              rows={4}
+            />
+          </.multilang_fields_wrapper>
+        </div>
+
+        <%!-- Non-translatable settings stay outside the wrapper so they
+             don't lose state when the user switches languages. --%>
+        <div class="card bg-base-100 shadow">
+          <div class="card-body flex flex-col gap-3">
             <label class="flex items-center gap-2 cursor-pointer">
               <input type="hidden" name={@form[:counts_weekends].name} value="false" />
               <input
@@ -211,9 +296,9 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
                 <%= if @live_action == :new, do: gettext("Create"), else: gettext("Save") %>
               </button>
             </div>
-          </.form>
+          </div>
         </div>
-      </div>
+      </.form>
     </div>
     """
   end

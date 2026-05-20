@@ -72,6 +72,108 @@ defmodule PhoenixKitProjects.Web.EmbeddingTest do
     end
   end
 
+  describe "ProjectShowLive off-router mount — assigns set by router on_mount" do
+    # Regression for the Andi field report (PR #16 follow-up, 2026-05-20):
+    # `project_show_live.ex:1820` used bang-form `@phoenix_kit_current_scope`
+    # for the comments drawer. The assign is set by phoenix_kit core's
+    # router-level `on_mount` callback, so off-router mounts via
+    # `live_render/3` skip the on_mount and the assign is absent. HEEx
+    # `@x` raises `KeyError` on missing keys (unlike `assigns[:x]` which
+    # returns `nil`), so opening the comments drawer crashed the LV.
+    #
+    # This test pins the contract: every router-on_mount-set assign that
+    # PKP reads MUST go through bracket access (`assigns[:key]`) or be
+    # initialized via `assign_new/3` at mount time. Adding a new
+    # bang-form reference will fail this test.
+
+    setup %{actor_uuid: actor_uuid} do
+      {:ok, project} =
+        Projects.create_project(%{
+          "name" => "Embed scope test #{System.unique_integer([:positive])}",
+          "start_mode" => "immediate",
+          "started_at" => DateTime.utc_now() |> DateTime.truncate(:second)
+        })
+
+      _ = actor_uuid
+      {:ok, project: project}
+    end
+
+    test "mounts off-router without :phoenix_kit_current_scope in assigns", %{
+      conn: conn,
+      project: project
+    } do
+      # `live_isolated` mounts the LV without going through the router,
+      # so no `phoenix_kit_routes()` on_mount fires. The LV must render
+      # without crashing.
+      {:ok, _view, html} =
+        live_isolated(conn, PhoenixKitProjects.Web.ProjectShowLive,
+          session: %{"id" => project.uuid}
+        )
+
+      assert html =~ project.name
+    end
+
+    test "opening the comments drawer off-router does not crash", %{
+      conn: conn,
+      project: project
+    } do
+      {:ok, view, _html} =
+        live_isolated(conn, PhoenixKitProjects.Web.ProjectShowLive,
+          session: %{"id" => project.uuid}
+        )
+
+      # Triggers the `comments_drawer_open` render branch that reads the
+      # missing-by-design `:phoenix_kit_current_scope` assign. Pre-fix
+      # this raised `KeyError`; post-fix the bracket-access pattern
+      # tolerates the missing assign and the drawer renders with
+      # `current_user: nil`.
+      html =
+        render_hook(view, "open_comments", %{
+          "type" => "project",
+          "uuid" => project.uuid,
+          "title" => project.name
+        })
+
+      # The drawer renders an `<aside aria-label="Comments">` with the
+      # resource title in the header. Pre-fix this branch crashed with
+      # `KeyError :phoenix_kit_current_scope`; the assertion proves the
+      # render path completed.
+      assert html =~ ~s|aria-label="Comments"|
+      assert html =~ project.name
+    end
+
+    test "no other bang-form router-assign refs in PKP source", _context do
+      # Process-level guard: grep PKP `lib/` for any `@phoenix_kit_…`
+      # bang-form reference. The fix renamed the only such site to a
+      # bracket-access pattern; if anyone adds a new one, this test
+      # will fail at the next CI run instead of waiting for a host
+      # integration to hit it. Mirror the audit pattern documented in
+      # the Andi field report.
+      offenders =
+        :phoenix_kit_projects
+        |> :code.priv_dir()
+        |> Path.join("../lib")
+        |> Path.expand()
+        |> Path.join("**/*.ex")
+        |> Path.wildcard()
+        |> Enum.flat_map(fn file ->
+          file
+          |> File.read!()
+          |> String.split("\n")
+          |> Enum.with_index(1)
+          |> Enum.filter(fn {line, _} ->
+            String.match?(line, ~r/@phoenix_kit_[a-z]/) and
+              not String.starts_with?(String.trim_leading(line), "#")
+          end)
+          |> Enum.map(fn {line, n} -> "#{file}:#{n}: #{String.trim(line)}" end)
+        end)
+
+      assert offenders == [],
+             "Bang-form @phoenix_kit_* references found — use assigns[:key] instead:\n" <>
+               Enum.join(offenders, "\n")
+    end
+  end
+
   describe "ProjectsLive embed" do
     test "mounts via live_isolated", %{conn: conn} do
       {:ok, _view, html} =

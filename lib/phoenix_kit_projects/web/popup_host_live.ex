@@ -37,8 +37,16 @@ defmodule PhoenixKitProjects.Web.PopupHostLive do
   - `"max_stack_depth"` (optional) — positive integer in `1..20`
     overriding the default 5-frame cap. Values outside that band are
     clamped to the default with a logged warning.
+  - `"modal_box_class"` (optional) — daisyUI `modal-box` sizing
+    overrides. Defaults to `"w-11/12 max-w-6xl"` (91% viewport,
+    capped at 72rem). Pass a different size class (`"max-w-4xl"`,
+    `"max-w-7xl"`, etc.) if a host page wants a narrower or wider
+    modal.
 
-  ## Example mount (from a host app's router)
+  ## Example: dashboard root view (`OverviewLive`)
+
+  For a dedicated admin page that lists projects/tasks/templates
+  with modal-stacked detail views:
 
       live "/orders/:id/projects", MyApp.OrderProjectsLive
 
@@ -55,9 +63,25 @@ defmodule PhoenixKitProjects.Web.PopupHostLive do
            }
          })}
 
-  Whenever the embedded `OverviewLive` (or anything it transitively
-  opens) emits `:opened`, this LV renders the target inside a modal
-  on the host's existing page. No URL change. No DOM replacement.
+  ## Example: single project show inside a host record's edit page
+
+  The common host-app shape — a host record (order, ticket, etc.)
+  has one linked project and the edit page embeds its detail view:
+
+      {Phoenix.Component.live_render(@socket, PhoenixKitProjects.Web.PopupHostLive,
+         id: "embedded-project-host-#\{@host_record.uuid}",
+         session: %{
+           "pubsub_topic" => "host:foo:" <> @host_record.uuid,
+           "root_view" => %{
+             "lv" => "PhoenixKitProjects.Web.ProjectShowLive",
+             "session" => %{"id" => @host_record.project_uuid}
+           },
+           "locale" => @locale
+         })}
+
+  Whenever the embedded LV (or anything it transitively opens) emits
+  `:opened`, this LV renders the target inside a modal on the host's
+  existing page. No URL change. No DOM replacement.
   """
 
   use Phoenix.LiveView, layout: false
@@ -100,6 +124,7 @@ defmodule PhoenixKitProjects.Web.PopupHostLive do
     wrapper_class = Map.get(session, "wrapper_class", @default_wrapper_class)
     host_locale = Map.get(session, "locale")
     max_stack_depth = decode_max_stack_depth(Map.get(session, "max_stack_depth"))
+    modal_box_class = Map.get(session, "modal_box_class")
 
     if connected?(socket), do: ProjectsPubSub.subscribe(topic)
 
@@ -111,6 +136,7 @@ defmodule PhoenixKitProjects.Web.PopupHostLive do
        host_locale: host_locale,
        wrapper_class: wrapper_class,
        max_stack_depth: max_stack_depth,
+       modal_box_class: modal_box_class,
        modal_stack: [],
        root_view: root_view
      )}
@@ -377,6 +403,13 @@ defmodule PhoenixKitProjects.Web.PopupHostLive do
 
   defp normalize_frame_ref(_), do: nil
 
+  # daisyUI `modal-box` already constrains horizontal real-estate (default
+  # `w-11/12 max-w-6xl`); form LVs whose standalone default is
+  # `mx-auto max-w-xl` would otherwise stack a second 576px cap on top,
+  # leaving most of the modal empty. Stamp a full-width wrapper for
+  # children unless the host explicitly passed one.
+  @child_wrapper_class "flex flex-col w-full px-4 py-6 gap-4"
+
   defp push_frame(socket, lv, child_session) do
     frame_ref = System.unique_integer([:positive, :monotonic])
 
@@ -385,6 +418,7 @@ defmodule PhoenixKitProjects.Web.PopupHostLive do
       |> Map.put("mode", "emit")
       |> Map.put("pubsub_topic", socket.assigns.host_topic)
       |> Map.put("frame_ref", frame_ref)
+      |> Map.put_new("wrapper_class", @child_wrapper_class)
       |> maybe_put_locale_key(socket.assigns[:host_locale])
 
     frame = %{
@@ -433,6 +467,7 @@ defmodule PhoenixKitProjects.Web.PopupHostLive do
       modal_stack={@modal_stack}
       on_close="close_top_modal"
       class={@wrapper_class}
+      modal_box_class={@modal_box_class || "w-11/12 max-w-6xl"}
     >
       <%= if @root_view do %>
         {Phoenix.Component.live_render(@socket, @root_view.lv,

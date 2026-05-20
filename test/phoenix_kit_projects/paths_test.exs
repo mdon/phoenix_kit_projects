@@ -15,7 +15,13 @@ defmodule PhoenixKitProjects.PathsTest do
 
   alias PhoenixKitProjects.Paths
 
-  @prefix "/admin/projects"
+  # phoenix_kit core PR #552 made the primary-locale strip on
+  # `Routes.admin_path/2` conditional on the site-wide
+  # `default_language_no_prefix` setting (default `false`). With the
+  # setting OFF, primary-locale admin URLs now include the `/en/`
+  # segment again — restoring the pre-#551 shape. Hosts that want the
+  # prefixless shape flip the toggle on `/admin/settings/languages`.
+  @prefix "/en/admin/projects"
 
   test "index/0 returns the base admin URL" do
     assert Paths.index() == @prefix

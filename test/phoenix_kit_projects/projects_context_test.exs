@@ -142,6 +142,50 @@ defmodule PhoenixKitProjects.ProjectsContextTest do
       assert is_map(result)
       assert result.project.uuid == project.uuid
     end
+
+    test "progress_pct averages partial progress across assignments" do
+      # Three assignments: 0%, 50%, 100% — average is 50%.
+      # Pre-change the rollup was `done / total * 100` = `1 / 3 * 100` = 33%.
+      # Post-change the rollup is `sum / total` = `(0 + 50 + 100) / 3` = 50%.
+      project = fixture_project()
+      task = fixture_task()
+
+      base = %{"project_uuid" => project.uuid, "task_uuid" => task.uuid}
+
+      {:ok, _} = Projects.create_assignment(Map.put(base, "status", "todo"))
+      {:ok, mid} = Projects.create_assignment(Map.put(base, "status", "in_progress"))
+      {:ok, full} = Projects.create_assignment(Map.put(base, "status", "in_progress"))
+
+      {:ok, _} = Projects.update_assignment_status(mid, %{"progress_pct" => 50})
+      {:ok, _} = Projects.update_assignment_status(full, %{"progress_pct" => 100})
+
+      [summary] = Projects.project_summaries([project])
+      assert summary.total == 3
+      assert summary.progress_pct == 50
+    end
+
+    test "progress_pct returns 0 for a project with no assignments" do
+      project = fixture_project()
+      [summary] = Projects.project_summaries([project])
+
+      assert summary.total == 0
+      assert summary.progress_pct == 0
+    end
+
+    test "progress_pct = 100 when every assignment is fully done" do
+      project = fixture_project()
+      task = fixture_task()
+      base = %{"project_uuid" => project.uuid, "task_uuid" => task.uuid}
+
+      {:ok, a} = Projects.create_assignment(Map.put(base, "status", "in_progress"))
+      {:ok, b} = Projects.create_assignment(Map.put(base, "status", "in_progress"))
+
+      {:ok, _} = Projects.update_assignment_status(a, %{"progress_pct" => 100})
+      {:ok, _} = Projects.update_assignment_status(b, %{"progress_pct" => 100})
+
+      [summary] = Projects.project_summaries([project])
+      assert summary.progress_pct == 100
+    end
   end
 
   describe "assignment_status_counts/0" do

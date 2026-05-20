@@ -215,6 +215,12 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
 
     total = length(assignments)
     done = Enum.count(assignments, &(&1.status == "done"))
+    # Rollup is the average of all assignments' `progress_pct` values
+    # — a half-finished task contributes 50%, not 0%. Auto-completion
+    # (`recompute_project_completion/1`) stays binary: a project only
+    # auto-flags as completed when every assignment is `status: "done"`,
+    # not when the rollup happens to hit 100% by other means.
+    progress_sum = Enum.reduce(assignments, 0, &(&1.progress_pct + &2))
     schedule = calculate_schedule(socket.assigns.project, assignments)
 
     assign(socket,
@@ -222,7 +228,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       deps_by_assignment: deps_by_assignment,
       total_tasks: total,
       done_tasks: done,
-      progress_pct: if(total > 0, do: round(done / total * 100), else: 0),
+      progress_pct: if(total > 0, do: round(progress_sum / total), else: 0),
       schedule: schedule
     )
   end
@@ -1817,7 +1823,9 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
               id={"comments-drawer-#{@comments_resource.type}-#{@comments_resource.uuid}"}
               resource_type={@comments_resource.type}
               resource_uuid={@comments_resource.uuid}
-              current_user={@phoenix_kit_current_scope && @phoenix_kit_current_scope.user}
+              current_user={
+                (scope = assigns[:phoenix_kit_current_scope]) && scope.user
+              }
               title=""
               show_likes={true}
             />
