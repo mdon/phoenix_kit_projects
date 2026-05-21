@@ -60,6 +60,20 @@ defmodule PhoenixKitProjects.Web.Components.PopupHost do
   attr(:modal_stack, :list, required: true)
   attr(:on_close, :string, default: "close_top_modal")
   attr(:class, :string, default: nil)
+
+  attr(:modal_box_class, :string,
+    default: "w-11/12 max-w-6xl",
+    doc: """
+    daisyUI `modal-box` sizing/class overrides. Default
+    `"w-11/12 max-w-6xl"` takes 91% of the viewport width capped at
+    `max-w-6xl` (72rem ≈ 1152px) — wider than daisyUI's default
+    `max-w-md` so embedded admin LVs (project show, assignment form,
+    etc.) have room for tables + cards + timelines. Pass a different
+    Tailwind size class (`"max-w-4xl"`, `"max-w-7xl"`, etc.) if a
+    host page wants a narrower or wider modal.
+    """
+  )
+
   slot(:inner_block, required: true)
 
   slot :frame, required: true do
@@ -106,7 +120,7 @@ defmodule PhoenixKitProjects.Web.Components.PopupHost do
         phx-value-frame-ref={frame.frame_ref}
         data-frame-ref={frame.frame_ref}
       >
-        <div class="modal-box max-w-4xl relative">
+        <div class={["modal-box", @modal_box_class, "relative"]}>
           <%!--
             Loading overlay — visible immediately when the dialog mounts,
             fades out after ~400ms. The embedded LV's `live_render` dead

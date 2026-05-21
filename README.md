@@ -22,9 +22,11 @@ A [PhoenixKit](https://github.com/BeamLabEU/phoenix_kit) plugin for **project + 
 Add to your parent PhoenixKit app's `mix.exs`:
 
 ```elixir
-{:phoenix_kit_staff, path: "../phoenix_kit_staff"},
-{:phoenix_kit_projects, path: "../phoenix_kit_projects"}
+{:phoenix_kit_staff, "~> 0.1"},
+{:phoenix_kit_projects, "~> 0.4"}
 ```
+
+(For local development inside the PhoenixKit workspace, use the path-dep form instead: `{:phoenix_kit_projects, path: "../phoenix_kit_projects"}`.)
 
 `phoenix_kit_staff` is a **hard dependency** — assignment and task schemas reference staff tables for the polymorphic assignee.
 
