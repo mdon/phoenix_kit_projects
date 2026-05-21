@@ -1,19 +1,22 @@
 defmodule PhoenixKitProjects.Web.Components.AITranslateBarTest do
   @moduledoc """
-  Rendering contract for `<.ai_translate_bar>`.
+  Rendering contract for `<.ai_translate_button>` + `<.ai_translate_modal>`.
 
-  The bar is pure-emit (no state of its own) — every visible
-  affordance is driven by the `ai_translate` attr passed in by the
-  host. These tests pin the rendering contract so a host LV (project,
-  template, task form, or a custom embedder) can rely on:
+  The pair replaced the earlier 40-button inline bar (unusable when
+  apps have many enabled languages) with publishing's editor-style
+  trigger-plus-modal pattern. Both components are pure-emit — every
+  visible state is driven by the `ai_translate` attr the host LV
+  computes from its socket assigns.
 
-    * `phx-click={event}` + `phx-value-lang={lang}` per missing lang
-    * Bulk `phx-value-lang="*"` sentinel when ≥2 actionable
-    * Spinner instead of sparkle when a lang is in_flight
-    * Bulk button disabled while ANY lang is in_flight (closes the
-      rapid-double-click gap surfaced by Phase 2 triage)
-    * Hidden entirely when disabled, missing event name, or empty
-      actionable set
+  Tests pin the rendering contract so a host LV (project, template,
+  task form, or a custom embedder) can rely on:
+
+    * trigger button shows a missing-count badge or spinner badge
+    * modal renders endpoint/prompt selects with current selections
+    * modal action buttons disable correctly when prerequisites are
+      missing (no endpoint, no prompt, anything in flight)
+    * graceful failure: nil / non-map / blank-event configs render
+      nothing rather than crashing
   """
 
   use ExUnit.Case, async: true
@@ -21,283 +24,353 @@ defmodule PhoenixKitProjects.Web.Components.AITranslateBarTest do
   import Phoenix.LiveViewTest
   import PhoenixKitProjects.Web.Components.AITranslateBar
 
-  defp bar(ai_translate) do
-    render_component(&ai_translate_bar/1, ai_translate: ai_translate)
+  defp button(ai_translate),
+    do: render_component(&ai_translate_button/1, ai_translate: ai_translate)
+
+  defp modal(ai_translate),
+    do: render_component(&ai_translate_modal/1, ai_translate: ai_translate)
+
+  defp full_cfg(overrides) do
+    Map.merge(
+      %{
+        enabled: true,
+        event: "translate_lang",
+        toggle_event: "toggle_ai",
+        select_endpoint_event: "sel_ep",
+        select_prompt_event: "sel_p",
+        generate_prompt_event: "gen_p",
+        missing: ["es", "de"],
+        in_flight: [],
+        modal_open: false,
+        endpoints: [{"ep-uuid", "OpenAI"}],
+        prompts: [{"p-uuid", "Default"}],
+        selected_endpoint_uuid: "ep-uuid",
+        selected_prompt_uuid: "p-uuid",
+        default_prompt_exists: true,
+        current_lang: "es",
+        primary_lang: "en"
+      },
+      overrides
+    )
   end
 
-  describe "visibility" do
+  describe "ai_translate_button/1 — visibility" do
     test "renders nothing when ai_translate is nil" do
-      assert bar(nil) == ""
+      assert button(nil) == ""
     end
 
     test "renders nothing when enabled: false" do
-      assert bar(%{enabled: false, event: "x", missing: ["es"], in_flight: []}) == ""
+      assert button(full_cfg(%{enabled: false})) == ""
     end
 
-    test "renders nothing when event is blank" do
-      assert bar(%{enabled: true, event: "", missing: ["es"], in_flight: []}) == ""
-      assert bar(%{enabled: true, event: "   ", missing: ["es"], in_flight: []}) == ""
+    test "renders nothing when toggle_event is blank" do
+      assert button(full_cfg(%{toggle_event: ""})) == ""
+      assert button(full_cfg(%{toggle_event: "   "})) == ""
     end
 
-    test "renders nothing when actionable missing list is empty" do
-      assert bar(%{enabled: true, event: "x", missing: [], in_flight: []}) == ""
+    test "renders nothing when there's nothing to translate and nothing in flight" do
+      assert button(full_cfg(%{missing: [], in_flight: []})) == ""
     end
 
-    test "stays visible (as spinner) when every missing lang is in_flight" do
-      # Regression: previously the bar gated visibility on
-      # `actionable_missing/1` (= missing -- in_flight), which made
-      # the whole bar unmount the moment the user clicked "es" on a
-      # single-missing-lang resource: `missing: ["es"]`,
-      # `in_flight: ["es"]` → actionable=[] → bar disappears
-      # mid-translation. Now gated on `normalized_missing != []`, so
-      # the disabled spinner button stays visible until the host
-      # drops the lang from missing (on :translation_completed).
-      cfg = %{enabled: true, event: "x", missing: ["es", "de"], in_flight: ["es", "de"]}
-      html = bar(cfg)
+    test "renders when there are missing langs" do
+      html = button(full_cfg(%{missing: ["es"], in_flight: []}))
+      assert html =~ "AI Translate"
+      assert html =~ ~s|phx-click="toggle_ai"|
+    end
 
+    test "renders when there are in-flight langs even with no remaining missing" do
+      # User clicked translate, job is running, the only missing lang
+      # is now in_flight — the trigger should still show the spinner
+      # badge so the user can re-open the modal to check status.
+      html = button(full_cfg(%{missing: ["es"], in_flight: ["es"]}))
       refute html == ""
       assert html =~ "loading-spinner"
+    end
+
+    test "non-map ai_translate falls back to hidden" do
+      assert button([]) == ""
+      assert button(:atom) == ""
+      assert button("string") == ""
+    end
+  end
+
+  describe "ai_translate_button/1 — badge content" do
+    test "missing count badge when nothing in flight" do
+      html = button(full_cfg(%{missing: ["es", "de", "fr"], in_flight: []}))
+      assert html =~ "3 missing"
+      refute html =~ "loading-spinner"
+    end
+
+    test "spinner badge when any lang in flight (takes precedence over missing count)" do
+      html = button(full_cfg(%{missing: ["es", "de"], in_flight: ["es"]}))
+      assert html =~ "loading-spinner"
+      # Badge shows count of in-flight langs (not missing)
+      assert html =~ "badge-primary"
+    end
+
+    test "aria-expanded reflects modal_open" do
+      assert button(full_cfg(%{modal_open: false})) =~ ~s|aria-expanded="false"|
+      assert button(full_cfg(%{modal_open: true})) =~ ~s|aria-expanded="true"|
+    end
+  end
+
+  describe "ai_translate_modal/1 — visibility" do
+    test "renders nothing when ai_translate is nil" do
+      assert modal(nil) == ""
+    end
+
+    test "renders nothing when enabled: false" do
+      assert modal(full_cfg(%{enabled: false})) == ""
+    end
+
+    test "renders nothing when toggle_event is blank" do
+      assert modal(full_cfg(%{toggle_event: ""})) == ""
+    end
+
+    test "is renderable but not open by default" do
+      html = modal(full_cfg(%{modal_open: false}))
+      # The <dialog> element is still in the DOM (renderable) but
+      # without the `modal-open` class — daisyUI hides it.
+      assert html =~ "ai-translation-modal"
+      refute html =~ "modal-open"
+    end
+
+    test "opens when modal_open: true" do
+      html = modal(full_cfg(%{modal_open: true}))
+      assert html =~ "modal-open"
+    end
+  end
+
+  describe "ai_translate_modal/1 — endpoint selector" do
+    test "renders the endpoints list as options" do
+      html =
+        modal(
+          full_cfg(%{
+            modal_open: true,
+            endpoints: [{"ep-1", "OpenAI"}, {"ep-2", "Claude"}]
+          })
+        )
+
+      assert html =~ ~s|<option value="ep-1"|
+      assert html =~ "OpenAI"
+      assert html =~ ~s|<option value="ep-2"|
+      assert html =~ "Claude"
+    end
+
+    test "marks the selected endpoint as `selected`" do
+      html =
+        modal(
+          full_cfg(%{
+            modal_open: true,
+            endpoints: [{"ep-1", "OpenAI"}, {"ep-2", "Claude"}],
+            selected_endpoint_uuid: "ep-2"
+          })
+        )
+
+      assert html =~ ~s|<option value="ep-2" selected|
+    end
+
+    test "wires phx-change to select_endpoint_event" do
+      html = modal(full_cfg(%{modal_open: true}))
+      assert html =~ ~s|phx-change="sel_ep"|
+    end
+
+    test "empty endpoints list still renders the prompt placeholder option" do
+      html = modal(full_cfg(%{modal_open: true, endpoints: []}))
+      assert html =~ "Select an endpoint"
+    end
+  end
+
+  describe "ai_translate_modal/1 — prompt selector + generate-default" do
+    test "renders Generate Default Prompt button when no default exists" do
+      html =
+        modal(full_cfg(%{modal_open: true, default_prompt_exists: false}))
+
+      assert html =~ "Generate Default Prompt"
+      assert html =~ ~s|phx-click="gen_p"|
+    end
+
+    test "hides Generate Default Prompt button when default already exists" do
+      html = modal(full_cfg(%{modal_open: true, default_prompt_exists: true}))
+      refute html =~ "Generate Default Prompt"
+    end
+  end
+
+  describe "ai_translate_modal/1 — action buttons" do
+    test "renders Translate Missing button with phx-value-lang=\"*\"" do
+      html =
+        modal(
+          full_cfg(%{
+            modal_open: true,
+            missing: ["es", "de"],
+            in_flight: []
+          })
+        )
+
+      assert html =~ ~s|phx-value-lang="*"|
+      assert html =~ "Translate Missing Only (2)"
+    end
+
+    test "Translate Missing disabled when no endpoint selected" do
+      html =
+        modal(
+          full_cfg(%{
+            modal_open: true,
+            selected_endpoint_uuid: nil
+          })
+        )
+
       assert html =~ "btn-disabled"
-      # Bulk button NOT shown — bulk_show?/1 still uses actionable_missing
-      # so an "all in flight" state correctly suppresses the bulk CTA.
+    end
+
+    test "Translate Missing disabled when no prompt selected" do
+      html =
+        modal(
+          full_cfg(%{
+            modal_open: true,
+            selected_prompt_uuid: nil
+          })
+        )
+
+      assert html =~ "btn-disabled"
+    end
+
+    test "Translate Missing disabled while any lang in flight" do
+      html =
+        modal(
+          full_cfg(%{
+            modal_open: true,
+            missing: ["es", "de"],
+            in_flight: ["es"]
+          })
+        )
+
+      assert html =~ "btn-disabled"
+    end
+
+    test "hides Translate Missing when actionable_missing is empty" do
+      html =
+        modal(
+          full_cfg(%{
+            modal_open: true,
+            missing: ["es"],
+            in_flight: ["es"]
+          })
+        )
+
       refute html =~ ~s|phx-value-lang="*"|
     end
 
-    test "single missing lang in_flight stays visible as spinner (single-click UX)" do
-      # The common case: user has a project with 1 missing lang,
-      # clicks the sparkle, the bar must show the spinner while the
-      # job runs rather than disappearing.
-      cfg = %{enabled: true, event: "x", missing: ["es"], in_flight: ["es"]}
-      html = bar(cfg)
-
-      refute html == ""
-      assert html =~ "loading-spinner"
-      assert html =~ ~s|phx-value-lang="es"|
-      assert html =~ "btn-disabled"
-    end
-  end
-
-  describe "per-language sparkle buttons" do
-    test "renders one button per missing language with phx-click + phx-value-lang" do
+    test "renders Translate to Current button when on a non-primary lang in missing" do
       html =
-        bar(%{
-          enabled: true,
-          event: "translate_lang",
-          missing: ["es", "de", "fr"],
-          in_flight: []
-        })
-
-      for lang <- ["es", "de", "fr"] do
-        assert html =~ ~s|phx-click="translate_lang"|
-        assert html =~ ~s|phx-value-lang="#{lang}"|
-      end
-    end
-
-    test "in-flight language renders a spinner and disables the button" do
-      html =
-        bar(%{
-          enabled: true,
-          event: "translate_lang",
-          missing: ["es", "de"],
-          in_flight: ["es"]
-        })
-
-      # Look for the in-flight es button by its phx-value-lang. The
-      # exact spinner class comes from daisyUI's `loading loading-spinner`.
-      assert html =~ ~s|phx-value-lang="es"|
-      assert html =~ "loading-spinner"
-      assert html =~ "btn-disabled"
-    end
-
-    test "non-in-flight language renders sparkle icon (hero-sparkles)" do
-      html =
-        bar(%{
-          enabled: true,
-          event: "translate_lang",
-          missing: ["es"],
-          in_flight: []
-        })
-
-      assert html =~ "hero-sparkles"
-    end
-
-    test "aria-label encodes the uppercased target lang code" do
-      html =
-        bar(%{
-          enabled: true,
-          event: "translate_lang",
-          missing: ["pt-br"],
-          in_flight: []
-        })
-
-      assert html =~ ~s|aria-label="Translate to PT-BR"|
-    end
-  end
-
-  describe "bulk CTA" do
-    test "renders bulk button with phx-value-lang=\"*\" when ≥2 actionable" do
-      html =
-        bar(%{
-          enabled: true,
-          event: "translate_lang",
-          missing: ["es", "de"],
-          in_flight: []
-        })
-
-      assert html =~ ~s|phx-value-lang="*"|
-      assert html =~ "Translate all (2)"
-    end
-
-    test "no bulk button when only 1 actionable language" do
-      html =
-        bar(%{
-          enabled: true,
-          event: "translate_lang",
-          missing: ["es"],
-          in_flight: []
-        })
-
-      refute html =~ ~s|phx-value-lang="*"|
-      refute html =~ "Translate all"
-    end
-
-    test "bulk button disabled when any in-flight (Phase 2 fix)" do
-      # Phase 2 triage finding: clicking "Translate all (N)" twice in
-      # rapid succession would visually leave the button primary-blue
-      # while the second click hit Oban's unique-constraint silently.
-      # The fix: `bulk_busy?/1` looks at `missing -- (missing -- in_flight)`
-      # — any in_flight intersection disables the bulk button.
-      html =
-        bar(%{
-          enabled: true,
-          event: "translate_lang",
-          missing: ["es", "de", "fr"],
-          in_flight: ["es"]
-        })
-
-      assert html =~ "btn-disabled"
-      # Sanity: the bulk button is still rendered (just disabled).
-      assert html =~ ~s|phx-value-lang="*"|
-    end
-
-    test "bulk count subtracts in-flight (only counts actionable)" do
-      # 4 missing, 1 in-flight → actionable = 3
-      html =
-        bar(%{
-          enabled: true,
-          event: "translate_lang",
-          missing: ["es", "de", "fr", "it"],
-          in_flight: ["es"]
-        })
-
-      assert html =~ "Translate all (3)"
-    end
-  end
-
-  describe "weird-input handling — defensive against host bugs" do
-    test "atom lang codes are coerced to strings (don't crash gettext.String.upcase)" do
-      html =
-        bar(%{
-          enabled: true,
-          event: "translate_lang",
-          missing: [:es, :de],
-          in_flight: []
-        })
+        modal(
+          full_cfg(%{
+            modal_open: true,
+            current_lang: "es",
+            primary_lang: "en",
+            missing: ["es", "de"]
+          })
+        )
 
       assert html =~ ~s|phx-value-lang="es"|
-      assert html =~ ~s|phx-value-lang="de"|
       assert html =~ "Translate to ES"
     end
 
-    test "blank / whitespace-only lang codes are dropped" do
+    test "hides Translate to Current when on the primary lang" do
       html =
-        bar(%{
-          enabled: true,
-          event: "translate_lang",
-          missing: ["es", "", "  ", nil],
-          in_flight: []
-        })
+        modal(
+          full_cfg(%{
+            modal_open: true,
+            current_lang: "en",
+            primary_lang: "en",
+            missing: ["es"]
+          })
+        )
 
-      assert html =~ ~s|phx-value-lang="es"|
-      # No empty `phx-value-lang=""` rendered
-      refute html =~ ~s|phx-value-lang=""|
-      # No empty aria-label
-      refute html =~ ~s|aria-label="Translate to "|
+      refute html =~ "Translate to EN"
     end
 
-    test "non-binary, non-atom missing entries are dropped silently (host bug, fail closed)" do
+    test "hides Translate to Current when current_lang isn't in missing (already translated)" do
       html =
-        bar(%{
-          enabled: true,
-          event: "translate_lang",
-          missing: ["es", 123, {:tuple, :nope}, %{}],
-          in_flight: []
-        })
+        modal(
+          full_cfg(%{
+            modal_open: true,
+            current_lang: "fr",
+            primary_lang: "en",
+            missing: ["es", "de"]
+          })
+        )
 
-      assert html =~ ~s|phx-value-lang="es"|
-      # Bulk button needs ≥2 actionable; only "es" survived
-      refute html =~ ~s|phx-value-lang="*"|
+      refute html =~ "Translate to FR"
     end
+  end
 
-    test "all-blank missing list renders nothing (no orphan bar with just label)" do
-      assert bar(%{
-               enabled: true,
-               event: "translate_lang",
-               missing: ["", nil, "   "],
-               in_flight: []
-             }) == ""
-    end
-
-    test "in_flight list with atom entries matches against normalized missing" do
-      # Host might pass `[:es]` for in_flight while `missing` is string-keyed.
-      # Both sides should normalize, so `:es` in_flight matches `"es"` missing.
+  describe "ai_translate_modal/1 — status panel" do
+    test "shows in-flight alert listing the langs currently translating" do
       html =
-        bar(%{
-          enabled: true,
-          event: "translate_lang",
-          missing: ["es", "de"],
-          in_flight: [:es]
-        })
+        modal(
+          full_cfg(%{
+            modal_open: true,
+            missing: ["es", "de"],
+            in_flight: ["es", "de"]
+          })
+        )
 
-      # `es` should render as disabled spinner, not sparkle
       assert html =~ "loading-spinner"
-      assert html =~ "btn-disabled"
+      assert html =~ "ES, DE"
     end
 
-    test "non-map ai_translate (e.g. a list passed by mistake) returns nothing" do
-      # The component pattern-matches on `is_map/1` in visible?/1; any
-      # non-map input falls through to the nil clause.
-      assert bar([]) == ""
-      assert bar(:enabled) == ""
-      assert bar("string") == ""
+    test "shows 'all already translated' message when nothing to do" do
+      html =
+        modal(
+          full_cfg(%{
+            modal_open: true,
+            missing: [],
+            in_flight: [],
+            current_lang: "en",
+            primary_lang: "en"
+          })
+        )
+
+      assert html =~ "All enabled languages already have translations"
+    end
+  end
+
+  describe "weird-input handling" do
+    test "atom lang codes are normalized in the trigger badge" do
+      html = button(full_cfg(%{missing: [:es, :de], in_flight: []}))
+      assert html =~ "2 missing"
+    end
+
+    test "blank / nil entries in missing are dropped" do
+      html = button(full_cfg(%{missing: ["es", "", nil, "  "], in_flight: []}))
+      assert html =~ "1 missing"
+    end
+
+    test "non-binary, non-atom entries are dropped silently" do
+      html = button(full_cfg(%{missing: ["es", 123, %{}, {:tuple}], in_flight: []}))
+      assert html =~ "1 missing"
     end
   end
 
   describe "string-keyed config (JSON / JSONB hosts)" do
     test "accepts string keys equivalently to atom keys" do
-      atom_html =
-        bar(%{
-          enabled: true,
-          event: "translate_lang",
-          missing: ["es"],
-          in_flight: []
-        })
+      atom_html = button(full_cfg(%{missing: ["es"]}))
 
-      string_html =
-        bar(%{
-          "enabled" => true,
-          "event" => "translate_lang",
-          "missing" => ["es"],
-          "in_flight" => []
-        })
+      string_cfg =
+        full_cfg(%{}) |> Map.new(fn {k, v} -> {Atom.to_string(k), v} end)
 
-      # Both should produce the same per-button affordances. The exact
-      # whitespace may differ from EEx rendering, so compare the
-      # button-shaped pieces individually.
-      assert atom_html =~ ~s|phx-value-lang="es"|
-      assert string_html =~ ~s|phx-value-lang="es"|
-      assert atom_html =~ "hero-sparkles"
-      assert string_html =~ "hero-sparkles"
+      string_html = button(Map.put(string_cfg, "missing", ["es"]))
+
+      assert atom_html =~ "AI Translate"
+      assert string_html =~ "AI Translate"
+    end
+  end
+
+  describe "backward-compat alias ai_translate_bar/1" do
+    test "still forwards to the new button surface" do
+      html = render_component(&ai_translate_bar/1, ai_translate: full_cfg(%{missing: ["es"]}))
+      assert html =~ "AI Translate"
     end
   end
 end
