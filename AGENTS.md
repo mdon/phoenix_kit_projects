@@ -333,7 +333,9 @@ Versioning follows [SemVer](https://semver.org/). The version appears in two pla
 
 Release checklist:
 
-1. Bump both versions; add a `CHANGELOG.md` entry
+1. Bump both versions; add a `CHANGELOG.md` entry. Date the header in the
+   workspace-standard format `## x.y.z - YYYY-MM-DD` (matches core
+   `phoenix_kit`, `phoenix_kit_publishing`, `phoenix_kit_document_creator`).
 2. Run `mix precommit` — must exit clean
 3. Commit ("Bump version to x.y.z") and push
 4. Tag with the bare version: `git tag x.y.z && git push origin x.y.z`

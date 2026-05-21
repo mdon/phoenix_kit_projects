@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0
+## 0.5.0 - 2026-05-21
 
 AI-driven translation for projects, templates, and tasks — an Oban-backed worker plus an in-form translate UI — alongside a batch of field-report fixes (embedded-mount crash, partial-progress rollup, translatable templates, popup width).
 
@@ -29,7 +29,7 @@ AI-driven translation for projects, templates, and tasks — an Oban-backed work
 
 - New `translations_test.exs` + `translate_resource_worker_test.exs` (argument validation, deterministic-failure discard, broadcast fan-out, merge + source-lang semantics, overwrite-flag propagation), `ai_translate_form_helpers_test.exs` + `ai_translate_bar_test.exs` (missing-language detection, merge policy, scope/visibility), and an `embedding_test.exs` regression that greps `lib/` for any `@phoenix_kit_*` bang-form reference.
 
-## 0.4.0
+## 0.4.0 - 2026-05-19
 
 Adopts phoenix_kit core PR #551 — shared utilities consolidated upstream — plus emit-mode review follow-ups and UX polish.
 
@@ -61,7 +61,7 @@ Adopts phoenix_kit core PR #551 — shared utilities consolidated upstream — p
 
 - New pure-changeset suites — `schemas/project_test.exs` (26 tests: required/length validation, `start_mode` enum, `derived_status/2` cascade, `planned_end_for/2` + `eta_from/3` branches) and `schemas/dependency_test.exs` (required validation, self-reference rejection).
 
-## 0.3.0
+## 0.3.0 - 2026-05-15
 
 Emit-mode navigation + PopupHostLive for embedded LiveViews, locale inheritance fixes, and UI polish.
 
@@ -91,7 +91,7 @@ Emit-mode navigation + PopupHostLive for embedded LiveViews, locale inheritance 
 - **Emit-mode regression gate** — `embedding_emit_test.exs` (53 tests) + `popup_host_live_test.exs` (27 tests) covering mount, event round-trips, `frame_ref` stamping, race-safe pops, stack-depth caps, and `next:` chaining.
 - **Helper embed tests** — `helpers_embed_test.exs` (15 tests) covering `safe_internal_path?/1`, `assign_embed_state/2`, and emit-vs-navigate branching.
 
-## 0.2.2
+## 0.2.2 - 2026-05-13
 
 Dialyzer clean-up + version sync.
 
@@ -107,7 +107,7 @@ Dialyzer clean-up + version sync.
 - **Version drift** — `def version/0` was returning `"0.2.0"` while `mix.exs`
   already declared `0.2.1`. Aligned both to the declared version.
 
-## 0.2.1
+## 0.2.1 - 2026-05-13
 
 Embed support + ETA refactor + Phase 2 re-validation sweep (PR #6) plus
 post-merge follow-up (review under
@@ -178,7 +178,7 @@ post-merge follow-up (review under
 - **PR #4 follow-up** — docstring symmetry on reorder helpers (Phase 1
   triage of `CLAUDE_REVIEW.md`).
 
-## 0.2.0
+## 0.2.0 - 2026-05-11
 
 ### Added
 
@@ -236,7 +236,7 @@ post-merge follow-up (review under
 - **Precommit hygiene** — resolved all credo strict issues and suppressed a
   Dialyzer false-positive on recursive `MapSet` opacity.
 
-## 0.1.1
+## 0.1.1 - 2026-04-30
 
 Quality sweep + re-validation pass (PR #2) plus post-merge follow-up
 fixes (PR #2 review).
@@ -315,7 +315,7 @@ fixes (PR #2 review).
 - Dialyzer: 6 pre-existing unknown-type warnings → 0 errors.
 - Credo `--strict`: 0 issues.
 
-## 0.1.0
+## 0.1.0 - 2026-04-20
 
 - Initial release: project + task management with polymorphic assignees
   (team / department / person), per-project and template-level dependencies
