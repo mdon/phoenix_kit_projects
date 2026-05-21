@@ -1,0 +1,442 @@
+defmodule PhoenixKitProjects.Workers.TranslateResourceWorker do
+  @moduledoc """
+  Oban worker that translates a `Project` / `Task` / `Assignment`'s
+  translatable fields from a source language to a single target
+  language, then writes the result into the resource's `translations`
+  JSONB map.
+
+  Templates use the same `Project` schema as regular projects (with
+  `is_template: true`), so `resource_type` of `"project"` or
+  `"template"` both route through `Project`. The distinction shows up
+  only in the activity-log entry and the user-facing flash text.
+
+  ## Job arg shape
+
+      %{
+        "resource_type" => "project" | "template" | "task" | "assignment",
+        "resource_uuid" => uuid,
+        "endpoint_uuid" => uuid,        # PhoenixKitAI endpoint
+        "prompt_uuid" => uuid,          # PhoenixKitAI prompt template
+        "source_lang" => "en",
+        "target_lang" => "es",
+        "actor_uuid" => uuid_or_nil
+      }
+
+  ## Storage
+
+  Writes to `resource.translations[target_lang]` via the resource's
+  existing changeset, preserving any pre-existing translations on
+  other languages. The shape matches what the multilang form writes
+  (e.g. `%{"et" => %{"name" => "...", "description" => "..."}}`) so
+  the form's edit round-trip works unchanged after a translation
+  finishes.
+
+  ## Broadcasts
+
+  - `{:projects, :translation_started, %{...}}` before the AI call
+  - `{:projects, :translation_completed, %{...}}` after a successful write
+  - `{:projects, :translation_failed, %{...}}` on any failure path
+
+  Payload always includes `resource_type`, `resource_uuid`,
+  `target_lang`. `:translation_failed` adds `reason` (a normalised
+  atom or `{atom, term}` tuple from `PhoenixKit.Modules.AI.Translation`).
+
+  ## Uniqueness
+
+  One job in flight per `(resource_uuid, target_lang)` pair so a
+  double-click in the UI doesn't burn AI tokens twice. Other target
+  languages on the same resource can run concurrently.
+
+  ## Auto-completion
+
+  Mirrors publishing's `TranslatePostWorker` shape (queue, retry
+  policy, activity-log action) but writes a much smaller surface
+  (no version model, no per-language status, no cache invalidation).
+  Each module owns its own broadcast topic + activity-log action;
+  the actual AI orchestration lives in
+  `PhoenixKit.Modules.AI.Translation`.
+  """
+
+  use Oban.Worker,
+    queue: :default,
+    max_attempts: 3,
+    unique: [
+      keys: [:resource_uuid, :target_lang],
+      states: [:available, :scheduled, :executing, :retryable]
+    ]
+
+  require Logger
+
+  alias PhoenixKit.Modules.AI.Translation
+  alias PhoenixKit.PubSub.Manager, as: PubSubManager
+  alias PhoenixKitProjects.{Activity, Projects}
+  alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
+  alias PhoenixKitProjects.Schemas.{Assignment, Project, Task}
+
+  # `PhoenixKit.Modules.AI.Translation` was added in phoenix_kit core
+  # PR #557. Older Hex versions of phoenix_kit don't export the
+  # `translate_fields/6` orchestrator — flag MFA target so the build
+  # stays clean against either, then guard the call site at runtime.
+  @compile {:no_warn_undefined, [{Translation, :translate_fields, 6}]}
+
+  @resource_types ~w(project template task assignment)
+
+  @impl Oban.Worker
+  def perform(%Oban.Job{args: args}) do
+    with {:ok, type} <- fetch_resource_type(args),
+         {:ok, uuid} <- fetch_string(args, "resource_uuid"),
+         {:ok, endpoint_uuid} <- fetch_string(args, "endpoint_uuid"),
+         {:ok, prompt_uuid} <- fetch_string(args, "prompt_uuid"),
+         {:ok, source_lang} <- fetch_string(args, "source_lang"),
+         {:ok, target_lang} <- fetch_string(args, "target_lang"),
+         {:ok, resource} <- load_resource(type, uuid) do
+      actor_uuid = Map.get(args, "actor_uuid")
+
+      do_translate(resource, type, %{
+        endpoint_uuid: endpoint_uuid,
+        prompt_uuid: prompt_uuid,
+        source_lang: source_lang,
+        target_lang: target_lang,
+        actor_uuid: actor_uuid
+      })
+    else
+      {:error, reason} ->
+        # Deterministic failures (missing args, resource_not_found,
+        # resource_type_mismatch) are not worth retrying — Oban would
+        # just burn the max_attempts running the same broken job.
+        # Surface a normalised `:translation_failed` broadcast using
+        # whatever args we have, then discard.
+        broadcast_early_failure(args, reason)
+        {:discard, reason}
+    end
+  end
+
+  # `broadcast/5` needs the resource for type-aware fan-out; on a deterministic
+  # arg-validation error we don't have one. Broadcast on `projects:all` only
+  # so subscribed admin LVs see the failure without crashing on a nil resource.
+  defp broadcast_early_failure(args, reason) do
+    payload = %{
+      resource_type: Map.get(args, "resource_type"),
+      resource_uuid: Map.get(args, "resource_uuid"),
+      source_lang: Map.get(args, "source_lang"),
+      target_lang: Map.get(args, "target_lang"),
+      reason: reason
+    }
+
+    PubSubManager.broadcast(
+      ProjectsPubSub.topic_all(),
+      {:projects, :translation_failed, payload}
+    )
+  end
+
+  # Public entry point for the host LV — bypasses Oban for callers that
+  # need a synchronous translation (preview-then-save flows). The vast
+  # majority of callers should use `enqueue/1` from
+  # `PhoenixKitProjects.Translations`; this is here for symmetry with
+  # publishing's `translate_now/1`.
+  @doc false
+  def translate_now(%{} = args) do
+    perform(%Oban.Job{args: stringify_keys(args), attempt: 1, inserted_at: DateTime.utc_now()})
+  end
+
+  defp do_translate(resource, type, params) do
+    broadcast(:translation_started, resource, type, params)
+
+    fields = translatable_field_map(resource, type, params.source_lang)
+
+    if map_size(fields) == 0 do
+      # Nothing to translate (every translatable field is empty / nil).
+      # Treat as success — the resource just has no content yet.
+      broadcast(:translation_completed, resource, type, params, fields: %{}, empty: true)
+      :ok
+    else
+      if translation_helper_available?() do
+        case Translation.translate_fields(
+               params.endpoint_uuid,
+               params.prompt_uuid,
+               params.source_lang,
+               params.target_lang,
+               fields,
+               actor_uuid: params.actor_uuid,
+               resource_type: type,
+               resource_uuid: get_uuid(resource),
+               source: "PhoenixKitProjects.Workers.TranslateResourceWorker"
+             ) do
+          {:ok, translated_fields} ->
+            handle_translation_success(resource, type, params, translated_fields)
+
+          {:error, reason} ->
+            handle_translation_failure(resource, type, params, reason)
+        end
+      else
+        # The host app pins a pre-PR-#557 phoenix_kit. Surface the same
+        # `:ai_not_installed` reason `Translation.translate_fields/6`
+        # uses for its plugin-missing case so callers can branch on a
+        # single sentinel.
+        handle_translation_failure(resource, type, params, :ai_not_installed)
+      end
+    end
+  end
+
+  defp translation_helper_available? do
+    Code.ensure_loaded?(Translation) and function_exported?(Translation, :translate_fields, 6)
+  end
+
+  defp handle_translation_success(resource, type, params, translated_fields) do
+    merged = merge_translation(resource, params.target_lang, translated_fields)
+
+    case persist_translation(resource, type, merged) do
+      {:ok, _updated} ->
+        Activity.log("projects.translation_added",
+          actor_uuid: params.actor_uuid,
+          resource_type: type,
+          resource_uuid: get_uuid(resource),
+          metadata: %{
+            "source_lang" => params.source_lang,
+            "target_lang" => params.target_lang,
+            "fields" => Map.keys(translated_fields)
+          }
+        )
+
+        broadcast(:translation_completed, resource, type, params, fields: translated_fields)
+        :ok
+
+      {:error, changeset} ->
+        Logger.warning(
+          "[TranslateResourceWorker] persist failed for #{type} #{get_uuid(resource)}: " <>
+            inspect(changeset.errors)
+        )
+
+        broadcast(:translation_failed, resource, type, params,
+          reason: {:persist_error, changeset.errors}
+        )
+
+        {:error, {:persist_error, changeset.errors}}
+    end
+  end
+
+  defp handle_translation_failure(resource, type, params, reason) do
+    safe_reason = sanitize_reason(reason)
+
+    Logger.warning(
+      "[TranslateResourceWorker] translation failed for #{type} #{get_uuid(resource)} → " <>
+        "#{params.target_lang}: #{safe_reason}"
+    )
+
+    # Broadcast carries the full reason — subscribed LVs are in-process,
+    # not log destinations, so they can render rich error info if they
+    # want. Activity log gets the sanitized form to avoid persisting
+    # plugin-specific structured data (e.g. raw API responses, prompt
+    # excerpts) that the failing path might fold into the reason tuple.
+    broadcast(:translation_failed, resource, type, params, reason: reason)
+
+    Activity.log_failed("projects.translation_added",
+      actor_uuid: params.actor_uuid,
+      resource_type: type,
+      resource_uuid: get_uuid(resource),
+      metadata: %{
+        "source_lang" => params.source_lang,
+        "target_lang" => params.target_lang,
+        "reason" => safe_reason
+      }
+    )
+
+    {:error, reason}
+  end
+
+  # Reduces a translation-failure reason to a stable, log-safe string.
+  # Keeps the top-level shape (`:ai_not_installed`, `{:ai_error, ...}`,
+  # `{:parse_error, ...}`, `{:persist_error, ...}`) but redacts deeper
+  # payloads that may carry prompt text, API keys, or raw responses.
+  defp sanitize_reason(:ai_not_installed), do: "ai_not_installed"
+  defp sanitize_reason({:ai_error, inner}) when is_atom(inner), do: "ai_error:#{inner}"
+
+  defp sanitize_reason({:ai_error, {inner_atom, _}}) when is_atom(inner_atom),
+    do: "ai_error:#{inner_atom}"
+
+  defp sanitize_reason({:ai_error, _}), do: "ai_error:opaque"
+
+  defp sanitize_reason({:parse_error, {kind, _}}) when is_atom(kind),
+    do: "parse_error:#{kind}"
+
+  defp sanitize_reason({:parse_error, kind}) when is_atom(kind),
+    do: "parse_error:#{kind}"
+
+  defp sanitize_reason({:persist_error, _}), do: "persist_error"
+  defp sanitize_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp sanitize_reason(_), do: "unknown"
+
+  # Builds `%{field_name => primary_text}` for fields whose primary
+  # value is a non-empty string. Skipping empty fields keeps the AI
+  # prompt focused — translating empty strings is a token waste and
+  # confuses the model.
+  defp translatable_field_map(resource, type, source_lang) do
+    schema = schema_for(type)
+
+    resource_lang_map = Map.get(resource.translations || %{}, source_lang, %{})
+
+    schema.translatable_fields()
+    |> Enum.reduce(%{}, fn field, acc ->
+      value = field_value(resource, field, resource_lang_map)
+
+      if is_binary(value) and String.trim(value) != "" do
+        Map.put(acc, field, value)
+      else
+        acc
+      end
+    end)
+  end
+
+  # The source value to translate from: the secondary-language column
+  # in `translations[source_lang]` if present, otherwise the primary
+  # column on the resource. This lets a host translate "from Estonian
+  # to French" by passing `source_lang: "et"` after writing the
+  # Estonian translation, even though the schema's primary column
+  # holds English.
+  defp field_value(resource, field, lang_map) do
+    case Map.get(lang_map, field) do
+      v when is_binary(v) and v != "" ->
+        v
+
+      _ ->
+        # Guard: `translatable_fields/0` returns strings that should map
+        # one-to-one onto Ecto schema fields (atoms), so the atom always
+        # exists at runtime. The rescue is belt-and-suspenders for the
+        # case where a future schema lists a field name that's never
+        # been used as an atom anywhere — falling through to nil makes
+        # `translatable_field_map/3` skip it as if blank.
+        try do
+          Map.get(resource, String.to_existing_atom(field))
+        rescue
+          ArgumentError -> nil
+        end
+    end
+  end
+
+  defp merge_translation(resource, target_lang, translated_fields) do
+    existing = resource.translations || %{}
+    target_map = Map.get(existing, target_lang, %{})
+    new_target_map = Map.merge(target_map, translated_fields)
+    Map.put(existing, target_lang, new_target_map)
+  end
+
+  defp persist_translation(resource, "task", merged) do
+    Projects.update_task(resource, %{"translations" => merged})
+  end
+
+  defp persist_translation(resource, "assignment", merged) do
+    Projects.update_assignment_form(resource, %{"translations" => merged})
+  end
+
+  defp persist_translation(resource, type, merged) when type in ["project", "template"] do
+    Projects.update_project(resource, %{"translations" => merged})
+  end
+
+  defp schema_for("project"), do: Project
+  defp schema_for("template"), do: Project
+  defp schema_for("task"), do: Task
+  defp schema_for("assignment"), do: Assignment
+
+  defp load_resource("task", uuid) do
+    case Projects.get_task(uuid) do
+      nil -> {:error, :resource_not_found}
+      task -> {:ok, task}
+    end
+  end
+
+  defp load_resource("assignment", uuid) do
+    case Projects.get_assignment(uuid) do
+      nil -> {:error, :resource_not_found}
+      assignment -> {:ok, assignment}
+    end
+  end
+
+  defp load_resource(type, uuid) when type in ["project", "template"] do
+    case Projects.get_project(uuid) do
+      nil ->
+        {:error, :resource_not_found}
+
+      %Project{is_template: true} = template when type == "template" ->
+        {:ok, template}
+
+      %Project{is_template: false} = project when type == "project" ->
+        {:ok, project}
+
+      # Mismatch: caller passed `"project"` for a template row (or
+      # vice versa). The persistence update would still work, but the
+      # activity log + broadcast event would carry the wrong
+      # `resource_type` for the row's actual lifecycle. Reject so the
+      # caller fixes the type.
+      %Project{} = row ->
+        {:error,
+         {:resource_type_mismatch,
+          expected: type, actual: if(row.is_template, do: "template", else: "project")}}
+    end
+  end
+
+  defp fetch_resource_type(args) do
+    case Map.get(args, "resource_type") do
+      type when type in @resource_types -> {:ok, type}
+      other -> {:error, {:invalid_resource_type, other}}
+    end
+  end
+
+  defp fetch_string(args, key) do
+    case Map.get(args, key) do
+      v when is_binary(v) and v != "" -> {:ok, v}
+      _ -> {:error, {:missing_arg, key}}
+    end
+  end
+
+  defp get_uuid(%{uuid: uuid}), do: uuid
+
+  defp broadcast(event, resource, type, params, extra \\ []) do
+    payload =
+      %{
+        resource_type: type,
+        resource_uuid: get_uuid(resource),
+        source_lang: params.source_lang,
+        target_lang: params.target_lang
+      }
+      |> Map.merge(Map.new(extra))
+
+    msg = {:projects, event, payload}
+
+    # `projects:all` always — global subscribers (admin dashboard,
+    # activity feed) see every translation event.
+    PubSubManager.broadcast(ProjectsPubSub.topic_all(), msg)
+
+    # Per-type fan-out so the LV that already subscribes to a topic
+    # for content changes (`projects:tasks` from TasksLive,
+    # `projects:templates` from TemplatesLive, `projects:project:<uuid>`
+    # from ProjectShowLive) also receives translation lifecycle
+    # events for the same resource. Matches the existing
+    # `broadcast_task/2` / `broadcast_project/2` fan-out shape.
+    Enum.each(broadcast_topics(resource, type), fn topic ->
+      PubSubManager.broadcast(topic, msg)
+    end)
+  end
+
+  defp broadcast_topics(_resource, "task"), do: [ProjectsPubSub.topic_tasks()]
+
+  defp broadcast_topics(resource, "template") do
+    [ProjectsPubSub.topic_templates(), ProjectsPubSub.topic_project(resource.uuid)]
+  end
+
+  defp broadcast_topics(resource, "project") do
+    [ProjectsPubSub.topic_project(resource.uuid)]
+  end
+
+  defp broadcast_topics(%Assignment{project_uuid: uuid}, "assignment") when is_binary(uuid) do
+    [ProjectsPubSub.topic_project(uuid)]
+  end
+
+  defp broadcast_topics(_, _), do: []
+
+  defp stringify_keys(map) do
+    Map.new(map, fn
+      {k, v} when is_atom(k) -> {Atom.to_string(k), v}
+      kv -> kv
+    end)
+  end
+end

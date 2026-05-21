@@ -67,7 +67,7 @@ defmodule PhoenixKitProjects.MixProject do
 
   defp deps do
     [
-      {:phoenix_kit, "~> 1.7.114"},
+      {:phoenix_kit, path: "../phoenix_kit", override: true},
       {:phoenix_kit_staff, "~> 0.1"},
       {:phoenix_kit_comments, "~> 0.2"},
 

@@ -73,6 +73,7 @@ defmodule PhoenixKitProjects.Web.Components.PopupHost do
     host page wants a narrower or wider modal.
     """
   )
+
   slot(:inner_block, required: true)
 
   slot :frame, required: true do

@@ -7,7 +7,9 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
 
   import PhoenixKitWeb.Components.MultilangForm
 
-  alias PhoenixKitProjects.{Activity, L10n, Paths, Projects}
+  alias PhoenixKit.PubSub.Manager, as: PubSubManager
+  alias PhoenixKitProjects.{Activity, L10n, Paths, Projects, Translations}
+  alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Schemas.Project
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
 
@@ -33,13 +35,26 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
       |> assign(
         wrapper_class: wrapper_class,
         embed_redirect_to: redirect_to,
-        live_action: live_action
+        live_action: live_action,
+        ai_translate_in_flight: []
       )
       |> WebHelpers.assign_embed_state(session)
       |> WebHelpers.attach_open_embed_hook()
       |> apply_action(live_action, resolved_params)
+      |> maybe_subscribe_translations()
 
     {:ok, socket}
+  end
+
+  defp maybe_subscribe_translations(%{assigns: %{live_action: :new}} = socket), do: socket
+
+  defp maybe_subscribe_translations(socket) do
+    if Phoenix.LiveView.connected?(socket) and Translations.ai_translation_available?() and
+         is_binary(socket.assigns.project.uuid) do
+      PubSubManager.subscribe(ProjectsPubSub.topic_project(socket.assigns.project.uuid))
+    end
+
+    socket
   end
 
   defp apply_action(socket, :new, _params) do
@@ -101,6 +116,10 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
     {:noreply, handle_switch_language(socket, lang_code)}
   end
 
+  def handle_event("translate_lang", %{"lang" => lang}, socket) do
+    {:noreply, dispatch_ai_translate(socket, lang)}
+  end
+
   def handle_event("validate", %{"project" => attrs}, socket) do
     attrs = attrs |> Map.put("is_template", "true") |> merge_attrs(socket)
     cs = socket.assigns.project |> Projects.change_project(attrs) |> Map.put(:action, :validate)
@@ -118,6 +137,209 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
 
   def handle_event("cancel", _params, socket) do
     {:noreply, WebHelpers.close_or_navigate(socket, Paths.templates())}
+  end
+
+  @impl true
+  def handle_info(
+        {:projects, :translation_started, %{resource_uuid: uuid, target_lang: lang}},
+        socket
+      )
+      when uuid == socket.assigns.project.uuid do
+    {:noreply,
+     assign(
+       socket,
+       :ai_translate_in_flight,
+       Enum.uniq([lang | socket.assigns.ai_translate_in_flight])
+     )}
+  end
+
+  def handle_info(
+        {:projects, :translation_completed, %{resource_uuid: uuid, target_lang: lang}},
+        socket
+      )
+      when uuid == socket.assigns.project.uuid do
+    case Projects.get_project(uuid) do
+      nil ->
+        {:noreply,
+         assign(socket, :ai_translate_in_flight, socket.assigns.ai_translate_in_flight -- [lang])}
+
+      reloaded ->
+        new_translation = Map.get(reloaded.translations || %{}, lang, %{})
+
+        {:noreply,
+         socket
+         |> assign(:project, reloaded)
+         |> assign(:ai_translate_in_flight, socket.assigns.ai_translate_in_flight -- [lang])
+         |> patch_form_translations(lang, new_translation)
+         |> put_flash(:info, gettext("Translated to %{lang}.", lang: String.upcase(lang)))}
+    end
+  end
+
+  def handle_info(
+        {:projects, :translation_failed, %{resource_uuid: uuid, target_lang: lang}},
+        socket
+      )
+      when uuid == socket.assigns.project.uuid do
+    {:noreply,
+     socket
+     |> assign(:ai_translate_in_flight, socket.assigns.ai_translate_in_flight -- [lang])
+     |> put_flash(:error, gettext("Translation to %{lang} failed.", lang: String.upcase(lang)))}
+  end
+
+  def handle_info({:projects, _action, _payload}, socket), do: {:noreply, socket}
+
+  defp dispatch_ai_translate(%{assigns: %{live_action: :new}} = socket, _lang) do
+    put_flash(
+      socket,
+      :info,
+      gettext("Save the template first, then you can translate it with AI.")
+    )
+  end
+
+  defp dispatch_ai_translate(socket, lang) do
+    endpoint_uuid = Translations.get_default_ai_endpoint_uuid()
+    prompt_uuid = Translations.get_default_ai_prompt_uuid()
+
+    cond do
+      endpoint_uuid in [nil, ""] ->
+        put_flash(socket, :error, gettext("No AI endpoint configured for translation."))
+
+      prompt_uuid in [nil, ""] ->
+        put_flash(socket, :error, gettext("No translation prompt configured."))
+
+      true ->
+        do_dispatch_ai_translate(socket, lang, endpoint_uuid, prompt_uuid)
+    end
+  end
+
+  defp do_dispatch_ai_translate(socket, "*", endpoint_uuid, prompt_uuid) do
+    missing = ai_translate_missing(socket.assigns)
+
+    base_params = %{
+      resource_type: "template",
+      resource_uuid: socket.assigns.project.uuid,
+      endpoint_uuid: endpoint_uuid,
+      prompt_uuid: prompt_uuid,
+      source_lang: socket.assigns.primary_language,
+      actor_uuid: Activity.actor_uuid(socket)
+    }
+
+    case Translations.enqueue_all_missing(base_params, missing) do
+      {:ok, %{in_flight: [_ | _] = enqueued_langs, enqueued: n, errors: errors}} ->
+        socket
+        |> assign(
+          :ai_translate_in_flight,
+          Enum.uniq(socket.assigns.ai_translate_in_flight ++ enqueued_langs)
+        )
+        |> maybe_flash_partial_errors(errors)
+        |> put_flash(:info, gettext("Translating to %{count} languages…", count: n))
+
+      {:ok, %{errors: [_ | _] = errors}} ->
+        maybe_flash_partial_errors(socket, errors)
+
+      {:ok, _} ->
+        put_flash(socket, :info, gettext("Nothing to translate."))
+
+      {:error, _reason} ->
+        put_flash(socket, :error, gettext("Could not start translation."))
+    end
+  end
+
+  defp do_dispatch_ai_translate(socket, lang, endpoint_uuid, prompt_uuid) do
+    params = %{
+      resource_type: "template",
+      resource_uuid: socket.assigns.project.uuid,
+      endpoint_uuid: endpoint_uuid,
+      prompt_uuid: prompt_uuid,
+      source_lang: socket.assigns.primary_language,
+      target_lang: lang,
+      actor_uuid: Activity.actor_uuid(socket)
+    }
+
+    case Translations.enqueue(params) do
+      {:ok, %{conflict?: false}} ->
+        socket
+        |> assign(
+          :ai_translate_in_flight,
+          Enum.uniq([lang | socket.assigns.ai_translate_in_flight])
+        )
+        |> put_flash(:info, gettext("Translating to %{lang}…", lang: String.upcase(lang)))
+
+      {:ok, %{conflict?: true}} ->
+        put_flash(socket, :info, gettext("Translation already in progress."))
+
+      {:error, _reason} ->
+        put_flash(socket, :error, gettext("Could not start translation."))
+    end
+  end
+
+  defp maybe_flash_partial_errors(socket, []), do: socket
+
+  defp maybe_flash_partial_errors(socket, errors) do
+    langs = Enum.map_join(errors, ", ", fn {lang, _} -> String.upcase(lang) end)
+    put_flash(socket, :error, gettext("Could not start translation for: %{langs}", langs: langs))
+  end
+
+  defp ai_translate_missing(assigns) do
+    enabled = Enum.map(assigns.language_tabs, & &1.code)
+    primary = assigns.primary_language
+    translatable = Project.translatable_fields()
+    translations = assigns.project.translations || %{}
+
+    Enum.reject(enabled, fn lang ->
+      lang == primary or has_any_translation?(translations, lang, translatable)
+    end)
+  end
+
+  defp has_any_translation?(translations, lang, translatable_fields) do
+    case Map.get(translations, lang) do
+      m when is_map(m) ->
+        Enum.any?(translatable_fields, fn field ->
+          case Map.get(m, field) do
+            v when is_binary(v) -> String.trim(v) != ""
+            _ -> false
+          end
+        end)
+
+      _ ->
+        false
+    end
+  end
+
+  defp patch_form_translations(socket, lang, new_lang_map) do
+    cs = socket.assigns.form.source
+
+    current_translations =
+      Ecto.Changeset.get_field(cs, :translations) || %{}
+
+    merged_lang =
+      current_translations
+      |> Map.get(lang, %{})
+      |> Map.merge(new_lang_map)
+
+    updated_translations = Map.put(current_translations, lang, merged_lang)
+
+    cs
+    |> Ecto.Changeset.put_change(:translations, updated_translations)
+    |> then(&assign_form(socket, &1))
+  end
+
+  defp ai_translate_config(assigns) do
+    cond do
+      assigns.live_action == :new ->
+        nil
+
+      not Translations.ai_translation_available?() ->
+        nil
+
+      true ->
+        %{
+          enabled: true,
+          event: "translate_lang",
+          missing: ai_translate_missing(assigns),
+          in_flight: assigns.ai_translate_in_flight
+        }
+    end
   end
 
   # Folds the in-flight secondary-language translation map into `attrs`
@@ -217,6 +439,8 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
              primary-column inputs for JSONB-backed secondary inputs.
              Matches `ProjectFormLive`'s shape. --%>
         <div class="card bg-base-100 shadow">
+          <.ai_translate_bar ai_translate={ai_translate_config(assigns)} />
+
           <.multilang_tabs
             multilang_enabled={@multilang_enabled}
             language_tabs={@language_tabs}
