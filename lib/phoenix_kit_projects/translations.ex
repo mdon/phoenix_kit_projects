@@ -263,6 +263,11 @@ defmodule PhoenixKitProjects.Translations do
     end
   end
 
+  # Fail closed with a structured error rather than crashing the
+  # caller with FunctionClauseError when a host accidentally passes
+  # the wrong shape (e.g. a list of params from a stale flash).
+  def enqueue(_other), do: {:error, {:invalid, :not_a_map}}
+
   @doc """
   Enqueue one translation job per missing target language.
 
@@ -326,6 +331,12 @@ defmodule PhoenixKitProjects.Translations do
         err
     end
   end
+
+  # Fallback for host-passed bad shapes — same defensive posture as
+  # `enqueue/1`. Returns a structured error rather than
+  # FunctionClauseError so a stale popup session can't crash a LV.
+  def enqueue_all_missing(_base_params, _missing_langs),
+    do: {:error, {:invalid, :bad_arguments}}
 
   defp validate_params(params) do
     required = [

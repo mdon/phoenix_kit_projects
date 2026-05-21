@@ -98,6 +98,67 @@ defmodule PhoenixKitProjects.TranslationsTest do
     end
   end
 
+  describe "weird-input handling — fail closed instead of FunctionClauseError" do
+    test "enqueue/1 with non-map returns structured error" do
+      assert {:error, {:invalid, :not_a_map}} = Translations.enqueue(nil)
+      assert {:error, {:invalid, :not_a_map}} = Translations.enqueue("not a map")
+      assert {:error, {:invalid, :not_a_map}} = Translations.enqueue([])
+      assert {:error, {:invalid, :not_a_map}} = Translations.enqueue(:atom)
+    end
+
+    test "enqueue_all_missing/2 with non-map base_params returns structured error" do
+      assert {:error, {:invalid, :bad_arguments}} =
+               Translations.enqueue_all_missing(nil, ["es"])
+
+      assert {:error, {:invalid, :bad_arguments}} =
+               Translations.enqueue_all_missing("not a map", ["es"])
+    end
+
+    test "enqueue_all_missing/2 with non-list missing_langs returns structured error" do
+      assert {:error, {:invalid, :bad_arguments}} =
+               Translations.enqueue_all_missing(valid_params(), "es")
+
+      assert {:error, {:invalid, :bad_arguments}} =
+               Translations.enqueue_all_missing(valid_params(), nil)
+    end
+  end
+
+  describe "AI plugin presence checks — graceful degradation when PhoenixKitAI is absent" do
+    # In the test env the `:phoenix_kit_ai` dep IS pulled in by the
+    # parent app, but the plugin is not enabled at runtime (no AI
+    # endpoints configured in test seed). The helpers should all
+    # return safe defaults rather than raising.
+    test "ai_translation_available?/0 returns false when no endpoints configured" do
+      # Without a seeded `phoenix_kit_ai_endpoints` row enabled, the
+      # final `list_ai_endpoints() != []` check fails → false.
+      refute Translations.ai_translation_available?()
+    end
+
+    test "list_ai_endpoints/0 returns [] when AI not configured" do
+      assert Translations.list_ai_endpoints() == []
+    end
+
+    test "list_ai_prompts/0 returns [] when AI not configured" do
+      assert Translations.list_ai_prompts() == []
+    end
+
+    test "get_default_ai_endpoint_uuid/0 returns nil when setting unset" do
+      # Default Settings table has no `projects_translation_endpoint_uuid`.
+      assert Translations.get_default_ai_endpoint_uuid() in [nil]
+    end
+
+    test "get_default_ai_prompt_uuid/0 falls back to slug lookup, returns nil when nothing wired" do
+      # No setting, no `translate-projects-content` prompt seeded →
+      # `fallback_prompt_uuid/0` returns nil via the
+      # `PhoenixKitAI.get_prompt_by_slug/1` shim.
+      assert Translations.get_default_ai_prompt_uuid() in [nil]
+    end
+
+    test "default_translation_prompt_exists?/0 returns false when no prompt seeded" do
+      refute Translations.default_translation_prompt_exists?()
+    end
+  end
+
   describe "enqueue_all_missing/2" do
     test "rejects when base params are incomplete" do
       assert {:error, {:invalid, _}} =

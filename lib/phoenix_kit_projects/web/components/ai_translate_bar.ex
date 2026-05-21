@@ -98,7 +98,15 @@ defmodule PhoenixKitProjects.Web.Components.AITranslateBar do
         </span>
 
         <div class="flex flex-wrap gap-1.5 ml-auto">
-          <%= for lang <- actionable_missing(@ai_translate) do %>
+          <%!--
+            Iterate over the full `missing` list (not actionable_missing)
+            so an in-flight language renders as a disabled spinner button
+            while its Oban job runs, rather than disappearing on click
+            and reappearing only on failure. Once `:translation_completed`
+            arrives the host drops the lang from `missing` and the button
+            unmounts naturally.
+          --%>
+          <%= for lang <- normalized_missing(@ai_translate) do %>
             <button
               type="button"
               class={[
@@ -146,17 +154,51 @@ defmodule PhoenixKitProjects.Web.Components.AITranslateBar do
     """
   end
 
-  defp visible?(nil), do: false
-
   defp visible?(cfg) when is_map(cfg) do
     enabled?(cfg) and event_name(cfg) != nil and actionable_missing(cfg) != []
   end
 
+  # Fail closed for nil / non-map input (host passed the wrong shape).
+  defp visible?(_), do: false
+
   defp enabled?(cfg), do: get(cfg, :enabled) == true
 
+  # Returns `missing` as a list of normalized non-empty string lang
+  # codes. Defensive against hosts that pass:
+  #   * `nil` / non-list (List.wrap → [])
+  #   * atom codes (`:es` → `"es"`)
+  #   * blank or whitespace-only strings (dropped — they'd render
+  #     an empty button and crash gettext on `String.upcase(nil)`)
+  #   * non-binary, non-atom entries (dropped silently — host bug)
+  defp normalized_missing(cfg) do
+    cfg
+    |> get(:missing)
+    |> List.wrap()
+    |> Enum.map(&to_lang/1)
+    |> Enum.reject(&(&1 == nil))
+  end
+
+  defp normalized_in_flight(cfg) do
+    cfg
+    |> get(:in_flight)
+    |> List.wrap()
+    |> Enum.map(&to_lang/1)
+    |> Enum.reject(&(&1 == nil))
+  end
+
+  defp to_lang(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      v -> v
+    end
+  end
+
+  defp to_lang(value) when is_atom(value) and not is_nil(value), do: Atom.to_string(value)
+  defp to_lang(_), do: nil
+
   defp actionable_missing(cfg) do
-    missing = cfg |> get(:missing) |> List.wrap()
-    in_flight = cfg |> get(:in_flight) |> List.wrap()
+    missing = normalized_missing(cfg)
+    in_flight = normalized_in_flight(cfg)
     Enum.reject(missing, &(&1 in in_flight))
   end
 
@@ -168,13 +210,13 @@ defmodule PhoenixKitProjects.Web.Components.AITranslateBar do
   # the second click hits Oban's unique constraint, but visually the
   # button stays primary and clickable until the broadcast lands.
   defp bulk_busy?(cfg) do
-    missing = cfg |> get(:missing) |> List.wrap()
-    in_flight = cfg |> get(:in_flight) |> List.wrap()
+    missing = normalized_missing(cfg)
+    in_flight = normalized_in_flight(cfg)
     Enum.any?(missing, &(&1 in in_flight))
   end
 
   defp in_flight?(cfg, lang) do
-    cfg |> get(:in_flight) |> List.wrap() |> Enum.member?(lang)
+    cfg |> normalized_in_flight() |> Enum.member?(lang)
   end
 
   defp event_name(cfg) do
