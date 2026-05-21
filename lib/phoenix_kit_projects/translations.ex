@@ -170,55 +170,69 @@ defmodule PhoenixKitProjects.Translations do
   """
   @spec generate_default_translation_prompt() :: {:ok, struct()} | {:error, term()}
   def generate_default_translation_prompt do
+    # Wrap the plugin call in `safe_ai_call/2` so an enabled-but-
+    # broken `PhoenixKitAI` (incompatible version, raising on
+    # unexpected attr keys, etc.) returns `{:error, :ai_not_installed}`
+    # rather than crashing the caller's IEx / admin button.
     if AIModule.available?() do
-      PhoenixKitAI.create_prompt(%{
-        slug: @translation_prompt_slug,
-        name: "Translate Projects Content",
-        description:
-          "Default prompt for translating projects, templates, tasks, and assignments between languages.",
-        content: """
-        You are translating fields of a project-management resource from {{SourceLanguage}} to {{TargetLanguage}}.
-
-        RULES:
-        - Preserve formatting exactly (line breaks, spacing, Markdown if present).
-        - Do NOT translate text inside code blocks, inline code, or URLs.
-        - Translate naturally and idiomatically — match the tone of the source.
-        - Keep any HTML tags and special syntax unchanged.
-        - Output ONLY the structured markers below — no commentary, no preface, no closing remarks.
-
-        OUTPUT FORMAT — for each field present in the SOURCE section, emit:
-
-            ---<FIELD_NAME_UPPERCASE>---
-            [translated value, on the line(s) after the marker]
-
-        For example, if the source has a `name` field, output:
-
-            ---NAME---
-            <translated name>
-
-        If a field is empty or missing from the source, do not emit a marker for it.
-
-        === SOURCE ===
-
-        Name (if present): {{name}}
-
-        Title (if present): {{title}}
-
-        Description (if present): {{description}}
-        """
-      })
+      safe_ai_call(fn -> do_generate_default_prompt() end, {:error, :ai_not_installed})
     else
       {:error, :ai_not_installed}
     end
   end
 
-  # Narrowed to the exceptions a missing/broken plugin actually raises:
-  # `UndefinedFunctionError` (module not loaded), `FunctionClauseError`
-  # (incompatible signature in an older plugin version), and
-  # `ArgumentError` (bad input — e.g. nil-fed to the plugin). The
-  # `:exit`/`:throw` catches handle GenServer.call timeouts inside the
-  # plugin. Anything else is a programming bug and should crash so it
-  # surfaces in the test suite.
+  defp do_generate_default_prompt do
+    PhoenixKitAI.create_prompt(%{
+      slug: @translation_prompt_slug,
+      name: "Translate Projects Content",
+      description:
+        "Default prompt for translating projects, templates, tasks, and assignments between languages.",
+      content: """
+      You are translating fields of a project-management resource from {{SourceLanguage}} to {{TargetLanguage}}.
+
+      RULES:
+      - Preserve formatting exactly (line breaks, spacing, Markdown if present).
+      - Do NOT translate text inside code blocks, inline code, or URLs.
+      - Translate naturally and idiomatically — match the tone of the source.
+      - Keep any HTML tags and special syntax unchanged.
+      - Output ONLY the structured markers below — no commentary, no preface, no closing remarks.
+
+      OUTPUT FORMAT — for each field present in the SOURCE section, emit:
+
+          ---<FIELD_NAME_UPPERCASE>---
+          [translated value, on the line(s) after the marker]
+
+      For example, if the source has a `name` field, output:
+
+          ---NAME---
+          <translated name>
+
+      If a field is empty or missing from the source, do not emit a marker for it.
+
+      === SOURCE ===
+
+      Name (if present): {{name}}
+
+      Title (if present): {{title}}
+
+      Description (if present): {{description}}
+      """
+    })
+  end
+
+  # Narrowed `rescue` to the exceptions a missing/broken plugin
+  # actually raises: `UndefinedFunctionError` (module not loaded),
+  # `FunctionClauseError` (incompatible signature in an older plugin
+  # version), and `ArgumentError` (bad input — e.g. nil-fed to the
+  # plugin). Anything else is a programming bug and should crash so
+  # it surfaces in the test suite.
+  #
+  # `catch :exit, _` and `catch :throw, _` are intentionally broad
+  # — the optional plugin lives behind an arbitrary GenServer (its
+  # HTTP client + supervisor tree), and any process down there can
+  # exit / throw in shapes we don't control. This module acts as a
+  # plugin-boundary fuse, so the broad catch is the correct
+  # blast-radius limiter rather than a debugging crutch.
   defp safe_ai_call(fun, default) do
     fun.()
   rescue

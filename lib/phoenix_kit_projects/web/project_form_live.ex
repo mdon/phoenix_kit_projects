@@ -12,6 +12,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
   alias PhoenixKitProjects.{Activity, Errors, L10n, Paths, Projects, Translations}
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Schemas.Project
+  alias PhoenixKitProjects.Web.AITranslateFormHelpers
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
 
   # Default wrapper class for the standalone admin page. Embedders can
@@ -323,48 +324,34 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
   end
 
   defp ai_translate_missing(assigns) do
-    enabled = Enum.map(assigns.language_tabs, & &1.code)
-    primary = assigns.primary_language
-    translatable = Project.translatable_fields()
-    translations = assigns.project.translations || %{}
-
-    Enum.reject(enabled, fn lang ->
-      lang == primary or has_any_translation?(translations, lang, translatable)
-    end)
-  end
-
-  # A language counts as "translated" only when at least one
-  # translatable field has a non-blank value. `%{"es" => %{}}` and
-  # `%{"es" => %{"name" => ""}}` both still belong in `missing`.
-  defp has_any_translation?(translations, lang, translatable_fields) do
-    case Map.get(translations, lang) do
-      m when is_map(m) ->
-        Enum.any?(translatable_fields, fn field ->
-          case Map.get(m, field) do
-            v when is_binary(v) -> String.trim(v) != ""
-            _ -> false
-          end
-        end)
-
-      _ ->
-        false
-    end
+    AITranslateFormHelpers.missing_languages(
+      assigns.language_tabs,
+      assigns.primary_language,
+      assigns.project.translations,
+      Project.translatable_fields()
+    )
   end
 
   # Merge a freshly-translated language into the form's existing
   # `translations` field WITHOUT touching primary-column edits or other
   # secondary-lang fields the user may have typed since dispatching the
   # AI job. Reuses the changeset's existing changes via `put_change/3`.
+  # Merges the AI's translated fields into the form-bound changeset
+  # for `lang`, but ONLY fills fields whose current value is blank.
+  # If the user switched to the target lang during the job and typed
+  # something into e.g. `name`, the AI's translated name does NOT
+  # win — user input always takes precedence. This addresses the
+  # "translation overwrites in-flight edits" footgun that an
+  # unconditional `Map.merge/2` had.
   defp patch_form_translations(socket, lang, new_lang_map) do
     cs = socket.assigns.form.source
 
     current_translations =
       Ecto.Changeset.get_field(cs, :translations) || %{}
 
-    merged_lang =
-      current_translations
-      |> Map.get(lang, %{})
-      |> Map.merge(new_lang_map)
+    current_lang_map = Map.get(current_translations, lang, %{})
+
+    merged_lang = AITranslateFormHelpers.merge_blank_fields_only(current_lang_map, new_lang_map)
 
     updated_translations = Map.put(current_translations, lang, merged_lang)
 

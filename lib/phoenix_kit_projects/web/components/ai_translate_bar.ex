@@ -154,8 +154,14 @@ defmodule PhoenixKitProjects.Web.Components.AITranslateBar do
     """
   end
 
+  # Bar visibility is gated on the FULL `missing` list (after
+  # normalization), not the `actionable_missing` set. Otherwise the
+  # bar would disappear entirely on a single-lang dispatch — user
+  # clicks "es", host sets `in_flight: ["es"]`, actionable_missing
+  # = [], bar unmounts mid-translation. The user expects to see the
+  # disabled spinner button while their job is running.
   defp visible?(cfg) when is_map(cfg) do
-    enabled?(cfg) and event_name(cfg) != nil and actionable_missing(cfg) != []
+    enabled?(cfg) and event_name(cfg) != nil and normalized_missing(cfg) != []
   end
 
   # Fail closed for nil / non-map input (host passed the wrong shape).

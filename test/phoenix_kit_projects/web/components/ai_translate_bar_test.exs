@@ -43,12 +43,37 @@ defmodule PhoenixKitProjects.Web.Components.AITranslateBarTest do
       assert bar(%{enabled: true, event: "x", missing: [], in_flight: []}) == ""
     end
 
-    test "renders nothing when every missing lang is already in_flight" do
-      # All actionable langs are subtracted by in_flight, leaving zero
-      # actionable buttons — bar disappears so the user isn't shown
-      # an empty bar with just a label.
+    test "stays visible (as spinner) when every missing lang is in_flight" do
+      # Regression: previously the bar gated visibility on
+      # `actionable_missing/1` (= missing -- in_flight), which made
+      # the whole bar unmount the moment the user clicked "es" on a
+      # single-missing-lang resource: `missing: ["es"]`,
+      # `in_flight: ["es"]` → actionable=[] → bar disappears
+      # mid-translation. Now gated on `normalized_missing != []`, so
+      # the disabled spinner button stays visible until the host
+      # drops the lang from missing (on :translation_completed).
       cfg = %{enabled: true, event: "x", missing: ["es", "de"], in_flight: ["es", "de"]}
-      assert bar(cfg) == ""
+      html = bar(cfg)
+
+      refute html == ""
+      assert html =~ "loading-spinner"
+      assert html =~ "btn-disabled"
+      # Bulk button NOT shown — bulk_show?/1 still uses actionable_missing
+      # so an "all in flight" state correctly suppresses the bulk CTA.
+      refute html =~ ~s|phx-value-lang="*"|
+    end
+
+    test "single missing lang in_flight stays visible as spinner (single-click UX)" do
+      # The common case: user has a project with 1 missing lang,
+      # clicks the sparkle, the bar must show the spinner while the
+      # job runs rather than disappearing.
+      cfg = %{enabled: true, event: "x", missing: ["es"], in_flight: ["es"]}
+      html = bar(cfg)
+
+      refute html == ""
+      assert html =~ "loading-spinner"
+      assert html =~ ~s|phx-value-lang="es"|
+      assert html =~ "btn-disabled"
     end
   end
 
