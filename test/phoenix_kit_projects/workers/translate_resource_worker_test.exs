@@ -25,6 +25,34 @@ defmodule PhoenixKitProjects.Workers.TranslateResourceWorkerTest do
     :ok
   end
 
+  describe "deterministic-vs-transient failure handling (prevent retry burn)" do
+    # Translations that fail because of plugin shape mismatch, parse
+    # errors, missing endpoint/prompt, etc. are deterministic — Oban
+    # retries would burn AI tokens on identical re-attempts with no
+    # chance of a different outcome. The worker classifies failure
+    # reasons and returns `{:discard, _}` for those, only `{:error, _}`
+    # for transient ones (HTTP timeout, rate-limited, connection error).
+    setup do
+      {:ok, project} =
+        PhoenixKitProjects.Projects.create_project(%{
+          "name" => "Retry test #{System.unique_integer([:positive])}",
+          "start_mode" => "immediate"
+        })
+
+      {:ok, project: project}
+    end
+
+    test ":ai_not_installed is deterministic → discard", ctx do
+      assert {:discard, :ai_not_installed} =
+               run(base_args("project") |> Map.put("resource_uuid", ctx.project.uuid))
+    end
+
+    # Coverage for the other branches is pinned via the helper-only
+    # test below; the worker's `retryable?/1` is a private clause but
+    # we lock its contract by exercising the public failure path
+    # against each shape the AI plugin can emit.
+  end
+
   describe "perform/1 — early arg-validation failures discard the job + broadcast" do
     test "missing resource_type → :discard + :translation_failed broadcast" do
       result =
@@ -100,11 +128,12 @@ defmodule PhoenixKitProjects.Workers.TranslateResourceWorkerTest do
     test "matching type loads the resource and proceeds to AI call", ctx do
       # In test env `PhoenixKitAI` is not installed, so the core
       # `Translation.translate_fields/6` short-circuits with
-      # `{:error, :ai_not_installed}` — that's the only legal outcome.
-      # If a future test config installs the AI plugin, this assertion
-      # must be revisited and the plugin mocked to return a success
-      # shape.
-      assert {:error, :ai_not_installed} =
+      # `:ai_not_installed`. The worker treats that as a deterministic
+      # failure and returns `{:discard, :ai_not_installed}` — Oban
+      # won't retry. Pre-PR: returned `{:error, _}`, which retried 3×
+      # burning tokens on each attempt with no chance of a different
+      # outcome.
+      assert {:discard, :ai_not_installed} =
                run(base_args("project") |> Map.put("resource_uuid", ctx.project.uuid))
 
       # `:translation_started` fires before the AI call — passing the

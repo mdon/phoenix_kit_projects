@@ -223,8 +223,31 @@ defmodule PhoenixKitProjects.Workers.TranslateResourceWorker do
       }
     )
 
-    {:error, reason}
+    # Choose between retry and discard based on whether retrying the
+    # job could plausibly produce a different result. Oban defaults
+    # `{:error, _}` to retry up to `max_attempts: 3` — which burns AI
+    # tokens 3× when the failure is deterministic (parse error from a
+    # model that ignores the structured-marker contract, plugin not
+    # installed, etc.). Retry only the cases that are genuinely
+    # transient.
+    if retryable?(reason) do
+      {:error, reason}
+    else
+      {:discard, reason}
+    end
   end
+
+  # Transient failures worth retrying: HTTP timeouts, rate-limited
+  # responses, connection errors. Everything else (parse errors,
+  # unexpected response shape, missing plugin, missing endpoint,
+  # missing prompt, persist errors) is deterministic and a retry would
+  # just produce the same outcome at the cost of another AI billing
+  # event.
+  defp retryable?({:ai_error, :request_timeout}), do: true
+  defp retryable?({:ai_error, :rate_limited}), do: true
+  defp retryable?({:ai_error, {:connection_error, _}}), do: true
+  defp retryable?({:ai_error, {:exit, _}}), do: true
+  defp retryable?(_), do: false
 
   # Reduces a translation-failure reason to a stable, log-safe string.
   # Keeps the top-level shape (`:ai_not_installed`, `{:ai_error, ...}`,
