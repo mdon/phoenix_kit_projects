@@ -67,7 +67,10 @@ defmodule PhoenixKitProjects.MixProject do
 
   defp deps do
     [
-      {:phoenix_kit, path: "../phoenix_kit", override: true},
+      # 1.7.117 is the floor — that's where
+      # `PhoenixKit.Modules.AI.Translation.translate_fields/6` shipped
+      # (core PR #557). `TranslateResourceWorker` delegates to it.
+      {:phoenix_kit, "~> 1.7.117"},
       {:phoenix_kit_staff, "~> 0.1"},
       {:phoenix_kit_comments, "~> 0.2"},
 

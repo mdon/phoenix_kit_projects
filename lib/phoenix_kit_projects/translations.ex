@@ -48,13 +48,10 @@ defmodule PhoenixKitProjects.Translations do
   @endpoint_setting_key "projects_translation_endpoint_uuid"
   @prompt_setting_key "projects_translation_prompt_uuid"
 
-  # `PhoenixKitAI` is the optional plugin. `PhoenixKit.Modules.AI`
-  # ships with phoenix_kit core but landed in PR #557 — older Hex
-  # versions don't export it yet, so flag the MFA target to keep
-  # compile warnings clean while the version requirement catches up.
+  # `PhoenixKitAI` is the optional plugin — hosts may not pull it in.
+  # `PhoenixKit.Modules.AI` is core (1.7.117+) and required.
   @compile {:no_warn_undefined,
             [
-              {AIModule, :available?, 0},
               {PhoenixKitAI, :enabled?, 0},
               {PhoenixKitAI, :list_endpoints, 1},
               {PhoenixKitAI, :list_prompts, 1},
@@ -71,14 +68,9 @@ defmodule PhoenixKitProjects.Translations do
   """
   @spec ai_translation_available?() :: boolean()
   def ai_translation_available? do
-    core_helper_available?() and
-      safe_ai_call(fn -> AIModule.available?() end, false) and
+    AIModule.available?() and
       safe_ai_call(fn -> PhoenixKitAI.enabled?() end, false) and
       list_ai_endpoints() != []
-  end
-
-  defp core_helper_available? do
-    Code.ensure_loaded?(AIModule) and function_exported?(AIModule, :available?, 0)
   end
 
   @doc """
@@ -178,7 +170,7 @@ defmodule PhoenixKitProjects.Translations do
   """
   @spec generate_default_translation_prompt() :: {:ok, struct()} | {:error, term()}
   def generate_default_translation_prompt do
-    if core_helper_available?() and safe_ai_call(fn -> AIModule.available?() end, false) do
+    if AIModule.available?() do
       PhoenixKitAI.create_prompt(%{
         slug: @translation_prompt_slug,
         name: "Translate Projects Content",

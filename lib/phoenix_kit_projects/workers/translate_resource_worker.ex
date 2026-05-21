@@ -73,12 +73,6 @@ defmodule PhoenixKitProjects.Workers.TranslateResourceWorker do
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Schemas.{Assignment, Project, Task}
 
-  # `PhoenixKit.Modules.AI.Translation` was added in phoenix_kit core
-  # PR #557. Older Hex versions of phoenix_kit don't export the
-  # `translate_fields/6` orchestrator — flag MFA target so the build
-  # stays clean against either, then guard the call site at runtime.
-  @compile {:no_warn_undefined, [{Translation, :translate_fields, 6}]}
-
   @resource_types ~w(project template task assignment)
 
   @impl Oban.Worker
@@ -150,36 +144,24 @@ defmodule PhoenixKitProjects.Workers.TranslateResourceWorker do
       broadcast(:translation_completed, resource, type, params, fields: %{}, empty: true)
       :ok
     else
-      if translation_helper_available?() do
-        case Translation.translate_fields(
-               params.endpoint_uuid,
-               params.prompt_uuid,
-               params.source_lang,
-               params.target_lang,
-               fields,
-               actor_uuid: params.actor_uuid,
-               resource_type: type,
-               resource_uuid: get_uuid(resource),
-               source: "PhoenixKitProjects.Workers.TranslateResourceWorker"
-             ) do
-          {:ok, translated_fields} ->
-            handle_translation_success(resource, type, params, translated_fields)
+      case Translation.translate_fields(
+             params.endpoint_uuid,
+             params.prompt_uuid,
+             params.source_lang,
+             params.target_lang,
+             fields,
+             actor_uuid: params.actor_uuid,
+             resource_type: type,
+             resource_uuid: get_uuid(resource),
+             source: "PhoenixKitProjects.Workers.TranslateResourceWorker"
+           ) do
+        {:ok, translated_fields} ->
+          handle_translation_success(resource, type, params, translated_fields)
 
-          {:error, reason} ->
-            handle_translation_failure(resource, type, params, reason)
-        end
-      else
-        # The host app pins a pre-PR-#557 phoenix_kit. Surface the same
-        # `:ai_not_installed` reason `Translation.translate_fields/6`
-        # uses for its plugin-missing case so callers can branch on a
-        # single sentinel.
-        handle_translation_failure(resource, type, params, :ai_not_installed)
+        {:error, reason} ->
+          handle_translation_failure(resource, type, params, reason)
       end
     end
-  end
-
-  defp translation_helper_available? do
-    Code.ensure_loaded?(Translation) and function_exported?(Translation, :translate_fields, 6)
   end
 
   defp handle_translation_success(resource, type, params, translated_fields) do
