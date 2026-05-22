@@ -75,10 +75,13 @@ defmodule PhoenixKitProjects.Workers.TranslateResourceWorker do
       states: [:available, :scheduled, :executing, :retryable]
     ]
 
+  import Ecto.Query
+
   require Logger
 
   alias PhoenixKit.Modules.AI.Translation
   alias PhoenixKit.PubSub.Manager, as: PubSubManager
+  alias PhoenixKit.RepoHelper
   alias PhoenixKitProjects.{Activity, Projects}
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Schemas.{Assignment, Project, Task}
@@ -179,9 +182,7 @@ defmodule PhoenixKitProjects.Workers.TranslateResourceWorker do
   end
 
   defp handle_translation_success(resource, type, params, translated_fields) do
-    merged = merge_translation(resource, params.target_lang, translated_fields)
-
-    case persist_translation(resource, type, merged) do
+    case persist_translation_atomic(resource, type, params.target_lang, translated_fields) do
       {:ok, _updated} ->
         Activity.log("projects.translation_added",
           actor_uuid: params.actor_uuid,
@@ -198,17 +199,70 @@ defmodule PhoenixKitProjects.Workers.TranslateResourceWorker do
 
         :ok
 
-      {:error, changeset} ->
+      {:error, reason} ->
         Logger.warning(
           "[TranslateResourceWorker] persist failed for #{type} #{get_uuid(resource)}: " <>
-            inspect(changeset.errors)
+            inspect(reason)
         )
 
         broadcast(:translation_failed, resource, type, params,
-          reason: {:persist_error, changeset.errors}
+          reason: {:persist_error, reason}
         )
 
-        {:error, {:persist_error, changeset.errors}}
+        {:error, {:persist_error, reason}}
+    end
+  end
+
+  # Wraps the load → merge → write cycle in a transaction with
+  # SELECT FOR UPDATE so concurrent bulk translations on the same
+  # resource don't race-clobber each other.
+  #
+  # The old path (load resource pre-AI, merge with in-memory snapshot,
+  # update_all the whole `translations` field) lost writes when N
+  # workers ran in parallel: each one loaded an empty `translations`
+  # before any peer had persisted, merged in only its own lang, and
+  # overwrote everyone else's contribution. Surfaced when the user
+  # dispatched bulk "all" — DB ended up with ~11 of 40 langs.
+  #
+  # Fix: re-read the row inside a transaction with `lock: "FOR UPDATE"`
+  # so the merge is computed against the latest committed state.
+  # Postgres serializes the row locks; the second worker waits for
+  # the first's commit and then reads its peer's write before
+  # computing its own merge. Wall-clock cost is negligible — the
+  # serialization happens AFTER the multi-second AI call, and a
+  # JSONB write is sub-millisecond.
+  defp persist_translation_atomic(resource, type, target_lang, translated_fields) do
+    schema = schema_for(type)
+    uuid = get_uuid(resource)
+    repo = RepoHelper.repo()
+
+    query =
+      schema
+      |> where([r], r.uuid == ^uuid)
+      |> lock("FOR UPDATE")
+
+    result =
+      repo.transaction(fn ->
+        case repo.one(query) do
+          nil ->
+            repo.rollback(:resource_not_found)
+
+          fresh ->
+            merged = merge_translation(fresh, target_lang, translated_fields)
+
+            case persist_translation(fresh, type, merged) do
+              {:ok, updated} ->
+                updated
+
+              {:error, %Ecto.Changeset{errors: errors}} ->
+                repo.rollback(errors)
+            end
+        end
+      end)
+
+    case result do
+      {:ok, updated} -> {:ok, updated}
+      {:error, reason} -> {:error, reason}
     end
   end
 
