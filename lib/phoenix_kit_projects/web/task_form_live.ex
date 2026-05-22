@@ -720,7 +720,9 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
             current_lang={@current_lang}
           />
 
-          <div class="flex items-center gap-3 px-4 py-2 border-b border-base-200">
+          <%!-- `px-6` matches daisyUI's default `.card-body` inline
+               padding — see `project_form_live.ex` for the why. --%>
+          <div class="flex items-center gap-3 px-6 py-2 border-b border-base-200">
             <.ai_translate_button ai_translate={ai_translate_config(assigns)} />
             <.ai_translate_progress ai_translate={ai_translate_config(assigns)} />
           </div>

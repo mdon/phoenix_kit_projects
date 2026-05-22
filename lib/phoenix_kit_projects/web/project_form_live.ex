@@ -709,7 +709,12 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
             current_lang={@current_lang}
           />
 
-          <div class="flex items-center gap-3 px-4 py-2 border-b border-base-200">
+          <%!-- `px-6` matches daisyUI's default `.card-body` inline
+               padding, so the row's bar and button align horizontally
+               with the input fields below. Using `px-4` shaved 8px
+               off each side and made the bar visually overflow past
+               the field column. --%>
+          <div class="flex items-center gap-3 px-6 py-2 border-b border-base-200">
             <.ai_translate_button ai_translate={ai_translate_config(assigns)} />
             <.ai_translate_progress ai_translate={ai_translate_config(assigns)} />
           </div>
