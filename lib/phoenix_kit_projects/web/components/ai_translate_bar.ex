@@ -63,6 +63,25 @@ defmodule PhoenixKitProjects.Web.Components.AITranslateBar do
   Host's `handle_event(@ai_translate.event, %{"lang" => lang}, socket)`
   branches on the value: `"*"` → missing-only path; `"**"` → all
   path; concrete code → single-lang path.
+
+  ## Host embedding contract — render placement matters
+
+  The modal contains its own `<form phx-change>` elements for the
+  endpoint / prompt selectors. HTML forbids nested `<form>` and the
+  browser silently flattens them, which makes the selectors' change
+  events fire against the *outer* form's `phx-change` handler.
+  Render the modal **outside** your outer form, after `</.form>`:
+
+      <.form for={@form} phx-change="validate" phx-submit="save" ...>
+        <.ai_translate_button ai_translate={...} />
+        <%!-- rest of the form fields here --%>
+      </.form>
+
+      <%!-- Modal AFTER the form close, not inside it. --%>
+      <.ai_translate_modal ai_translate={...} />
+
+  Both components accept the same `ai_translate` map, so a host can
+  compute it once per render and pass it to both.
   """
 
   use Phoenix.Component

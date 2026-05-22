@@ -270,6 +270,12 @@ defmodule PhoenixKitProjects.Workers.TranslateResourceWorker do
   defp retryable?({:ai_error, :rate_limited}), do: true
   defp retryable?({:ai_error, {:connection_error, _}}), do: true
   defp retryable?({:ai_error, {:exit, _}}), do: true
+  # Provider 5xx — typically transient (server overload, brief
+  # outage). Core's `Completion.handle_error_status/2` returns
+  # `{:api_error, status}` for any non-200 that isn't 401/402/429.
+  defp retryable?({:ai_error, {:api_error, status}}) when is_integer(status) and status >= 500,
+    do: true
+
   defp retryable?(_), do: false
 
   # Reduces a translation-failure reason to a stable, log-safe string.
