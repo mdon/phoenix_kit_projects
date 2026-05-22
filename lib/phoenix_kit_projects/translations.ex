@@ -216,7 +216,11 @@ defmodule PhoenixKitProjects.Translations do
 
       If a field is missing or blank from the SOURCE section, do
       NOT emit a marker for it. Do not emit markers for fields the
-      caller did not provide.
+      caller did not provide. A value that still looks like a
+      literal placeholder (`{{name}}`, `{{title}}`, `{{description}}`,
+      etc.) means the caller did not bind that variable and the
+      field MUST be skipped — do not emit a marker, do not translate
+      the placeholder string itself.
 
       === SOURCE ===
 

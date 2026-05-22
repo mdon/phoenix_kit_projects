@@ -270,11 +270,15 @@ defmodule PhoenixKitProjects.Workers.TranslateResourceWorker do
   defp retryable?({:ai_error, :rate_limited}), do: true
   defp retryable?({:ai_error, {:connection_error, _}}), do: true
   defp retryable?({:ai_error, {:exit, _}}), do: true
-  # Provider 5xx — typically transient (server overload, brief
-  # outage). Core's `Completion.handle_error_status/2` returns
-  # `{:api_error, status}` for any non-200 that isn't 401/402/429.
-  defp retryable?({:ai_error, {:api_error, status}}) when is_integer(status) and status >= 500,
-    do: true
+  # Provider 5xx — explicit allow-list of transient codes. Excludes
+  # `501 Not Implemented` and `505 HTTP Version Not Supported` which
+  # are deterministic config/integration mismatches (retrying them
+  # burns AI tokens without ever succeeding). Core's
+  # `Completion.handle_error_status/2` returns `{:api_error, status}`
+  # for any non-200 that isn't 401/402/429.
+  defp retryable?({:ai_error, {:api_error, status}})
+       when status in [500, 502, 503, 504, 522, 524, 529],
+       do: true
 
   defp retryable?(_), do: false
 

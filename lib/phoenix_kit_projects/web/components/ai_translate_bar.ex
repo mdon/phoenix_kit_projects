@@ -82,6 +82,26 @@ defmodule PhoenixKitProjects.Web.Components.AITranslateBar do
 
   Both components accept the same `ai_translate` map, so a host can
   compute it once per render and pass it to both.
+
+  ### LiveComponent hosts
+
+  If the host renders the button from inside a `Phoenix.LiveComponent`
+  (e.g. a translation tab strip rendered via `<.live_component>`),
+  the modal's selector events still need to land on the parent
+  LiveView — modal placement at the LV root is the simplest path.
+  Embed the modal at the LV's outer render template, not inside the
+  LiveComponent's HEEx, and have the LiveComponent emit a
+  `send(self(), {:ai_translate, ...})` (or call the host event via
+  `phx-target={@myself}` on the button only) so the modal's PubSub
+  / `handle_event` consumers stay on the LV process.
+
+  If the modal MUST render from inside a LiveComponent (rare —
+  e.g. embedded analytics panel that wants the picker self-contained),
+  pass `phx-target={@myself}` on every `<.form>` / event-emitting
+  element inside the modal so the LiveComponent receives the events
+  instead of routing them up. The current `<.ai_translate_modal>`
+  does not plumb a target attr; in that case render a thin wrapper
+  inside the LiveComponent and replicate the modal markup.
   """
 
   use Phoenix.Component
