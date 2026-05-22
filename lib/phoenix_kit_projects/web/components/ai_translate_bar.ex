@@ -288,7 +288,10 @@ defmodule PhoenixKitProjects.Web.Components.AITranslateBar do
               </div>
             <% end %>
 
-            <%!-- Action button --%>
+            <%!-- Action button. `phx-disable-with` covers the small
+                 window between click and the LV's first re-render, so
+                 a double-click during a slow round-trip can't queue
+                 two dispatches before the modal closes. --%>
             <div class="flex flex-wrap gap-3">
               <button
                 type="button"
@@ -298,6 +301,7 @@ defmodule PhoenixKitProjects.Web.Components.AITranslateBar do
                 ]}
                 phx-click={event_name(@ai_translate)}
                 phx-value-lang={scope_target(@ai_translate)}
+                phx-disable-with={gettext("Starting…")}
                 disabled={action_disabled?(@ai_translate)}
               >
                 <Icon.icon name="hero-sparkles" class="w-4 h-4" />
