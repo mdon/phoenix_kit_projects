@@ -325,13 +325,19 @@ defmodule PhoenixKitProjects.Web.Components.AITranslateBar do
       "Same `ai_translate` config map the button + modal accept. Reads `:translation_status`, `:translation_progress`, and `:translation_total` keys for the bar fill state."
   )
 
-  attr(:class, :string, default: "progress progress-xs h-2 flex-1 min-w-0")
+  attr(:wrapper_class, :string, default: "flex-1 min-w-0")
+  attr(:class, :string, default: "progress h-2 w-full block")
 
   @doc """
   Slim inline progress bar — designed to sit on the same row as
   `<.ai_translate_button>`. No text, no counter, no language list:
   the bar's fill level is the only signal. Color flips to
   `progress-success` when the session reaches `:completed`.
+
+  The wrapper is `flex-1 min-w-0` so the bar fills the remaining
+  horizontal space in its parent flex container without bleeding past
+  it; the inner `<progress>` is `w-full` so its daisyUI default
+  `width: 100%` resolves against the wrapper, not the row.
 
   Renders nothing until the host has dispatched at least one
   translation in the session (`translation_status` flips to
@@ -341,16 +347,18 @@ defmodule PhoenixKitProjects.Web.Components.AITranslateBar do
   def ai_translate_progress(assigns) do
     ~H"""
     <%= if progress_visible?(@ai_translate) do %>
-      <progress
-        class={[
-          @class,
-          translation_status(@ai_translate) == :completed && "progress-success",
-          translation_status(@ai_translate) != :completed && "progress-primary"
-        ]}
-        value={translation_progress(@ai_translate)}
-        max={max(translation_total(@ai_translate), 1)}
-      >
-      </progress>
+      <div class={@wrapper_class}>
+        <progress
+          class={[
+            @class,
+            translation_status(@ai_translate) == :completed && "progress-success",
+            translation_status(@ai_translate) != :completed && "progress-primary"
+          ]}
+          value={translation_progress(@ai_translate)}
+          max={max(translation_total(@ai_translate), 1)}
+        >
+        </progress>
+      </div>
     <% end %>
     """
   end
