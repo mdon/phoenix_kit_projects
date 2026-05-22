@@ -239,29 +239,26 @@ defmodule PhoenixKitProjects.Workers.TranslateResourceWorker do
       |> where([r], r.uuid == ^uuid)
       |> lock("FOR UPDATE")
 
-    result =
-      repo.transaction(fn ->
-        case repo.one(query) do
-          nil ->
-            repo.rollback(:resource_not_found)
+    # `repo.transaction/1` already returns `{:ok, updated}` on commit
+    # and `{:error, reason}` on `repo.rollback/1` — exactly the shape
+    # this function contracts, so return it directly.
+    repo.transaction(fn ->
+      case repo.one(query) do
+        nil ->
+          repo.rollback(:resource_not_found)
 
-          fresh ->
-            merged = merge_translation(fresh, target_lang, translated_fields)
+        fresh ->
+          merged = merge_translation(fresh, target_lang, translated_fields)
 
-            case persist_translation(fresh, type, merged) do
-              {:ok, updated} ->
-                updated
+          case persist_translation(fresh, type, merged) do
+            {:ok, updated} ->
+              updated
 
-              {:error, %Ecto.Changeset{errors: errors}} ->
-                repo.rollback(errors)
-            end
-        end
-      end)
-
-    case result do
-      {:ok, updated} -> {:ok, updated}
-      {:error, reason} -> {:error, reason}
-    end
+            {:error, %Ecto.Changeset{errors: errors}} ->
+              repo.rollback(errors)
+          end
+      end
+    end)
   end
 
   defp handle_translation_failure(resource, type, params, reason) do
@@ -310,21 +307,28 @@ defmodule PhoenixKitProjects.Workers.TranslateResourceWorker do
   # missing prompt, persist errors) is deterministic and a retry would
   # just produce the same outcome at the cost of another AI billing
   # event.
-  defp retryable?({:ai_error, :request_timeout}), do: true
-  defp retryable?({:ai_error, :rate_limited}), do: true
-  defp retryable?({:ai_error, {:connection_error, _}}), do: true
-  defp retryable?({:ai_error, {:exit, _}}), do: true
+  # Public (`@doc false`) so the classification contract can be unit
+  # tested directly: in CI the AI plugin isn't loaded, so the public
+  # `perform/1` path can only ever surface `:ai_not_installed` and
+  # never reaches these clauses. Same testing-seam rationale as
+  # `translate_now/1` above.
+  @doc false
+  @spec retryable?(term()) :: boolean()
+  def retryable?({:ai_error, :request_timeout}), do: true
+  def retryable?({:ai_error, :rate_limited}), do: true
+  def retryable?({:ai_error, {:connection_error, _}}), do: true
+  def retryable?({:ai_error, {:exit, _}}), do: true
   # Provider 5xx — explicit allow-list of transient codes. Excludes
   # `501 Not Implemented` and `505 HTTP Version Not Supported` which
   # are deterministic config/integration mismatches (retrying them
   # burns AI tokens without ever succeeding). Core's
   # `Completion.handle_error_status/2` returns `{:api_error, status}`
   # for any non-200 that isn't 401/402/429.
-  defp retryable?({:ai_error, {:api_error, status}})
-       when status in [500, 502, 503, 504, 522, 524, 529],
-       do: true
+  def retryable?({:ai_error, {:api_error, status}})
+      when status in [500, 502, 503, 504, 522, 524, 529],
+      do: true
 
-  defp retryable?(_), do: false
+  def retryable?(_), do: false
 
   # Reduces a translation-failure reason to a stable, log-safe string.
   # Keeps the top-level shape (`:ai_not_installed`, `{:ai_error, ...}`,

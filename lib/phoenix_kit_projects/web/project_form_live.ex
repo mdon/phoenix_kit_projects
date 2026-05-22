@@ -209,8 +209,8 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
       # AI translation in flight on at least one lang. Block save —
       # the worker is about to write to `translations` and a save now
       # would race the worker's persist. The form's save button is
-      # disabled via `:translation_in_flight?`, but a stray keyboard
-      # shortcut / `phx-key=Enter` could still submit, so this is the
+      # disabled when `@ai_translate_in_flight != []`, but a stray
+      # keyboard shortcut / `phx-key=Enter` could still submit, so this is the
       # belt-and-suspenders guard.
       {:noreply,
        put_flash(

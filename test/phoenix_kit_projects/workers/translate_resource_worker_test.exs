@@ -47,10 +47,12 @@ defmodule PhoenixKitProjects.Workers.TranslateResourceWorkerTest do
                run(base_args("project") |> Map.put("resource_uuid", ctx.project.uuid))
     end
 
-    # Coverage for the other branches is pinned via the helper-only
-    # test below; the worker's `retryable?/1` is a private clause but
-    # we lock its contract by exercising the public failure path
-    # against each shape the AI plugin can emit.
+    # The full `retryable?/1` classification contract (transient AI
+    # errors, the provider-5xx allow-list, 4xx/deterministic discards)
+    # is pinned as pure-function unit tests in the sibling
+    # `translate_resource_worker_retryable_test.exs` — those run at
+    # Level 1 (no DB) since the AI plugin isn't loaded in CI and the
+    # public `perform/1` path can only ever surface `:ai_not_installed`.
   end
 
   describe "perform/1 — early arg-validation failures discard the job + broadcast" do
