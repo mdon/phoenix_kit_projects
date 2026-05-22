@@ -330,6 +330,66 @@ defmodule PhoenixKitProjects.Web.Components.AITranslateBar do
   @doc false
   def ai_translate_bar(assigns), do: ai_translate_button(assigns)
 
+  attr(:ai_translate, :map,
+    required: true,
+    doc:
+      "Same `ai_translate` config map the button + modal accept. Reads `:translation_status`, `:translation_progress`, `:translation_total`, and `:in_flight` keys for the progress UI."
+  )
+
+  attr(:class, :string, default: "px-4 pb-2")
+
+  @doc """
+  Progress row: spinner + status text + daisyUI `<progress>` bar.
+
+  Renders nothing until the host has dispatched at least one
+  translation in the session (`translation_status` flips to
+  `:in_progress`). After all langs complete the bar stays visible
+  showing the success state until the next dispatch resets it.
+  Hosts that want a dismissable variant can hide via CSS or wrap
+  this in their own conditional.
+  """
+  def ai_translate_progress(assigns) do
+    ~H"""
+    <%= if progress_visible?(@ai_translate) do %>
+      <div class={@class}>
+        <div class="flex items-center justify-between text-sm mb-1">
+          <span class="text-base-content/70 flex items-center gap-2">
+            <%= if translation_status(@ai_translate) == :completed do %>
+              <Icon.icon name="hero-check-circle" class="w-4 h-4 text-success" />
+              <span>{gettext("Translation complete")}</span>
+            <% else %>
+              <span class="loading loading-spinner loading-xs"></span>
+              <%= case normalized_in_flight(@ai_translate) do %>
+                <% [] -> %>
+                  <span>{gettext("Translating…")}</span>
+                <% langs -> %>
+                  <span>
+                    {gettext("Translating to %{langs}…",
+                      langs: Enum.map_join(langs, ", ", &String.upcase/1)
+                    )}
+                  </span>
+              <% end %>
+            <% end %>
+          </span>
+          <span class="font-medium tabular-nums">
+            {translation_progress(@ai_translate)} / {translation_total(@ai_translate)}
+          </span>
+        </div>
+        <progress
+          class={[
+            "progress w-full",
+            translation_status(@ai_translate) == :completed && "progress-success",
+            translation_status(@ai_translate) != :completed && "progress-primary"
+          ]}
+          value={translation_progress(@ai_translate)}
+          max={max(translation_total(@ai_translate), 1)}
+        >
+        </progress>
+      </div>
+    <% end %>
+    """
+  end
+
   # ─── Visibility / state helpers ────────────────────────────────
 
   defp button_visible?(cfg) when is_map(cfg) do
@@ -358,6 +418,22 @@ defmodule PhoenixKitProjects.Web.Components.AITranslateBar do
   end
 
   defp has_in_flight?(cfg), do: normalized_in_flight(cfg) != []
+
+  defp translation_status(cfg) when is_map(cfg), do: get(cfg, :translation_status)
+  defp translation_status(_), do: nil
+
+  defp translation_progress(cfg) when is_map(cfg), do: get(cfg, :translation_progress) || 0
+  defp translation_progress(_), do: 0
+
+  defp translation_total(cfg) when is_map(cfg), do: get(cfg, :translation_total) || 0
+  defp translation_total(_), do: 0
+
+  defp progress_visible?(cfg) when is_map(cfg) do
+    enabled?(cfg) and translation_status(cfg) in [:in_progress, :completed] and
+      translation_total(cfg) > 0
+  end
+
+  defp progress_visible?(_), do: false
 
   defp normalized_missing(cfg) do
     cfg

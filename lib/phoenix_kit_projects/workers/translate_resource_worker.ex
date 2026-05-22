@@ -101,11 +101,7 @@ defmodule PhoenixKitProjects.Workers.TranslateResourceWorker do
         prompt_uuid: prompt_uuid,
         source_lang: source_lang,
         target_lang: target_lang,
-        actor_uuid: actor_uuid,
-        # The "all"/overwrite scope sets this so the form can mirror the
-        # worker's `Map.merge/2` (AI wins) instead of its default
-        # blank-only merge. JSON round-trips it as a plain boolean.
-        overwrite: Map.get(args, "overwrite", false) == true
+        actor_uuid: actor_uuid
       })
     else
       {:error, reason} ->
@@ -157,8 +153,7 @@ defmodule PhoenixKitProjects.Workers.TranslateResourceWorker do
       # Treat as success — the resource just has no content yet.
       broadcast(:translation_completed, resource, type, params,
         fields: %{},
-        empty: true,
-        overwrite: params.overwrite
+        empty: true
       )
 
       :ok
@@ -199,10 +194,7 @@ defmodule PhoenixKitProjects.Workers.TranslateResourceWorker do
           }
         )
 
-        broadcast(:translation_completed, resource, type, params,
-          fields: translated_fields,
-          overwrite: params.overwrite
-        )
+        broadcast(:translation_completed, resource, type, params, fields: translated_fields)
 
         :ok
 
