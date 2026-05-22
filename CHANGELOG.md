@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.1 - 2026-05-22
+
+Follow-up review pass on the 0.5.0 AI-translation work — test coverage for the worker's retry classification plus minor internal cleanups. No behavior changes.
+
+### Tests
+
+- **5xx retry classification** — `TranslateResourceWorker.retryable?/1` (the transient-vs-deterministic decision behind retry-vs-discard) now has direct unit coverage pinning the provider-5xx allow-list (`500/502/503/504/522/524/529`), the deliberate `501`/`505` exclusion, 4xx, and non-HTTP discard cases. New `translate_resource_worker_retryable_test.exs` runs as a pure-function (no-DB) test, since in CI the AI plugin isn't loaded and the worker's job path can only surface `:ai_not_installed`.
+
+### Changed
+
+- `TranslateResourceWorker.retryable?/1` is now `@doc false` public (a unit-test seam, same as the existing `translate_now/1`); not part of the supported API.
+- Internal cleanup: dropped a redundant identity `case` in `persist_translation_atomic/4` and corrected a stale code comment in `ProjectFormLive`'s save guard.
+
 ## 0.5.0 - 2026-05-21
 
 AI-driven translation for projects, templates, and tasks — an Oban-backed worker plus an in-form translate UI — alongside a batch of field-report fixes (embedded-mount crash, partial-progress rollup, translatable templates, popup width).
