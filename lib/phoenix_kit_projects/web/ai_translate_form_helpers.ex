@@ -101,24 +101,39 @@ defmodule PhoenixKitProjects.Web.AITranslateFormHelpers do
   is no longer spinning", and failure is communicated separately via
   the flash, not by holding the progress count back.
 
-  Flips status to `:completed` only when the LV's `ai_translate_in_flight`
-  list has gone empty (caller is responsible for removing the lang
-  from that list BEFORE calling this helper).
+  Takes the `lang` so the helper can detect duplicate / stale terminal
+  events (e.g. the same `:translation_completed` arriving twice on a
+  PubSub reconnect, or a stale event from a previous session's
+  in-flight set still in transit). When `lang` is no longer in
+  `:ai_translate_in_flight`, treat as a no-op: don't double-bump
+  progress past `total` and don't flip status back to `:in_progress`
+  for a session that already reached `:completed`.
+
+  Also removes `lang` from the in-flight list — caller passes the
+  socket BEFORE removal, this helper consolidates the removal +
+  progress bump so the two stay in sync.
+
+  Flips status to `:completed` only when the in-flight list goes
+  empty as a result of this bump.
   """
-  @spec bump_translation_completed(Phoenix.LiveView.Socket.t()) ::
+  @spec bump_translation_completed(Phoenix.LiveView.Socket.t(), String.t()) ::
           Phoenix.LiveView.Socket.t()
-  def bump_translation_completed(socket) do
-    next_progress = (socket.assigns.ai_translation_progress || 0) + 1
+  def bump_translation_completed(socket, lang) when is_binary(lang) do
+    in_flight = socket.assigns.ai_translate_in_flight
 
-    next_status =
-      if socket.assigns.ai_translate_in_flight == [],
-        do: :completed,
-        else: :in_progress
+    if lang in in_flight do
+      new_in_flight = in_flight -- [lang]
+      next_progress = (socket.assigns.ai_translation_progress || 0) + 1
+      next_status = if new_in_flight == [], do: :completed, else: :in_progress
 
-    assign(socket,
-      ai_translation_progress: next_progress,
-      ai_translation_status: next_status
-    )
+      assign(socket,
+        ai_translate_in_flight: new_in_flight,
+        ai_translation_progress: next_progress,
+        ai_translation_status: next_status
+      )
+    else
+      socket
+    end
   end
 
   @doc """

@@ -332,8 +332,7 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
       when uuid == socket.assigns.task.uuid do
     socket =
       socket
-      |> assign(:ai_translate_in_flight, socket.assigns.ai_translate_in_flight -- [lang])
-      |> AITranslateFormHelpers.bump_translation_completed()
+      |> AITranslateFormHelpers.bump_translation_completed(lang)
 
     if Map.get(payload, :empty, false) do
       {:noreply,
@@ -368,8 +367,7 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
       when uuid == socket.assigns.task.uuid do
     {:noreply,
      socket
-     |> assign(:ai_translate_in_flight, socket.assigns.ai_translate_in_flight -- [lang])
-     |> AITranslateFormHelpers.bump_translation_completed()
+     |> AITranslateFormHelpers.bump_translation_completed(lang)
      |> put_flash(:error, gettext("Translation to %{lang} failed.", lang: String.upcase(lang)))}
   end
 
