@@ -29,7 +29,6 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
       |> assign(
         page_title: gettext("Projects"),
         wrapper_class: wrapper_class,
-        show: "visible",
         sort_by: :position,
         sort_dir: :asc,
         projects: [],
@@ -61,7 +60,7 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
     assign(socket,
       projects:
         Projects.list_projects(
-          archived: archived_opt(socket.assigns.show),
+          archived: false,
           sort_by: socket.assigns.sort_by,
           sort_dir: socket.assigns.sort_dir
         )
@@ -80,18 +79,7 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
     ]
   end
 
-  defp archived_opt("archived"), do: true
-  defp archived_opt("all"), do: :all
-  defp archived_opt(_visible), do: false
-
   @impl true
-  def handle_event("filter", %{"show" => s}, socket) do
-    # Filter switch reloads projects; the new render replaces the DOM
-    # rows, which causes the BulkSelectScope hook to re-derive its
-    # selection from the new (unchecked) checkboxes — selection clears
-    # naturally without server-side bookkeeping.
-    {:noreply, socket |> assign(show: s) |> load_projects()}
-  end
 
   # Sort selector fires `sort_form` for both field changes (via the
   # form's phx-change) and direction toggles (via the button's
@@ -305,42 +293,23 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
         </:actions>
       </.page_header>
 
-      <div class="bg-base-200 rounded-lg p-3 flex flex-wrap items-end gap-4">
-        <.form for={%{}} phx-change="filter">
-          <.select
-            name="show"
-            label={gettext("Show")}
-            value={@show}
-            options={[
-              {gettext("Active only"), "visible"},
-              {gettext("Archived only"), "archived"},
-              {gettext("All"), "all"}
-            ]}
-          />
-        </.form>
-
-        <div class="flex flex-col gap-1">
-          <span class="label-text text-sm">{gettext("Sort by")}</span>
-          <.sort_selector
-            sort_by={@sort_by}
-            sort_dir={@sort_dir}
-            options={sort_options()}
-            manual_field={:position}
-          />
-        </div>
-      </div>
+      <.sort_selector
+        sort_by={@sort_by}
+        sort_dir={@sort_dir}
+        options={sort_options()}
+        manual_field={:position}
+      />
 
       <%= if @projects == [] do %>
         <.empty_state icon="hero-clipboard-document-list" title={gettext("No projects match.")} />
       <% else %>
-        <%!-- DnD applies only in "manual" sort (sort_by=:position) AND
-             when the user is viewing the visible (non-archived)
-             bucket. Sorting by name / date is a *view* — it doesn't
-             rewrite positions, so dragging would be lossy and the
-             handle is hidden. Switching back to manual restores the
-             original position order and the drag handle. --%>
+        <%!-- DnD applies only in "manual" sort (sort_by=:position).
+             Sorting by name / date is a *view* — it doesn't rewrite
+             positions, so dragging would be lossy and the handle is
+             hidden. Switching back to manual restores the drag handle
+             and the position-driven order. --%>
         <% lang = L10n.current_content_lang() %>
-        <% draggable? = @show == "visible" and @sort_by == :position %>
+        <% draggable? = @sort_by == :position %>
 
         <.bulk_select_scope
           :if={@bulk_enabled?}

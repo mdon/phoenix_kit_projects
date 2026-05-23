@@ -461,15 +461,12 @@ defmodule PhoenixKitProjects.Web.TasksLive do
         <%!-- Default flat list view. --%>
         <% lang = L10n.current_content_lang() %>
 
-        <div class="bg-base-200 rounded-lg p-3 flex flex-col gap-1">
-          <span class="label-text text-sm">{gettext("Sort by")}</span>
-          <.sort_selector
-            sort_by={@sort_by}
-            sort_dir={@sort_dir}
-            options={sort_options()}
-            manual_field={:position}
-          />
-        </div>
+        <.sort_selector
+          sort_by={@sort_by}
+          sort_dir={@sort_dir}
+          options={sort_options()}
+          manual_field={:position}
+        />
 
         <%= if @tasks == [] do %>
           <.empty_state icon="hero-rectangle-stack" title={gettext("No tasks yet.")}>
