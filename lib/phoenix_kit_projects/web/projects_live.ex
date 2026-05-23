@@ -184,7 +184,7 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
               <.table_default_header_cell :if={draggable?} class="w-8" />
               <.table_default_header_cell>{gettext("Name")}</.table_default_header_cell>
               <.table_default_header_cell>{gettext("Status")}</.table_default_header_cell>
-              <.table_default_header_cell class="text-right">{gettext("Actions")}</.table_default_header_cell>
+              <.table_default_header_cell class="text-right whitespace-nowrap">{gettext("Actions")}</.table_default_header_cell>
             </.table_default_row>
           </.table_default_header>
           <tbody
@@ -198,27 +198,27 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
             <.table_default_row :for={p <- @projects} class="sortable-item" data-id={p.uuid}>
               <.table_default_cell
                 :if={draggable?}
-                class="pk-drag-handle cursor-grab text-base-content/40 hover:text-base-content align-middle w-8"
+                class="pk-drag-handle cursor-grab active:cursor-grabbing text-base-content/40"
                 title={gettext("Drag to reorder")}
               >
                 <.icon name="hero-bars-3" class="w-4 h-4" />
               </.table_default_cell>
-              <.table_default_cell class="align-middle">
+              <.table_default_cell class="font-medium">
                 <.smart_link
                   navigate={Paths.project(p.uuid)}
                   emit={{PhoenixKitProjects.Web.ProjectShowLive, %{"id" => p.uuid}}}
                   embed_mode={@embed_mode}
-                  class="link link-hover font-medium"
+                  class="link link-hover"
                 >
                   {Project.localized_name(p, lang)}
                 </.smart_link>
                 <% desc = Project.localized_description(p, lang) %>
                 <div :if={desc} class="text-xs text-base-content/60 truncate max-w-md">{desc}</div>
               </.table_default_cell>
-              <.table_default_cell class="align-middle">
+              <.table_default_cell>
                 <.project_status_badge project={p} />
               </.table_default_cell>
-              <.table_default_cell class="text-right align-middle">
+              <.table_default_cell class="text-right whitespace-nowrap">
                 <.table_row_menu id={"project-menu-#{p.uuid}"}>
                   <.smart_menu_link
                     navigate={Paths.edit_project(p.uuid)}

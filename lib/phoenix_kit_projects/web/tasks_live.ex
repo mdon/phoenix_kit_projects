@@ -354,7 +354,7 @@ defmodule PhoenixKitProjects.Web.TasksLive do
                 <.table_default_header_cell class="w-8" />
                 <.table_default_header_cell>{gettext("Title")}</.table_default_header_cell>
                 <.table_default_header_cell>{gettext("Duration")}</.table_default_header_cell>
-                <.table_default_header_cell class="text-right">{gettext("Actions")}</.table_default_header_cell>
+                <.table_default_header_cell class="text-right whitespace-nowrap">{gettext("Actions")}</.table_default_header_cell>
               </.table_default_row>
             </.table_default_header>
             <tbody
@@ -367,25 +367,25 @@ defmodule PhoenixKitProjects.Web.TasksLive do
             >
               <.table_default_row :for={task <- @tasks} class="sortable-item" data-id={task.uuid}>
                 <.table_default_cell
-                  class="pk-drag-handle cursor-grab text-base-content/40 hover:text-base-content align-middle w-8"
+                  class="pk-drag-handle cursor-grab active:cursor-grabbing text-base-content/40"
                   title={gettext("Drag to reorder")}
                 >
                   <.icon name="hero-bars-3" class="w-4 h-4" />
                 </.table_default_cell>
-                <.table_default_cell class="align-middle">
-                  <div class="font-medium">{TaskSchema.localized_title(task, lang)}</div>
+                <.table_default_cell class="font-medium">
+                  {TaskSchema.localized_title(task, lang)}
                   <% desc = TaskSchema.localized_description(task, lang) %>
-                  <div :if={desc} class="text-xs text-base-content/60 truncate max-w-md">{desc}</div>
+                  <div :if={desc} class="text-xs text-base-content/60 truncate max-w-md font-normal">{desc}</div>
                   <% deps = Map.get(@deps_by_task, task.uuid, []) %>
                   <div :if={deps != []} class="flex flex-wrap gap-1 mt-1.5">
-                    <span :for={dep <- deps} class="badge badge-outline badge-xs gap-1">
+                    <span :for={dep <- deps} class="badge badge-outline badge-xs gap-1 font-normal">
                       <.icon name="hero-arrow-right-circle" class="w-3 h-3" />
                       {TaskSchema.localized_title(dep, lang)}
                     </span>
                   </div>
                 </.table_default_cell>
-                <.table_default_cell class="align-middle">{format_duration(task)}</.table_default_cell>
-                <.table_default_cell class="text-right align-middle">
+                <.table_default_cell>{format_duration(task)}</.table_default_cell>
+                <.table_default_cell class="text-right whitespace-nowrap">
                   <.table_row_menu id={"task-menu-#{task.uuid}"}>
                     <.smart_menu_link
                       navigate={Paths.edit_task(task.uuid)}
