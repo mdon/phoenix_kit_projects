@@ -435,15 +435,14 @@ defmodule PhoenixKitProjects.Web.TasksLive do
           <.table_default id="tasks-list" size="sm">
             <.table_default_header>
               <.table_default_row>
-                <.table_default_header_cell :if={@bulk_enabled?} class="w-8">
-                  <.bulk_select_header_checkbox
-                    id="tasks-select-all"
-                    selected_count={MapSet.size(@selected_uuids)}
-                    total_count={length(@tasks)}
-                    on_toggle="toggle_select_all"
-                    aria_label={gettext("Select all tasks")}
-                  />
-                </.table_default_header_cell>
+                <.bulk_select_header_cell
+                  :if={@bulk_enabled?}
+                  id="tasks-select-all"
+                  selected_count={MapSet.size(@selected_uuids)}
+                  total_count={length(@tasks)}
+                  on_toggle="toggle_select_all"
+                  aria_label={gettext("Select all tasks")}
+                />
                 <.table_default_header_cell class="w-8" />
                 <.table_default_header_cell>{gettext("Title")}</.table_default_header_cell>
                 <.table_default_header_cell>{gettext("Duration")}</.table_default_header_cell>
@@ -459,15 +458,12 @@ defmodule PhoenixKitProjects.Web.TasksLive do
               data-sortable-handle=".pk-drag-handle"
             >
               <.table_default_row :for={task <- @tasks} class="sortable-item" data-id={task.uuid}>
-                <.table_default_cell :if={@bulk_enabled?} class="w-8">
-                  <input
-                    type="checkbox"
-                    class="checkbox checkbox-sm"
-                    checked={MapSet.member?(@selected_uuids, task.uuid)}
-                    phx-click="toggle_select"
-                    phx-value-uuid={task.uuid}
-                  />
-                </.table_default_cell>
+                <.bulk_select_cell
+                  :if={@bulk_enabled?}
+                  value={task.uuid}
+                  checked={MapSet.member?(@selected_uuids, task.uuid)}
+                  on_toggle="toggle_select"
+                />
                 <.table_default_cell
                   class="pk-drag-handle cursor-grab active:cursor-grabbing text-base-content/40"
                   title={gettext("Drag to reorder")}

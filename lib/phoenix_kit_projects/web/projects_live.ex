@@ -277,15 +277,14 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
         <.table_default id="projects-list" size="sm">
           <.table_default_header>
             <.table_default_row>
-              <.table_default_header_cell :if={@bulk_enabled?} class="w-8">
-                <.bulk_select_header_checkbox
-                  id="projects-select-all"
-                  selected_count={MapSet.size(@selected_uuids)}
-                  total_count={length(@projects)}
-                  on_toggle="toggle_select_all"
-                  aria_label={gettext("Select all projects")}
-                />
-              </.table_default_header_cell>
+              <.bulk_select_header_cell
+                :if={@bulk_enabled?}
+                id="projects-select-all"
+                selected_count={MapSet.size(@selected_uuids)}
+                total_count={length(@projects)}
+                on_toggle="toggle_select_all"
+                aria_label={gettext("Select all projects")}
+              />
               <.table_default_header_cell :if={draggable?} class="w-8" />
               <.table_default_header_cell>{gettext("Name")}</.table_default_header_cell>
               <.table_default_header_cell>{gettext("Status")}</.table_default_header_cell>
@@ -301,15 +300,12 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
             data-sortable-handle=".pk-drag-handle"
           >
             <.table_default_row :for={p <- @projects} class="sortable-item" data-id={p.uuid}>
-              <.table_default_cell :if={@bulk_enabled?} class="w-8">
-                <input
-                  type="checkbox"
-                  class="checkbox checkbox-sm"
-                  checked={MapSet.member?(@selected_uuids, p.uuid)}
-                  phx-click="toggle_select"
-                  phx-value-uuid={p.uuid}
-                />
-              </.table_default_cell>
+              <.bulk_select_cell
+                :if={@bulk_enabled?}
+                value={p.uuid}
+                checked={MapSet.member?(@selected_uuids, p.uuid)}
+                on_toggle="toggle_select"
+              />
               <.table_default_cell
                 :if={draggable?}
                 class="pk-drag-handle cursor-grab active:cursor-grabbing text-base-content/40"
