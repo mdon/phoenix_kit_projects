@@ -346,51 +346,69 @@ defmodule PhoenixKitProjects.Web.TasksLive do
         <% else %>
           <%!-- DnD reorder is wired only on the list view (groups are
                derived from the dep graph and don't have a stable
-               manual order). Per-row body uses the sortable_table
-               component's :col slots; SortableJS knockout-of-table-
-               layout is handled by `align-middle` cells inside the
-               component. --%>
-          <.sortable_table
-            id="tasks-list-body"
-            rows={@tasks}
-            row_id={& &1.uuid}
-            event="reorder_tasks"
-          >
-            <:col :let={task} label={gettext("Title")}>
-              <div class="font-medium">{TaskSchema.localized_title(task, lang)}</div>
-              <% desc = TaskSchema.localized_description(task, lang) %>
-              <div :if={desc} class="text-xs text-base-content/60 truncate max-w-md">{desc}</div>
-              <% deps = Map.get(@deps_by_task, task.uuid, []) %>
-              <div :if={deps != []} class="flex flex-wrap gap-1 mt-1.5">
-                <span :for={dep <- deps} class="badge badge-outline badge-xs gap-1">
-                  <.icon name="hero-arrow-right-circle" class="w-3 h-3" />
-                  {TaskSchema.localized_title(dep, lang)}
-                </span>
-              </div>
-            </:col>
-            <:col :let={task} label={gettext("Duration")}>{format_duration(task)}</:col>
-            <:col :let={task} label={gettext("Actions")} class="text-right">
-              <.table_row_menu id={"task-menu-#{task.uuid}"}>
-                <.smart_menu_link
-                  navigate={Paths.edit_task(task.uuid)}
-                  emit={{PhoenixKitProjects.Web.TaskFormLive, %{"live_action" => "edit", "id" => task.uuid}}}
-                  embed_mode={@embed_mode}
-                  icon="hero-pencil"
-                  label={gettext("Edit")}
-                />
-                <.table_row_menu_divider />
-                <.table_row_menu_button
-                  phx-click="delete"
-                  phx-value-uuid={task.uuid}
-                  phx-disable-with={gettext("Deleting…")}
-                  data-confirm={gettext("Delete task \"%{title}\"? Assignments using it will also be removed.", title: TaskSchema.localized_title(task, lang))}
-                  icon="hero-trash"
-                  label={gettext("Delete")}
-                  variant="error"
-                />
-              </.table_row_menu>
-            </:col>
-          </.sortable_table>
+               manual order). Mirrors catalogue's `<.table_default>` +
+               hand-wired `<tbody>` DnD pattern. --%>
+          <.table_default id="tasks-list" size="sm">
+            <.table_default_header>
+              <.table_default_row>
+                <.table_default_header_cell class="w-8" />
+                <.table_default_header_cell>{gettext("Title")}</.table_default_header_cell>
+                <.table_default_header_cell>{gettext("Duration")}</.table_default_header_cell>
+                <.table_default_header_cell class="text-right">{gettext("Actions")}</.table_default_header_cell>
+              </.table_default_row>
+            </.table_default_header>
+            <tbody
+              id="tasks-list-body"
+              phx-hook="SortableGrid"
+              data-sortable="true"
+              data-sortable-event="reorder_tasks"
+              data-sortable-items=".sortable-item"
+              data-sortable-handle=".pk-drag-handle"
+            >
+              <.table_default_row :for={task <- @tasks} class="sortable-item" data-id={task.uuid}>
+                <.table_default_cell
+                  class="pk-drag-handle cursor-grab text-base-content/40 hover:text-base-content align-middle w-8"
+                  title={gettext("Drag to reorder")}
+                >
+                  <.icon name="hero-bars-3" class="w-4 h-4" />
+                </.table_default_cell>
+                <.table_default_cell class="align-middle">
+                  <div class="font-medium">{TaskSchema.localized_title(task, lang)}</div>
+                  <% desc = TaskSchema.localized_description(task, lang) %>
+                  <div :if={desc} class="text-xs text-base-content/60 truncate max-w-md">{desc}</div>
+                  <% deps = Map.get(@deps_by_task, task.uuid, []) %>
+                  <div :if={deps != []} class="flex flex-wrap gap-1 mt-1.5">
+                    <span :for={dep <- deps} class="badge badge-outline badge-xs gap-1">
+                      <.icon name="hero-arrow-right-circle" class="w-3 h-3" />
+                      {TaskSchema.localized_title(dep, lang)}
+                    </span>
+                  </div>
+                </.table_default_cell>
+                <.table_default_cell class="align-middle">{format_duration(task)}</.table_default_cell>
+                <.table_default_cell class="text-right align-middle">
+                  <.table_row_menu id={"task-menu-#{task.uuid}"}>
+                    <.smart_menu_link
+                      navigate={Paths.edit_task(task.uuid)}
+                      emit={{PhoenixKitProjects.Web.TaskFormLive, %{"live_action" => "edit", "id" => task.uuid}}}
+                      embed_mode={@embed_mode}
+                      icon="hero-pencil"
+                      label={gettext("Edit")}
+                    />
+                    <.table_row_menu_divider />
+                    <.table_row_menu_button
+                      phx-click="delete"
+                      phx-value-uuid={task.uuid}
+                      phx-disable-with={gettext("Deleting…")}
+                      data-confirm={gettext("Delete task \"%{title}\"? Assignments using it will also be removed.", title: TaskSchema.localized_title(task, lang))}
+                      icon="hero-trash"
+                      label={gettext("Delete")}
+                      variant="error"
+                    />
+                  </.table_row_menu>
+                </.table_default_cell>
+              </.table_default_row>
+            </tbody>
+          </.table_default>
         <% end %>
       <% end %>
     </div>

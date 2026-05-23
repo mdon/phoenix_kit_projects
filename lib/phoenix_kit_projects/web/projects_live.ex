@@ -171,53 +171,77 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
              (non-archived) bucket — reordering a filtered subset
              would write inconsistent positions for the projects that
              aren't currently visible. The hook is gated on
-             `@show == "visible"`; archived/all views render without
-             the SortableGrid hook (drag handle hidden too). --%>
+             `@show == "visible"`; archived/all views render the
+             same `<.table_default>` without the SortableGrid hook
+             (drag handle column hidden too). Mirrors catalogue's
+             `<.table_default>` + hand-wired `<tbody>` DnD pattern
+             — see `phoenix_kit_catalogue/lib/.../catalogues_live.ex`. --%>
         <% lang = L10n.current_content_lang() %>
-        <.sortable_table
-          id="projects-list-body"
-          rows={@projects}
-          row_id={& &1.uuid}
-          event="reorder_projects"
-          draggable={@show == "visible"}
-        >
-          <:col :let={p} label={gettext("Name")}>
-            <.smart_link
-              navigate={Paths.project(p.uuid)}
-              emit={{PhoenixKitProjects.Web.ProjectShowLive, %{"id" => p.uuid}}}
-              embed_mode={@embed_mode}
-              class="link link-hover font-medium"
-            >
-              {Project.localized_name(p, lang)}
-            </.smart_link>
-            <% desc = Project.localized_description(p, lang) %>
-            <div :if={desc} class="text-xs text-base-content/60 truncate max-w-md">{desc}</div>
-          </:col>
-          <:col :let={p} label={gettext("Status")}>
-            <.project_status_badge project={p} />
-          </:col>
-          <:col :let={p} label={gettext("Actions")} class="text-right">
-            <.table_row_menu id={"project-menu-#{p.uuid}"}>
-              <.smart_menu_link
-                navigate={Paths.edit_project(p.uuid)}
-                emit={{PhoenixKitProjects.Web.ProjectFormLive, %{"live_action" => "edit", "id" => p.uuid}}}
-                embed_mode={@embed_mode}
-                icon="hero-pencil"
-                label={gettext("Edit")}
-              />
-              <.table_row_menu_divider />
-              <.table_row_menu_button
-                phx-click="delete"
-                phx-value-uuid={p.uuid}
-                phx-disable-with={gettext("Deleting…")}
-                data-confirm={gettext("Delete project \"%{name}\"? All assignments will be removed.", name: Project.localized_name(p, lang))}
-                icon="hero-trash"
-                label={gettext("Delete")}
-                variant="error"
-              />
-            </.table_row_menu>
-          </:col>
-        </.sortable_table>
+        <% draggable? = @show == "visible" %>
+        <.table_default id="projects-list" size="sm">
+          <.table_default_header>
+            <.table_default_row>
+              <.table_default_header_cell :if={draggable?} class="w-8" />
+              <.table_default_header_cell>{gettext("Name")}</.table_default_header_cell>
+              <.table_default_header_cell>{gettext("Status")}</.table_default_header_cell>
+              <.table_default_header_cell class="text-right">{gettext("Actions")}</.table_default_header_cell>
+            </.table_default_row>
+          </.table_default_header>
+          <tbody
+            id="projects-list-body"
+            phx-hook={if draggable?, do: "SortableGrid"}
+            data-sortable={if draggable?, do: "true"}
+            data-sortable-event="reorder_projects"
+            data-sortable-items=".sortable-item"
+            data-sortable-handle=".pk-drag-handle"
+          >
+            <.table_default_row :for={p <- @projects} class="sortable-item" data-id={p.uuid}>
+              <.table_default_cell
+                :if={draggable?}
+                class="pk-drag-handle cursor-grab text-base-content/40 hover:text-base-content align-middle w-8"
+                title={gettext("Drag to reorder")}
+              >
+                <.icon name="hero-bars-3" class="w-4 h-4" />
+              </.table_default_cell>
+              <.table_default_cell class="align-middle">
+                <.smart_link
+                  navigate={Paths.project(p.uuid)}
+                  emit={{PhoenixKitProjects.Web.ProjectShowLive, %{"id" => p.uuid}}}
+                  embed_mode={@embed_mode}
+                  class="link link-hover font-medium"
+                >
+                  {Project.localized_name(p, lang)}
+                </.smart_link>
+                <% desc = Project.localized_description(p, lang) %>
+                <div :if={desc} class="text-xs text-base-content/60 truncate max-w-md">{desc}</div>
+              </.table_default_cell>
+              <.table_default_cell class="align-middle">
+                <.project_status_badge project={p} />
+              </.table_default_cell>
+              <.table_default_cell class="text-right align-middle">
+                <.table_row_menu id={"project-menu-#{p.uuid}"}>
+                  <.smart_menu_link
+                    navigate={Paths.edit_project(p.uuid)}
+                    emit={{PhoenixKitProjects.Web.ProjectFormLive, %{"live_action" => "edit", "id" => p.uuid}}}
+                    embed_mode={@embed_mode}
+                    icon="hero-pencil"
+                    label={gettext("Edit")}
+                  />
+                  <.table_row_menu_divider />
+                  <.table_row_menu_button
+                    phx-click="delete"
+                    phx-value-uuid={p.uuid}
+                    phx-disable-with={gettext("Deleting…")}
+                    data-confirm={gettext("Delete project \"%{name}\"? All assignments will be removed.", name: Project.localized_name(p, lang))}
+                    icon="hero-trash"
+                    label={gettext("Delete")}
+                    variant="error"
+                  />
+                </.table_row_menu>
+              </.table_default_cell>
+            </.table_default_row>
+          </tbody>
+        </.table_default>
       <% end %>
     </div>
     """

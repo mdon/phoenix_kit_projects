@@ -149,51 +149,71 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
         </.empty_state>
       <% else %>
         <% lang = L10n.current_content_lang() %>
-        <.sortable_table
-          id="templates-list-body"
-          rows={@templates}
-          row_id={& &1.uuid}
-          event="reorder_templates"
-        >
-          <:col :let={t} label={gettext("Name")}>
-            <.smart_link
-              navigate={Paths.template(t.uuid)}
-              emit={{PhoenixKitProjects.Web.ProjectShowLive, %{"id" => t.uuid}}}
-              embed_mode={@embed_mode}
-              class="link link-hover font-medium"
-            >
-              {Project.localized_name(t, lang)}
-            </.smart_link>
-            <% desc = Project.localized_description(t, lang) %>
-            <div :if={desc} class="text-xs text-base-content/60 truncate max-w-md">{desc}</div>
-          </:col>
-          <:col :let={t} label={gettext("Weekends")}>
-            <span class={"badge badge-xs #{if t.counts_weekends, do: "badge-info", else: "badge-ghost"}"}>
-              {if t.counts_weekends, do: gettext("yes"), else: gettext("no")}
-            </span>
-          </:col>
-          <:col :let={t} label={gettext("Actions")} class="text-right">
-            <.table_row_menu id={"template-menu-#{t.uuid}"}>
-              <.smart_menu_link
-                navigate={Paths.edit_template(t.uuid)}
-                emit={{PhoenixKitProjects.Web.TemplateFormLive, %{"live_action" => "edit", "id" => t.uuid}}}
-                embed_mode={@embed_mode}
-                icon="hero-pencil"
-                label={gettext("Edit")}
-              />
-              <.table_row_menu_divider />
-              <.table_row_menu_button
-                phx-click="delete"
-                phx-value-uuid={t.uuid}
-                phx-disable-with={gettext("Deleting…")}
-                data-confirm={gettext("Delete template \"%{name}\"?", name: Project.localized_name(t, lang))}
-                icon="hero-trash"
-                label={gettext("Delete")}
-                variant="error"
-              />
-            </.table_row_menu>
-          </:col>
-        </.sortable_table>
+        <.table_default id="templates-list" size="sm">
+          <.table_default_header>
+            <.table_default_row>
+              <.table_default_header_cell class="w-8" />
+              <.table_default_header_cell>{gettext("Name")}</.table_default_header_cell>
+              <.table_default_header_cell>{gettext("Weekends")}</.table_default_header_cell>
+              <.table_default_header_cell class="text-right">{gettext("Actions")}</.table_default_header_cell>
+            </.table_default_row>
+          </.table_default_header>
+          <tbody
+            id="templates-list-body"
+            phx-hook="SortableGrid"
+            data-sortable="true"
+            data-sortable-event="reorder_templates"
+            data-sortable-items=".sortable-item"
+            data-sortable-handle=".pk-drag-handle"
+          >
+            <.table_default_row :for={t <- @templates} class="sortable-item" data-id={t.uuid}>
+              <.table_default_cell
+                class="pk-drag-handle cursor-grab text-base-content/40 hover:text-base-content align-middle w-8"
+                title={gettext("Drag to reorder")}
+              >
+                <.icon name="hero-bars-3" class="w-4 h-4" />
+              </.table_default_cell>
+              <.table_default_cell class="align-middle">
+                <.smart_link
+                  navigate={Paths.template(t.uuid)}
+                  emit={{PhoenixKitProjects.Web.ProjectShowLive, %{"id" => t.uuid}}}
+                  embed_mode={@embed_mode}
+                  class="link link-hover font-medium"
+                >
+                  {Project.localized_name(t, lang)}
+                </.smart_link>
+                <% desc = Project.localized_description(t, lang) %>
+                <div :if={desc} class="text-xs text-base-content/60 truncate max-w-md">{desc}</div>
+              </.table_default_cell>
+              <.table_default_cell class="align-middle">
+                <span class={"badge badge-xs #{if t.counts_weekends, do: "badge-info", else: "badge-ghost"}"}>
+                  {if t.counts_weekends, do: gettext("yes"), else: gettext("no")}
+                </span>
+              </.table_default_cell>
+              <.table_default_cell class="text-right align-middle">
+                <.table_row_menu id={"template-menu-#{t.uuid}"}>
+                  <.smart_menu_link
+                    navigate={Paths.edit_template(t.uuid)}
+                    emit={{PhoenixKitProjects.Web.TemplateFormLive, %{"live_action" => "edit", "id" => t.uuid}}}
+                    embed_mode={@embed_mode}
+                    icon="hero-pencil"
+                    label={gettext("Edit")}
+                  />
+                  <.table_row_menu_divider />
+                  <.table_row_menu_button
+                    phx-click="delete"
+                    phx-value-uuid={t.uuid}
+                    phx-disable-with={gettext("Deleting…")}
+                    data-confirm={gettext("Delete template \"%{name}\"?", name: Project.localized_name(t, lang))}
+                    icon="hero-trash"
+                    label={gettext("Delete")}
+                    variant="error"
+                  />
+                </.table_row_menu>
+              </.table_default_cell>
+            </.table_default_row>
+          </tbody>
+        </.table_default>
       <% end %>
     </div>
     """

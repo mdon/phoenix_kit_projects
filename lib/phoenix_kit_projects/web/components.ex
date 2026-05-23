@@ -19,7 +19,6 @@ defmodule PhoenixKitProjects.Web.Components do
       import PhoenixKitProjects.Web.Components.StatTile
       import PhoenixKitProjects.Web.Components.TierPill
       import PhoenixKitProjects.Web.Components.RunningCard
-      import PhoenixKitProjects.Web.Components.SortableTable
       import PhoenixKitProjects.Web.Components.DerivedStatusBadge
       import PhoenixKitProjects.Web.Components.AssignmentStatusBadge
       import PhoenixKitProjects.Web.Components.TabsStrip
