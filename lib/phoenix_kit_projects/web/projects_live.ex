@@ -293,16 +293,20 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
         </:actions>
       </.page_header>
 
-      <.sort_selector
-        sort_by={@sort_by}
-        sort_dir={@sort_dir}
-        options={sort_options()}
-        manual_field={:position}
-      />
+      <%!-- Inner column with a smaller gap so the sort selector sits
+           tight against the bulk toolbar / table instead of paying
+           the wrapper's full gap-4 between every section. --%>
+      <div class="flex flex-col gap-2">
+        <.sort_selector
+          sort_by={@sort_by}
+          sort_dir={@sort_dir}
+          options={sort_options()}
+          manual_field={:position}
+        />
 
-      <%= if @projects == [] do %>
-        <.empty_state icon="hero-clipboard-document-list" title={gettext("No projects match.")} />
-      <% else %>
+        <%= if @projects == [] do %>
+          <.empty_state icon="hero-clipboard-document-list" title={gettext("No projects match.")} />
+        <% else %>
         <%!-- DnD applies only in "manual" sort (sort_by=:position).
              Sorting by name / date is a *view* — it doesn't rewrite
              positions, so dragging would be lossy and the handle is
@@ -330,7 +334,8 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
         <%!-- When bulk-select is disabled, render the table without the
              scope wrapper (no toolbar, no checkboxes). --%>
         {if not @bulk_enabled?, do: render_projects_table(assigns, draggable?, lang)}
-      <% end %>
+        <% end %>
+      </div>
 
       <.reorder_modal
         show={@show_reorder_modal}
