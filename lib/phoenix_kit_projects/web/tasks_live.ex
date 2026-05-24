@@ -548,12 +548,12 @@ defmodule PhoenixKitProjects.Web.TasksLive do
     <.table_default id="tasks-list" size="sm">
       <.table_default_header>
         <.table_default_row>
+          <.drag_handle_header_cell :if={@draggable?} />
           <.bulk_select_header_cell
             :if={@bulk_enabled?}
             id="tasks-select-all"
             aria_label={gettext("Select all tasks")}
           />
-          <.table_default_header_cell :if={@draggable?} class="w-8" />
           <.sort_header_cell field={:title} sort={%{by: @sort_by, dir: @sort_dir}}>
             {gettext("Title")}
           </.sort_header_cell>
@@ -572,14 +572,8 @@ defmodule PhoenixKitProjects.Web.TasksLive do
         data-sortable-handle=".pk-drag-handle"
       >
         <.table_default_row :for={task <- @tasks} class="sortable-item" data-id={task.uuid}>
+          <.drag_handle_cell :if={@draggable?} />
           <.bulk_select_cell :if={@bulk_enabled?} value={task.uuid} />
-          <.table_default_cell
-            :if={@draggable?}
-            class="pk-drag-handle cursor-grab active:cursor-grabbing text-base-content/40"
-            title={gettext("Drag to reorder")}
-          >
-            <.icon name="hero-bars-3" class="w-4 h-4" />
-          </.table_default_cell>
           <.table_default_cell class="font-medium">
             {TaskSchema.localized_title(task, @lang)}
             <% desc = TaskSchema.localized_description(task, @lang) %>
