@@ -1024,7 +1024,6 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
               multilang_enabled={@multilang_enabled}
               language_tabs={@language_tabs}
               current_lang={@current_lang}
-              show_info={false}
             />
           </div>
         <% end %>

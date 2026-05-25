@@ -18,6 +18,10 @@ defmodule PhoenixKitProjects.Web.TasksLive do
   # override via `live_render(... session: %{"wrapper_class" => "..."})`.
   @default_wrapper_class "flex flex-col w-full px-4 py-6 gap-4"
 
+  # See projects_live for the same load-more pagination semantics.
+  @per_batch 50
+  @default_pagination "load_more"
+
   @impl true
   def mount(_params, session, socket) do
     WebHelpers.maybe_put_locale(session)
@@ -35,16 +39,26 @@ defmodule PhoenixKitProjects.Web.TasksLive do
         _ -> "list"
       end
 
+    pagination = Map.get(session, "pagination", @default_pagination)
+
     socket =
       socket
       |> assign(
         page_title: gettext("Task Library"),
         wrapper_class: wrapper_class,
         view: initial_view,
+        pagination: pagination,
+        sort_by: :position,
+        sort_dir: :asc,
+        loaded_count: @per_batch,
+        total_count: 0,
         tasks: [],
         deps_by_task: %{},
         groups: [],
-        standalone: []
+        standalone: [],
+        bulk_enabled?: true,
+        captured_uuids: [],
+        show_reorder_modal: false
       )
       |> WebHelpers.assign_embed_state(session)
       |> WebHelpers.attach_open_embed_hook()
@@ -80,9 +94,39 @@ defmodule PhoenixKitProjects.Web.TasksLive do
         )
 
       _ ->
-        %{tasks: tasks, deps_by_task: deps_by_task} = Projects.list_tasks_with_deps()
-        assign(socket, tasks: tasks, deps_by_task: deps_by_task, groups: [], standalone: [])
+        base_opts = [
+          sort_by: socket.assigns.sort_by,
+          sort_dir: socket.assigns.sort_dir
+        ]
+
+        list_opts =
+          case socket.assigns.pagination do
+            "load_more" -> Keyword.put(base_opts, :limit, socket.assigns.loaded_count)
+            _ -> base_opts
+          end
+
+        %{tasks: tasks, deps_by_task: deps_by_task} = Projects.list_tasks_with_deps(list_opts)
+
+        assign(socket,
+          tasks: tasks,
+          deps_by_task: deps_by_task,
+          groups: [],
+          standalone: [],
+          total_count: Projects.count_tasks()
+        )
     end
+  end
+
+  @sort_fields ~w(position title inserted_at estimated_duration)a
+  @sort_field_strs Enum.map(@sort_fields, &Atom.to_string/1)
+
+  defp sort_options do
+    [
+      {:position, gettext("Manual")},
+      {:title, gettext("Title")},
+      {:inserted_at, gettext("Date created")},
+      {:estimated_duration, gettext("Duration")}
+    ]
   end
 
   @impl true
@@ -97,10 +141,114 @@ defmodule PhoenixKitProjects.Web.TasksLive do
 
   @impl true
   def handle_event("set_view", %{"view" => view}, socket) when view in @valid_views do
+    # Switching view re-renders the table; the BulkSelectScope hook
+    # re-derives selection from the (fresh) DOM checkboxes — no
+    # server-side bookkeeping required.
     {:noreply, socket |> assign(view: view) |> load_tasks()}
   end
 
   def handle_event("set_view", _params, socket), do: {:noreply, socket}
+
+  # See projects_live for the rationale on collapsing <2 uuids to :all.
+  def handle_event("open_reorder_modal", params, socket) do
+    uuids =
+      case sanitize_uuids(params) do
+        list when length(list) < 2 -> []
+        list -> list
+      end
+
+    {:noreply, assign(socket, show_reorder_modal: true, captured_uuids: uuids)}
+  end
+
+  def handle_event("close_reorder_modal", _params, socket) do
+    {:noreply, assign(socket, show_reorder_modal: false, captured_uuids: [])}
+  end
+
+  # Sort selector — see projects_live for the same pattern.
+  def handle_event("sort_form", params, socket) do
+    field_str = params["sort_by"] || Atom.to_string(socket.assigns.sort_by)
+    dir_str = params["sort_dir"] || Atom.to_string(socket.assigns.sort_dir)
+
+    field =
+      if field_str in @sort_field_strs,
+        do: String.to_existing_atom(field_str),
+        else: socket.assigns.sort_by
+
+    dir =
+      case dir_str do
+        "desc" -> :desc
+        _ -> :asc
+      end
+
+    {:noreply, apply_sort(socket, field, dir)}
+  end
+
+  def handle_event("toggle_sort", %{"by" => field_str}, socket)
+      when field_str in @sort_field_strs do
+    field = String.to_existing_atom(field_str)
+
+    dir =
+      if field == socket.assigns.sort_by do
+        if socket.assigns.sort_dir == :asc, do: :desc, else: :asc
+      else
+        :asc
+      end
+
+    {:noreply, apply_sort(socket, field, dir)}
+  end
+
+  def handle_event("toggle_sort", _params, socket), do: {:noreply, socket}
+
+  def handle_event("load_more", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(loaded_count: socket.assigns.loaded_count + @per_batch)
+     |> load_tasks()}
+  end
+
+  # Map gates atom coercion — see projects_live for the same shape.
+  @reorder_strategies %{
+    "name_asc" => :name_asc,
+    "name_desc" => :name_desc,
+    "created_asc" => :created_asc,
+    "created_desc" => :created_desc,
+    "reverse" => :reverse
+  }
+
+  def handle_event("apply_reorder", %{"strategy" => strategy_str}, socket)
+      when is_map_key(@reorder_strategies, strategy_str) do
+    strategy = Map.fetch!(@reorder_strategies, strategy_str)
+
+    scope =
+      case socket.assigns.captured_uuids do
+        [] -> :all
+        uuids -> uuids
+      end
+
+    case Projects.reorder_tasks_by(strategy, scope, actor_uuid: Activity.actor_uuid(socket)) do
+      :ok ->
+        {:noreply,
+         socket
+         |> put_flash(:info, gettext("Tasks reordered."))
+         |> assign(show_reorder_modal: false, captured_uuids: [])
+         |> load_tasks()}
+
+      {:error, :duplicate_positions} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           gettext("Selected rows share positions. Apply \"Reorder all\" first to normalise.")
+         )}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, gettext("Could not reorder tasks."))}
+    end
+  end
+
+  def handle_event("apply_reorder", _params, socket) do
+    {:noreply, put_flash(socket, :error, gettext("Pick a strategy before applying."))}
+  end
 
   def handle_event("reorder_tasks", %{"ordered_ids" => ordered_ids} = params, socket)
       when is_list(ordered_ids) do
@@ -164,12 +312,31 @@ defmodule PhoenixKitProjects.Web.TasksLive do
     end
   end
 
+  # Sort change resets the load-more cap — see projects_live.
+  defp apply_sort(socket, field, dir) do
+    socket
+    |> assign(sort_by: field, sort_dir: dir, loaded_count: @per_batch)
+    |> load_tasks()
+  end
+
+  defp sanitize_uuids(%{"uuids" => uuids}) when is_list(uuids) do
+    Enum.filter(uuids, &is_binary/1)
+  end
+
+  defp sanitize_uuids(_), do: []
+
   defp format_duration(task) do
     PhoenixKitProjects.Schemas.Task.format_duration(
       task.estimated_duration,
       task.estimated_duration_unit
     )
   end
+
+  defp prereq_count_label(0), do: gettext("No prerequisites — just the root.")
+  defp prereq_count_label(1), do: gettext("1 prerequisite, then the root.")
+
+  defp prereq_count_label(n),
+    do: gettext("%{count} prerequisites, then the root.", count: n)
 
   # Flattens a closure tree to a unique-by-uuid task list. The root is
   # always first; everything else is in DFS order. The groups view
@@ -269,23 +436,48 @@ defmodule PhoenixKitProjects.Web.TasksLive do
             <%= for group <- @groups do %>
               <div class="card bg-base-100 shadow">
                 <div class="card-body">
+                  <%!-- Card title is the root task's name — the thing
+                       this group is rooted at. Without a title, several
+                       group cards stack visually as one undifferentiated
+                       blob of lists; with it, each group's identity is
+                       obvious at a glance. --%>
+                  <h2 class="card-title text-base flex items-center gap-2">
+                    <.icon name="hero-flag" class="w-4 h-4 text-primary" />
+                    {TaskSchema.localized_title(group.root, lang)}
+                  </h2>
+                  <p class="text-xs text-base-content/60 -mt-1">
+                    {prereq_count_label(length(group.peers) - 1)}
+                  </p>
+
                   <%!-- Flat peer list — no nesting. Tasks are full
                        templates, not subtasks. Order is execution
                        order (prerequisites first, the rooted task
                        last); `→ X` dep badges are intentionally
                        omitted — those targets are right there in the
-                       same list, so the badges would be redundant. --%>
-                  <ul class="divide-y divide-base-200">
+                       same list, so the badges would be redundant.
+                       The root task gets a "root" badge so it stands
+                       out from its prerequisites in the list. --%>
+                  <ul class="divide-y divide-base-200 mt-2">
                     <%= for task <- group.peers do %>
                       <li class="flex items-center gap-2 py-2 first:pt-0 last:pb-0">
                         <.smart_link
                           navigate={Paths.edit_task(task.uuid)}
                           emit={{PhoenixKitProjects.Web.TaskFormLive, %{"live_action" => "edit", "id" => task.uuid}}}
                           embed_mode={@embed_mode}
-                          class="text-sm font-medium link link-hover flex-1 min-w-0 truncate"
+                          class={[
+                            "text-sm link link-hover flex-1 min-w-0 truncate",
+                            task.uuid == group.root.uuid && "font-semibold",
+                            task.uuid != group.root.uuid && "font-medium"
+                          ]}
                         >
                           {TaskSchema.localized_title(task, lang)}
                         </.smart_link>
+                        <span
+                          :if={task.uuid == group.root.uuid}
+                          class="badge badge-primary badge-xs shrink-0"
+                        >
+                          {gettext("root")}
+                        </span>
                         <span class="badge badge-ghost badge-xs shrink-0">
                           {format_duration(task)}
                         </span>
@@ -344,56 +536,144 @@ defmodule PhoenixKitProjects.Web.TasksLive do
             </:cta>
           </.empty_state>
         <% else %>
-          <%!-- DnD reorder is wired only on the list view (groups are
-               derived from the dep graph and don't have a stable
-               manual order). Per-row body uses the sortable_table
-               component's :col slots; SortableJS knockout-of-table-
-               layout is handled by `align-middle` cells inside the
-               component. --%>
-          <.sortable_table
-            id="tasks-list-body"
-            rows={@tasks}
-            row_id={& &1.uuid}
-            event="reorder_tasks"
+          <.bulk_select_scope
+            :if={@bulk_enabled?}
+            id="tasks-bulk-scope"
+            total_count={length(@tasks)}
+            class="flex flex-col gap-2"
           >
-            <:col :let={task} label={gettext("Title")}>
-              <div class="font-medium">{TaskSchema.localized_title(task, lang)}</div>
-              <% desc = TaskSchema.localized_description(task, lang) %>
-              <div :if={desc} class="text-xs text-base-content/60 truncate max-w-md">{desc}</div>
-              <% deps = Map.get(@deps_by_task, task.uuid, []) %>
-              <div :if={deps != []} class="flex flex-wrap gap-1 mt-1.5">
-                <span :for={dep <- deps} class="badge badge-outline badge-xs gap-1">
-                  <.icon name="hero-arrow-right-circle" class="w-3 h-3" />
-                  {TaskSchema.localized_title(dep, lang)}
-                </span>
-              </div>
-            </:col>
-            <:col :let={task} label={gettext("Duration")}>{format_duration(task)}</:col>
-            <:col :let={task} label={gettext("Actions")} class="text-right">
-              <.table_row_menu id={"task-menu-#{task.uuid}"}>
-                <.smart_menu_link
-                  navigate={Paths.edit_task(task.uuid)}
-                  emit={{PhoenixKitProjects.Web.TaskFormLive, %{"live_action" => "edit", "id" => task.uuid}}}
-                  embed_mode={@embed_mode}
-                  icon="hero-pencil"
-                  label={gettext("Edit")}
+            <.bulk_actions_toolbar
+              on_open_reorder="open_reorder_modal"
+              reorder_dialog_id="reorder-modal"
+              noun_singular={gettext("task")}
+              noun_plural={gettext("tasks")}
+              allow_delete={false}
+              reorder_gate={if @sort_by == :position, do: :always, else: :multi}
+            >
+              <:leading>
+                <.sort_selector
+                  sort_by={@sort_by}
+                  sort_dir={@sort_dir}
+                  options={sort_options()}
+                  manual_field={:position}
                 />
-                <.table_row_menu_divider />
-                <.table_row_menu_button
-                  phx-click="delete"
-                  phx-value-uuid={task.uuid}
-                  phx-disable-with={gettext("Deleting…")}
-                  data-confirm={gettext("Delete task \"%{title}\"? Assignments using it will also be removed.", title: TaskSchema.localized_title(task, lang))}
-                  icon="hero-trash"
-                  label={gettext("Delete")}
-                  variant="error"
-                />
-              </.table_row_menu>
-            </:col>
-          </.sortable_table>
+              </:leading>
+            </.bulk_actions_toolbar>
+
+            {render_tasks_table(assigns, lang)}
+          </.bulk_select_scope>
+
+          <%= if not @bulk_enabled? do %>
+            <.sort_selector
+              sort_by={@sort_by}
+              sort_dir={@sort_dir}
+              options={sort_options()}
+              manual_field={:position}
+            />
+            {render_tasks_table(assigns, lang)}
+          <% end %>
         <% end %>
       <% end %>
+
+      <.reorder_modal
+        show={@show_reorder_modal}
+        on_close="close_reorder_modal"
+        on_apply="apply_reorder"
+        selected_count={length(@captured_uuids)}
+        total_count={@total_count}
+        strategies={[
+          {"name_asc", gettext("A → Z by title")},
+          {"name_desc", gettext("Z → A by title")},
+          {"created_desc", gettext("Newest first")},
+          {"created_asc", gettext("Oldest first")},
+          {"reverse", gettext("Reverse current order")}
+        ]}
+        noun_singular={gettext("task")}
+        noun_plural={gettext("tasks")}
+      />
     </div>
+    """
+  end
+
+  defp render_tasks_table(assigns, lang) do
+    draggable? = assigns.sort_by == :position
+    assigns = assign(assigns, lang: lang, draggable?: draggable?)
+
+    ~H"""
+    <%!-- DnD reorder is gated on `sort_by=:position` (the "manual"
+         sort mode). When the list is sorted by title/date/duration
+         the rendered order doesn't reflect the position field, so
+         dragging would be lossy — the handle column is hidden too. --%>
+    <.table_default id="tasks-list" size="sm">
+      <.table_default_header>
+        <.table_default_row>
+          <.drag_handle_header_cell :if={@draggable?} />
+          <.bulk_select_header_cell
+            :if={@bulk_enabled?}
+            id="tasks-select-all"
+            aria_label={gettext("Select all tasks")}
+          />
+          <.sort_header_cell field={:title} sort={%{by: @sort_by, dir: @sort_dir}}>
+            {gettext("Title")}
+          </.sort_header_cell>
+          <.sort_header_cell field={:estimated_duration} sort={%{by: @sort_by, dir: @sort_dir}}>
+            {gettext("Duration")}
+          </.sort_header_cell>
+          <.table_default_header_cell class="text-right whitespace-nowrap">{gettext("Actions")}</.table_default_header_cell>
+        </.table_default_row>
+      </.table_default_header>
+      <.sortable_tbody
+        id="tasks-list-body"
+        enabled={@draggable?}
+        event="reorder_tasks"
+      >
+        <.sortable_row :for={task <- @tasks} item_id={task.uuid}>
+          <.drag_handle_cell :if={@draggable?} />
+          <.bulk_select_cell :if={@bulk_enabled?} value={task.uuid} />
+          <.table_default_cell class="font-medium">
+            {TaskSchema.localized_title(task, @lang)}
+            <% desc = TaskSchema.localized_description(task, @lang) %>
+            <div :if={desc} class="text-xs text-base-content/60 truncate max-w-md font-normal">{desc}</div>
+            <% deps = Map.get(@deps_by_task, task.uuid, []) %>
+            <div :if={deps != []} class="flex flex-wrap gap-1 mt-1.5">
+              <span :for={dep <- deps} class="badge badge-outline badge-xs gap-1 font-normal">
+                <.icon name="hero-arrow-right-circle" class="w-3 h-3" />
+                {TaskSchema.localized_title(dep, @lang)}
+              </span>
+            </div>
+          </.table_default_cell>
+          <.table_default_cell>{format_duration(task)}</.table_default_cell>
+          <.table_default_cell class="text-right whitespace-nowrap">
+            <.table_row_menu id={"task-menu-#{task.uuid}"}>
+              <.smart_menu_link
+                navigate={Paths.edit_task(task.uuid)}
+                emit={{PhoenixKitProjects.Web.TaskFormLive, %{"live_action" => "edit", "id" => task.uuid}}}
+                embed_mode={@embed_mode}
+                icon="hero-pencil"
+                label={gettext("Edit")}
+              />
+              <.table_row_menu_divider />
+              <.table_row_menu_button
+                phx-click="delete"
+                phx-value-uuid={task.uuid}
+                phx-disable-with={gettext("Deleting…")}
+                data-confirm={gettext("Delete task \"%{title}\"? Assignments using it will also be removed.", title: TaskSchema.localized_title(task, @lang))}
+                icon="hero-trash"
+                label={gettext("Delete")}
+                variant="error"
+              />
+            </.table_row_menu>
+          </.table_default_cell>
+        </.sortable_row>
+      </.sortable_tbody>
+    </.table_default>
+
+    <.load_more
+      :if={@pagination == "load_more"}
+      loaded={length(@tasks)}
+      total={@total_count}
+      noun_plural={gettext("tasks")}
+    />
     """
   end
 end
