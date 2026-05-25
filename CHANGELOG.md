@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.0 - 2026-05-25
+
+The projects / tasks / templates list views move onto `phoenix_kit`'s core list-UI toolkit and gain a strategy-driven bulk reorder, clickable column sort, and opt-in load-more pagination. The Task Library's Groups tab is reworked into a card-per-group layout.
+
+### Added
+
+- **Strategy-driven bulk reorder** — `Projects.reorder_projects_by/3`, `reorder_templates_by/3`, and `reorder_tasks_by/3` rewrite many positions at once by strategy (`:name_asc` / `:name_desc` / `:created_asc` / `:created_desc` / `:reverse`). Scope is either `:all` (rewrite every row contiguously) or a selected-uuid list ("permute in place" — selected rows are reordered within the slots they already occupy; untouched rows don't move). Writes are a two-phase negative→positive update inside a transaction, with `uuid`-sorted write order so concurrent permutes can't deadlock; a `uuid` tiebreaker keeps same-second `inserted_at` ties deterministic. Strategy is validated against a compile-time whitelist (no `String.to_existing_atom` on request input), and an over-cap or duplicate-position selection is rejected rather than silently mis-writing.
+- **Sortable lists** — `list_projects/1` and `list_tasks/1` accept `:sort_by` + `:sort_dir` (projects: position / name / inserted_at / updated_at; tasks: position / title / inserted_at / estimated_duration), wired to a sort selector and clickable column headers. Manual (`:position`) mode keeps drag-and-drop; other sorts are a non-destructive *view* and hide the drag handle.
+- **Opt-in load-more pagination** — `list_projects/1` / `list_tasks/1` gain a `:limit` opt; projects and tasks LVs default to load-more (50/batch) with a "Showing X of Y" footer, opt out via `live_render(... session: %{"pagination" => "off"})`.
+- **Groups tab card layout** — each group renders as a card titled by its root task, with a prerequisite-count subtitle and a `root` badge, replacing the prior undifferentiated wall of lists.
+
+### Changed
+
+- **Minimum `phoenix_kit` is now `~> 1.7.121`** — it ships the core list-UI components these views render (`<.bulk_select_scope>`/toolbar/cells, `<.sortable_tbody>`/`<.sortable_row>`, `<.drag_handle_cell>`, `<.reorder_modal>`, `<.load_more>`). The projects-local `sortable_table` / `reorder_modal` / bulk-select copies are removed in favour of core.
+- **`count_projects/0` is now `count_projects/1`** and takes the same filter opts as `list_projects/1`; the default excludes templates **and** archived projects (the old zero-arity counted both, over-counting against `list_projects`'s default). Affects the overview dashboard's project count.
+- The projects list no longer offers the "Show" archived filter — it always lists active (non-archived) projects.
+
+### Fixed
+
+- `Web.Components.SmartLink`'s `:class` attr was declared `:string` but is passed a class list by the Groups tab; widened to `:any` (matches Phoenix core's `link/1`) so `mix compile --warnings-as-errors` stays clean.
+
 ## 0.5.1 - 2026-05-22
 
 Follow-up review pass on the 0.5.0 AI-translation work — test coverage for the worker's retry classification plus minor internal cleanups. No behavior changes.

@@ -1,7 +1,7 @@
 defmodule PhoenixKitProjects.MixProject do
   use Mix.Project
 
-  @version "0.5.1"
+  @version "0.6.0"
   @source_url "https://github.com/BeamLabEU/phoenix_kit_projects"
 
   def project do
@@ -70,7 +70,7 @@ defmodule PhoenixKitProjects.MixProject do
       # 1.7.117 is the floor — that's where
       # `PhoenixKit.Modules.AI.Translation.translate_fields/6` shipped
       # (core PR #557). `TranslateResourceWorker` delegates to it.
-      {:phoenix_kit, "~> 1.7.117"},
+      {:phoenix_kit, "~> 1.7.121"},
       {:phoenix_kit_staff, "~> 0.1"},
       {:phoenix_kit_comments, "~> 0.2"},
 
