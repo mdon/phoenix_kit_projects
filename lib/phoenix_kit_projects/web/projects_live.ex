@@ -21,14 +21,13 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
   # bump or make session-configurable when a real consumer pushes back.
   @per_batch 50
 
-  # Pagination mode. `"off"` (default) loads every matching row —
-  # backwards-compatible with the original list behavior so existing
-  # embedders don't suddenly see a "Load more" button mid-list.
-  # `"load_more"` caps the loaded set at @per_batch and shows a footer
-  # that bumps the cap on click. Embedders opt in via
-  # `live_render(... session: %{"pagination" => "load_more"})`. A
-  # future `"pages"` mode (page-numbered) would slot in here.
-  @default_pagination "off"
+  # Pagination mode for this LV. `"load_more"` (default) caps the
+  # loaded set at @per_batch and shows a footer that bumps the cap
+  # on click. Embedders can override via
+  # `live_render(... session: %{"pagination" => "off"})` to load
+  # every matching row (the original behavior, for hosts that want
+  # a one-shot render).
+  @default_pagination "load_more"
 
   @impl true
   def mount(_params, session, socket) do
@@ -405,7 +404,7 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
         on_close="close_reorder_modal"
         on_apply="apply_reorder"
         selected_count={length(@captured_uuids)}
-        total_count={length(@projects)}
+        total_count={@total_count}
         strategies={[
           {"name_asc", gettext("A → Z by name")},
           {"name_desc", gettext("Z → A by name")},

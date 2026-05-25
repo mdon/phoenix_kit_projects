@@ -18,10 +18,9 @@ defmodule PhoenixKitProjects.Web.TasksLive do
   # override via `live_render(... session: %{"wrapper_class" => "..."})`.
   @default_wrapper_class "flex flex-col w-full px-4 py-6 gap-4"
 
-  # See projects_live for the same load-more pagination semantics +
-  # rationale on defaulting to "off" (backwards compat).
+  # See projects_live for the same load-more pagination semantics.
   @per_batch 50
-  @default_pagination "off"
+  @default_pagination "load_more"
 
   @impl true
   def mount(_params, session, socket) do
@@ -552,7 +551,7 @@ defmodule PhoenixKitProjects.Web.TasksLive do
         on_close="close_reorder_modal"
         on_apply="apply_reorder"
         selected_count={length(@captured_uuids)}
-        total_count={length(@tasks)}
+        total_count={@total_count}
         strategies={[
           {"name_asc", gettext("A → Z by title")},
           {"name_desc", gettext("Z → A by title")},
