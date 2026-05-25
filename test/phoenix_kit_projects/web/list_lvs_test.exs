@@ -6,7 +6,6 @@ defmodule PhoenixKitProjects.Web.ListLVsTest do
   - mount with empty + populated state
   - `delete` on existing record (success + activity log)
   - `delete` on missing uuid (not-found flash)
-  - `filter` event on `ProjectsLive` only
 
   All three LVs share the same shape; one test file keeps the
   fixtures cheap.
@@ -26,17 +25,6 @@ defmodule PhoenixKitProjects.Web.ListLVsTest do
 
       {:ok, _view, html} = live(conn, "/en/admin/projects/list")
       assert html =~ "Projects"
-    end
-
-    test "filter event applies show filter", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/en/admin/projects/list")
-
-      html =
-        view
-        |> element("form[phx-change=\"filter\"]")
-        |> render_change(%{"show" => "visible"})
-
-      assert html =~ "Show"
     end
 
     test "delete on missing uuid surfaces a flash", %{conn: conn} do

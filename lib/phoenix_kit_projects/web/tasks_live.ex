@@ -199,13 +199,6 @@ defmodule PhoenixKitProjects.Web.TasksLive do
 
   def handle_event("toggle_sort", _params, socket), do: {:noreply, socket}
 
-  # Sort change resets the load-more cap — see projects_live.
-  defp apply_sort(socket, field, dir) do
-    socket
-    |> assign(sort_by: field, sort_dir: dir, loaded_count: @per_batch)
-    |> load_tasks()
-  end
-
   def handle_event("load_more", _params, socket) do
     {:noreply,
      socket
@@ -245,9 +238,7 @@ defmodule PhoenixKitProjects.Web.TasksLive do
          put_flash(
            socket,
            :error,
-           gettext(
-             "Selected rows share positions. Apply \"Reorder all\" first to normalise."
-           )
+           gettext("Selected rows share positions. Apply \"Reorder all\" first to normalise.")
          )}
 
       {:error, _reason} ->
@@ -256,8 +247,7 @@ defmodule PhoenixKitProjects.Web.TasksLive do
   end
 
   def handle_event("apply_reorder", _params, socket) do
-    {:noreply,
-     put_flash(socket, :error, gettext("Pick a strategy before applying."))}
+    {:noreply, put_flash(socket, :error, gettext("Pick a strategy before applying."))}
   end
 
   def handle_event("reorder_tasks", %{"ordered_ids" => ordered_ids} = params, socket)
@@ -322,6 +312,13 @@ defmodule PhoenixKitProjects.Web.TasksLive do
     end
   end
 
+  # Sort change resets the load-more cap — see projects_live.
+  defp apply_sort(socket, field, dir) do
+    socket
+    |> assign(sort_by: field, sort_dir: dir, loaded_count: @per_batch)
+    |> load_tasks()
+  end
+
   defp sanitize_uuids(%{"uuids" => uuids}) when is_list(uuids) do
     Enum.filter(uuids, &is_binary/1)
   end
@@ -334,6 +331,12 @@ defmodule PhoenixKitProjects.Web.TasksLive do
       task.estimated_duration_unit
     )
   end
+
+  defp prereq_count_label(0), do: gettext("No prerequisites — just the root.")
+  defp prereq_count_label(1), do: gettext("1 prerequisite, then the root.")
+
+  defp prereq_count_label(n),
+    do: gettext("%{count} prerequisites, then the root.", count: n)
 
   # Flattens a closure tree to a unique-by-uuid task list. The root is
   # always first; everything else is in DFS order. The groups view
@@ -433,23 +436,48 @@ defmodule PhoenixKitProjects.Web.TasksLive do
             <%= for group <- @groups do %>
               <div class="card bg-base-100 shadow">
                 <div class="card-body">
+                  <%!-- Card title is the root task's name — the thing
+                       this group is rooted at. Without a title, several
+                       group cards stack visually as one undifferentiated
+                       blob of lists; with it, each group's identity is
+                       obvious at a glance. --%>
+                  <h2 class="card-title text-base flex items-center gap-2">
+                    <.icon name="hero-flag" class="w-4 h-4 text-primary" />
+                    {TaskSchema.localized_title(group.root, lang)}
+                  </h2>
+                  <p class="text-xs text-base-content/60 -mt-1">
+                    {prereq_count_label(length(group.peers) - 1)}
+                  </p>
+
                   <%!-- Flat peer list — no nesting. Tasks are full
                        templates, not subtasks. Order is execution
                        order (prerequisites first, the rooted task
                        last); `→ X` dep badges are intentionally
                        omitted — those targets are right there in the
-                       same list, so the badges would be redundant. --%>
-                  <ul class="divide-y divide-base-200">
+                       same list, so the badges would be redundant.
+                       The root task gets a "root" badge so it stands
+                       out from its prerequisites in the list. --%>
+                  <ul class="divide-y divide-base-200 mt-2">
                     <%= for task <- group.peers do %>
                       <li class="flex items-center gap-2 py-2 first:pt-0 last:pb-0">
                         <.smart_link
                           navigate={Paths.edit_task(task.uuid)}
                           emit={{PhoenixKitProjects.Web.TaskFormLive, %{"live_action" => "edit", "id" => task.uuid}}}
                           embed_mode={@embed_mode}
-                          class="text-sm font-medium link link-hover flex-1 min-w-0 truncate"
+                          class={[
+                            "text-sm link link-hover flex-1 min-w-0 truncate",
+                            task.uuid == group.root.uuid && "font-semibold",
+                            task.uuid != group.root.uuid && "font-medium"
+                          ]}
                         >
                           {TaskSchema.localized_title(task, lang)}
                         </.smart_link>
+                        <span
+                          :if={task.uuid == group.root.uuid}
+                          class="badge badge-primary badge-xs shrink-0"
+                        >
+                          {gettext("root")}
+                        </span>
                         <span class="badge badge-ghost badge-xs shrink-0">
                           {format_duration(task)}
                         </span>

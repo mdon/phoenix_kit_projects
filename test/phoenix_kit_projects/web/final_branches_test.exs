@@ -38,18 +38,19 @@ defmodule PhoenixKitProjects.Web.FinalBranchesTest do
       assert html =~ "setup"
     end
 
-    test "filter event with archived selection renders archived projects", %{conn: conn} do
-      hidden = fixture_project()
+    test "archived projects are excluded from the list view", %{conn: conn} do
+      visible = fixture_project(%{"name" => "Visible-#{System.unique_integer([:positive])}"})
+
+      hidden = fixture_project(%{"name" => "Hidden-#{System.unique_integer([:positive])}"})
       {:ok, _} = PhoenixKitProjects.Projects.archive_project(hidden)
 
-      {:ok, view, _html} = live(conn, "/en/admin/projects/list")
+      {:ok, _view, html} = live(conn, "/en/admin/projects/list")
 
-      html =
-        view
-        |> element("form[phx-change=\"filter\"]")
-        |> render_change(%{"show" => "archived"})
-
-      assert html =~ "archived"
+      # The "Show" filter dropdown was removed when archived projects
+      # got their own (unbuilt) dedicated view — the list LV now
+      # hardcodes `archived: false`. Pin that invariant.
+      assert html =~ visible.name
+      refute html =~ hidden.name
     end
   end
 

@@ -324,6 +324,25 @@ let the consumer fall through to the core function.
 core's takes title + subtitle + icon — for a minimal "label + value"
 tile use this module's `<.stat_tile>`).
 
+**List-LV toolkit (in core):** `<.table_default>` + `<.sortable_tbody>`
++ `<.sortable_row>` + `<.drag_handle_cell>` + `<.drag_handle_header_cell>`
++ `<.bulk_select_scope>` + `<.bulk_select_header_cell>` + `<.bulk_select_cell>`
++ `<.bulk_actions_toolbar>` + `<.sort_selector>` + `<.reorder_modal>`
++ `<.load_more>`. See `phoenix_kit/AGENTS.md` → "Core List-UI Components"
+for the full toolkit doc. `ProjectsLive`, `TasksLive`, `TemplatesLive`
+are the canonical consumer examples — never re-roll a list LV without
+checking that file pair first.
+
+**Reorder strategy whitelist (load-bearing):** consumer LVs MUST use a
+hardcoded `%{"name_asc" => :name_asc, …}` map for `apply_reorder`'s
+strategy string→atom, never `String.to_existing_atom/1` on the param.
+A crafted payload otherwise either raises or leaks the BEAM atom slot.
+
+**`captured_uuids` collapse rule:** `open_reorder_modal` collapses
+0–1-element selection lists to `:all` (single-row "reorder" is a no-op,
+and the toolbar label reads "Reorder all" in those states). Apply the
+same rule in any new bulk-action handler.
+
 ## Versioning & Releases
 
 Versioning follows [SemVer](https://semver.org/). The version appears in two places that must stay in sync:

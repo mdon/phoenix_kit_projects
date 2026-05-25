@@ -153,15 +153,6 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
 
   def handle_event("toggle_sort", _params, socket), do: {:noreply, socket}
 
-  # Sort change resets the load-more cap (otherwise a switch from
-  # Name back to Manual would still show only the first @per_batch
-  # rows of the new sort, leaving the user confused).
-  defp apply_sort(socket, field, dir) do
-    socket
-    |> assign(sort_by: field, sort_dir: dir, loaded_count: @per_batch)
-    |> load_projects()
-  end
-
   def handle_event("load_more", _params, socket) do
     {:noreply,
      socket
@@ -210,9 +201,7 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
         uuids -> uuids
       end
 
-    case Projects.reorder_projects_by(strategy, scope,
-           actor_uuid: Activity.actor_uuid(socket)
-         ) do
+    case Projects.reorder_projects_by(strategy, scope, actor_uuid: Activity.actor_uuid(socket)) do
       :ok ->
         {:noreply,
          socket
@@ -232,9 +221,7 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
          put_flash(
            socket,
            :error,
-           gettext(
-             "Selected rows share positions. Apply \"Reorder all\" first to normalise."
-           )
+           gettext("Selected rows share positions. Apply \"Reorder all\" first to normalise.")
          )}
 
       {:error, _reason} ->
@@ -246,8 +233,7 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
   # form has `required` on the radios so this is the fallback for
   # defense in depth.
   def handle_event("apply_reorder", _params, socket) do
-    {:noreply,
-     put_flash(socket, :error, gettext("Pick a strategy before applying."))}
+    {:noreply, put_flash(socket, :error, gettext("Pick a strategy before applying."))}
   end
 
   def handle_event("reorder_projects", %{"ordered_ids" => ordered_ids} = params, socket)
@@ -277,6 +263,18 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
          |> put_flash(:error, gettext("Project list changed; please try again."))
          |> push_event("sortable:flash", %{uuid: moved_id, status: "error"})
          |> load_projects()}
+
+      {:error, _reason} ->
+        # Unexpected DB error from `write_project_positions/1`. The
+        # spec doesn't enumerate these (Postgrex deadlock, constraint
+        # violation, etc.), so match a catch-all so the handler can't
+        # crash on a new reason. Reload to discard whatever half-state
+        # the user is looking at.
+        {:noreply,
+         socket
+         |> put_flash(:error, gettext("Could not reorder projects."))
+         |> push_event("sortable:flash", %{uuid: moved_id, status: "error"})
+         |> load_projects()}
     end
   end
 
@@ -301,6 +299,15 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
             {:noreply, put_flash(socket, :error, gettext("Could not delete project."))}
         end
     end
+  end
+
+  # Sort change resets the load-more cap (otherwise a switch from
+  # Name back to Manual would still show only the first @per_batch
+  # rows of the new sort, leaving the user confused).
+  defp apply_sort(socket, field, dir) do
+    socket
+    |> assign(sort_by: field, sort_dir: dir, loaded_count: @per_batch)
+    |> load_projects()
   end
 
   defp sanitize_uuids(%{"uuids" => uuids}) when is_list(uuids) do

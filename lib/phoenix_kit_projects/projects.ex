@@ -96,6 +96,7 @@ defmodule PhoenixKitProjects.Projects do
   # unbounded query so a stray opt (`limit: ""` from URL params, or
   # a math accident upstream) doesn't return an empty list when the
   # user expected everything.
+  @spec maybe_limit(Ecto.Queryable.t(), term()) :: Ecto.Queryable.t()
   defp maybe_limit(query, n) when is_integer(n) and n > 0, do: limit(query, ^n)
   defp maybe_limit(query, _), do: query
 
@@ -2233,8 +2234,9 @@ defmodule PhoenixKitProjects.Projects do
           :ok | {:error, :wrong_scope | :too_many_uuids | term()}
   def reorder_templates_by(strategy, scope, opts \\ [])
 
-  def reorder_templates_by(strategy, _scope, _opts) when strategy not in @valid_project_strategies,
-    do: {:error, :invalid_strategy}
+  def reorder_templates_by(strategy, _scope, _opts)
+      when strategy not in @valid_project_strategies,
+      do: {:error, :invalid_strategy}
 
   def reorder_templates_by(strategy, :all, opts),
     do: reorder_all_projects_in_scope(strategy, true, "template", opts)
@@ -2365,37 +2367,35 @@ defmodule PhoenixKitProjects.Projects do
     # each uuid to the i-th-smallest slot.
     slots = rows |> Enum.map(& &1.position) |> Enum.sort()
 
-    cond do
-      # Untouched rows (DnD-default `position: 0`) collide here: two
-      # selected rows with the same current position would receive the
-      # same target position in phase 2 and one row's update would
-      # silently overwrite the other's intent. Surface as
-      # `:duplicate_positions` so the LV can direct the user to
-      # "Reorder all" first (which normalises every row to 1..N).
-      slots != Enum.uniq(slots) ->
-        log_reorder_rejected(kind, :duplicate_positions, length(ordered_uuids), opts)
-        {:error, :duplicate_positions}
+    # Untouched rows (DnD-default `position: 0`) collide here: two
+    # selected rows with the same current position would receive the
+    # same target position in phase 2 and one row's update would
+    # silently overwrite the other's intent. Surface as
+    # `:duplicate_positions` so the LV can direct the user to
+    # "Reorder all" first (which normalises every row to 1..N).
+    if slots != Enum.uniq(slots) do
+      log_reorder_rejected(kind, :duplicate_positions, length(ordered_uuids), opts)
+      {:error, :duplicate_positions}
+    else
+      pairs = Enum.zip(ordered_uuids, slots)
 
-      true ->
-        pairs = Enum.zip(ordered_uuids, slots)
+      case write_permutation(schema, pairs) do
+        {:ok, count} ->
+          log_strategy_reorder(
+            kind,
+            strategy,
+            :selected,
+            count,
+            List.first(ordered_uuids),
+            opts
+          )
 
-        case write_permutation(schema, pairs) do
-          {:ok, count} ->
-            log_strategy_reorder(
-              kind,
-              strategy,
-              :selected,
-              count,
-              List.first(ordered_uuids),
-              opts
-            )
+          :ok
 
-            :ok
-
-          {:error, reason} ->
-            log_reorder_db_error(kind, ordered_uuids, opts)
-            {:error, reason}
-        end
+        {:error, reason} ->
+          log_reorder_db_error(kind, ordered_uuids, opts)
+          {:error, reason}
+      end
     end
   end
 
@@ -2431,44 +2431,75 @@ defmodule PhoenixKitProjects.Projects do
 
   # ---- strategy implementations --------------------------------
 
-  defp project_strategy_order(rows, :reverse) do
-    rows |> Enum.sort_by(& &1.position) |> Enum.reverse() |> Enum.map(& &1.uuid)
-  end
+  # `inserted_at` is `:utc_datetime` (second precision), so two rows
+  # inserted in the same second tie on the primary sort. Each clause
+  # below pre-sorts by `:uuid` first — `Enum.sort_by` is stable, so
+  # rows with equal primary keys keep this secondary order. UUIDv7 is
+  # itself chronological, so an ascending uuid pre-sort puts the newer
+  # row last (used for `_asc` strategies) and a descending uuid pre-
+  # sort puts it first (used for `_desc` strategies). Net effect on a
+  # tie: newer row wins on `_desc`, older row wins on `_asc`.
+
+  defp project_strategy_order(rows, :reverse),
+    do: rows |> Enum.sort_by(& &1.position) |> Enum.reverse() |> Enum.map(& &1.uuid)
 
   defp project_strategy_order(rows, :name_asc) do
-    rows |> Enum.sort_by(&downcase_or_empty(&1.name)) |> Enum.map(& &1.uuid)
+    rows
+    |> Enum.sort_by(& &1.uuid)
+    |> Enum.sort_by(&downcase_or_empty(&1.name))
+    |> Enum.map(& &1.uuid)
   end
 
   defp project_strategy_order(rows, :name_desc) do
-    rows |> Enum.sort_by(&downcase_or_empty(&1.name), :desc) |> Enum.map(& &1.uuid)
+    rows
+    |> Enum.sort_by(& &1.uuid, :desc)
+    |> Enum.sort_by(&downcase_or_empty(&1.name), :desc)
+    |> Enum.map(& &1.uuid)
   end
 
   defp project_strategy_order(rows, :created_asc) do
-    rows |> Enum.sort_by(& &1.inserted_at, DateTime) |> Enum.map(& &1.uuid)
+    rows
+    |> Enum.sort_by(& &1.uuid)
+    |> Enum.sort_by(& &1.inserted_at, DateTime)
+    |> Enum.map(& &1.uuid)
   end
 
   defp project_strategy_order(rows, :created_desc) do
-    rows |> Enum.sort_by(& &1.inserted_at, {:desc, DateTime}) |> Enum.map(& &1.uuid)
+    rows
+    |> Enum.sort_by(& &1.uuid, :desc)
+    |> Enum.sort_by(& &1.inserted_at, {:desc, DateTime})
+    |> Enum.map(& &1.uuid)
   end
 
-  defp task_strategy_order(rows, :reverse) do
-    rows |> Enum.sort_by(& &1.position) |> Enum.reverse() |> Enum.map(& &1.uuid)
-  end
+  defp task_strategy_order(rows, :reverse),
+    do: rows |> Enum.sort_by(& &1.position) |> Enum.reverse() |> Enum.map(& &1.uuid)
 
   defp task_strategy_order(rows, :name_asc) do
-    rows |> Enum.sort_by(&downcase_or_empty(&1.title)) |> Enum.map(& &1.uuid)
+    rows
+    |> Enum.sort_by(& &1.uuid)
+    |> Enum.sort_by(&downcase_or_empty(&1.title))
+    |> Enum.map(& &1.uuid)
   end
 
   defp task_strategy_order(rows, :name_desc) do
-    rows |> Enum.sort_by(&downcase_or_empty(&1.title), :desc) |> Enum.map(& &1.uuid)
+    rows
+    |> Enum.sort_by(& &1.uuid, :desc)
+    |> Enum.sort_by(&downcase_or_empty(&1.title), :desc)
+    |> Enum.map(& &1.uuid)
   end
 
   defp task_strategy_order(rows, :created_asc) do
-    rows |> Enum.sort_by(& &1.inserted_at, DateTime) |> Enum.map(& &1.uuid)
+    rows
+    |> Enum.sort_by(& &1.uuid)
+    |> Enum.sort_by(& &1.inserted_at, DateTime)
+    |> Enum.map(& &1.uuid)
   end
 
   defp task_strategy_order(rows, :created_desc) do
-    rows |> Enum.sort_by(& &1.inserted_at, {:desc, DateTime}) |> Enum.map(& &1.uuid)
+    rows
+    |> Enum.sort_by(& &1.uuid, :desc)
+    |> Enum.sort_by(& &1.inserted_at, {:desc, DateTime})
+    |> Enum.map(& &1.uuid)
   end
 
   defp downcase_or_empty(nil), do: ""
