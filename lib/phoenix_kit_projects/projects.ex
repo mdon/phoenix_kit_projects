@@ -91,8 +91,13 @@ defmodule PhoenixKitProjects.Projects do
     |> repo().all()
   end
 
-  defp maybe_limit(query, nil), do: query
+  # Defensive: only positive integers actually narrow the query.
+  # `nil` / zero / negative / non-integer values fall through to the
+  # unbounded query so a stray opt (`limit: ""` from URL params, or
+  # a math accident upstream) doesn't return an empty list when the
+  # user expected everything.
   defp maybe_limit(query, n) when is_integer(n) and n > 0, do: limit(query, ^n)
+  defp maybe_limit(query, _), do: query
 
   defp task_order_by(query, :position, _dir),
     do: order_by(query, [t], asc: t.position, asc: t.inserted_at, asc: t.uuid)
