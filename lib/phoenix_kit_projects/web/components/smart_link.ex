@@ -57,7 +57,7 @@ defmodule PhoenixKitProjects.Web.Components.SmartLink do
         "converted yet (or that forget to pass it) get safe browser-navigation behaviour."
   )
 
-  attr(:class, :string, default: nil)
+  attr(:class, :any, default: nil)
   attr(:rest, :global, include: ~w(title aria-label data-id))
 
   slot(:inner_block, required: true)
