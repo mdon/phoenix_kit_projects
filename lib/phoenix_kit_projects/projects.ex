@@ -931,7 +931,8 @@ defmodule PhoenixKitProjects.Projects do
       name: p.name,
       is_template: p.is_template,
       status_entity_uuid: p.status_entity_uuid,
-      current_status_slug: p.current_status_slug
+      current_status_slug: p.current_status_slug,
+      external_id: p.external_id
     }
   end
 

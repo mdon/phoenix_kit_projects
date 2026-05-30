@@ -52,6 +52,7 @@ defmodule PhoenixKitProjects.Schemas.Project do
           status_entity_uuid: UUIDv7.t() | nil,
           current_status_slug: String.t() | nil,
           settings: map(),
+          external_id: String.t() | nil,
           assignments: [Assignment.t()] | Ecto.Association.NotLoaded.t(),
           inserted_at: DateTime.t() | nil,
           updated_at: DateTime.t() | nil
@@ -90,6 +91,10 @@ defmodule PhoenixKitProjects.Schemas.Project do
     # the global `projects_use_status_translations` setting. Resolution
     # lives in `PhoenixKitProjects.Statuses`.
     field(:settings, :map, default: %{})
+    # Free-form external reference (V125). Ties a project to a record in some
+    # external system; holds an id, UUID, or slug. No UI — set programmatically
+    # by host apps/integrations. Indexed for lookup; not unique.
+    field(:external_id, :string)
 
     has_many(:assignments, Assignment, foreign_key: :project_uuid, on_delete: :delete_all)
 
@@ -97,13 +102,14 @@ defmodule PhoenixKitProjects.Schemas.Project do
   end
 
   @required ~w(name start_mode)a
-  @optional ~w(description is_template counts_weekends scheduled_start_date started_at completed_at archived_at position translations status_entity_uuid settings)a
+  @optional ~w(description is_template counts_weekends scheduled_start_date started_at completed_at archived_at position translations status_entity_uuid settings external_id)a
 
   def changeset(project, attrs, opts \\ []) do
     project
     |> cast(attrs, @required ++ @optional)
     |> validate_required(@required)
     |> validate_length(:name, min: 1, max: 255)
+    |> validate_length(:external_id, max: 255)
     |> validate_inclusion(:start_mode, @start_modes)
     |> validate_translations_shape()
     |> foreign_key_constraint(:status_entity_uuid)
