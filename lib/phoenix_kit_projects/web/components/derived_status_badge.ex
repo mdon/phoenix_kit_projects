@@ -42,6 +42,42 @@ defmodule PhoenixKitProjects.Web.Components.DerivedStatusBadge do
     """
   end
 
+  @doc """
+  Badge for a project's user-defined **workflow status** (the
+  entities-backed status, distinct from the computed `derived_status`).
+
+  Takes the normalized status map (`%{label, color}`) from
+  `PhoenixKitProjects.Statuses` or `nil`. `nil` renders nothing — which
+  is what makes a project with no status set (or an unavailable entities
+  module) render cleanly empty. Uses the status's free-form `color`
+  (a hex string) as an inline style, falling back to `badge-neutral`
+  when no colour is set.
+  """
+  attr(:status, :map, default: nil)
+  attr(:class, :string, default: nil)
+
+  def workflow_status_badge(assigns) do
+    ~H"""
+    <span
+      :if={@status}
+      class={["badge badge-sm gap-1", @class, is_nil(workflow_color(@status)) && "badge-neutral"]}
+      style={workflow_style(@status)}
+    >
+      {@status.label}
+    </span>
+    """
+  end
+
+  defp workflow_color(%{color: c}) when is_binary(c) and c != "", do: c
+  defp workflow_color(_), do: nil
+
+  defp workflow_style(status) do
+    case workflow_color(status) do
+      nil -> nil
+      color -> "background-color: #{color}; border-color: #{color}; color: #fff;"
+    end
+  end
+
   defp label(:running), do: gettext("running")
   defp label(:completed), do: gettext("completed")
   defp label(:overdue), do: gettext("overdue")
