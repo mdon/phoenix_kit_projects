@@ -108,6 +108,11 @@ defmodule PhoenixKitProjects.Schemas.Project do
     project
     |> cast(attrs, @required ++ @optional)
     |> validate_required(@required)
+    # `counts_weekends` is cast-optional (forms may omit it) but must
+    # resolve to a boolean — the schema default of `false` satisfies this
+    # on omission; an explicit `nil` in attrs is rejected so the intent
+    # stays honest rather than silently coercing.
+    |> validate_required([:counts_weekends])
     |> validate_length(:name, min: 1, max: 255)
     |> validate_length(:external_id, max: 255)
     |> validate_inclusion(:start_mode, @start_modes)

@@ -613,33 +613,37 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     # Cross-project mismatches are silent noops (UI never offers them).
     # An actual `remove_dependency/2` failure is rare but logged via
     # `log_failed` so a Postgres outage doesn't erase the click.
-    with %{} <- scoped_assignment(socket, a_uuid),
-         %{} <- scoped_assignment(socket, d_uuid) do
-      case Projects.remove_dependency(a_uuid, d_uuid) do
-        {:ok, _} ->
-          Activity.log("projects.dependency_removed",
-            actor_uuid: Activity.actor_uuid(socket),
-            resource_type: "assignment",
-            resource_uuid: a_uuid,
-            target_uuid: d_uuid,
-            metadata: %{}
-          )
+    # Both endpoints are scope-checked in a single query (distinct uuids →
+    # exactly two rows when both live in this project); a missing or
+    # cross-project endpoint yields <2 rows and is a silent no-op.
+    case Projects.scoped_assignments([a_uuid, d_uuid], socket.assigns.project.uuid) do
+      [_, _] ->
+        case Projects.remove_dependency(a_uuid, d_uuid) do
+          {:ok, _} ->
+            Activity.log("projects.dependency_removed",
+              actor_uuid: Activity.actor_uuid(socket),
+              resource_type: "assignment",
+              resource_uuid: a_uuid,
+              target_uuid: d_uuid,
+              metadata: %{}
+            )
 
-          {:noreply, load_assignments(socket)}
+            {:noreply, load_assignments(socket)}
 
-        {:error, _} ->
-          Activity.log_failed("projects.dependency_removed",
-            actor_uuid: Activity.actor_uuid(socket),
-            resource_type: "assignment",
-            resource_uuid: a_uuid,
-            target_uuid: d_uuid,
-            metadata: %{}
-          )
+          {:error, _} ->
+            Activity.log_failed("projects.dependency_removed",
+              actor_uuid: Activity.actor_uuid(socket),
+              resource_type: "assignment",
+              resource_uuid: a_uuid,
+              target_uuid: d_uuid,
+              metadata: %{}
+            )
 
-          {:noreply, put_flash(socket, :error, gettext("Could not remove dependency."))}
-      end
-    else
-      _ -> {:noreply, socket}
+            {:noreply, put_flash(socket, :error, gettext("Could not remove dependency."))}
+        end
+
+      _ ->
+        {:noreply, socket}
     end
   end
 

@@ -1556,6 +1556,19 @@ defmodule PhoenixKitProjects.Projects do
     |> repo().get(uuid)
   end
 
+  @doc """
+  Fetches the assignments among `uuids` that belong to `project_uuid`, in a
+  single query. Used to authorize multi-endpoint operations (e.g. dependency
+  removal, which must confirm BOTH endpoints live in the viewed project)
+  without one round-trip per uuid. No preloads — callers only check scope.
+  """
+  @spec scoped_assignments([uuid()], uuid()) :: [Assignment.t()]
+  def scoped_assignments(uuids, project_uuid) when is_list(uuids) do
+    Assignment
+    |> where([a], a.uuid in ^uuids and a.project_uuid == ^project_uuid)
+    |> repo().all()
+  end
+
   @doc "Returns a changeset for the given assignment."
   @spec change_assignment(Assignment.t(), map()) :: Ecto.Changeset.t()
   def change_assignment(%Assignment{} = a, attrs \\ %{}), do: Assignment.changeset(a, attrs)

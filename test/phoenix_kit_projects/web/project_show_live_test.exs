@@ -425,6 +425,39 @@ defmodule PhoenixKitProjects.Web.ProjectShowLiveTest do
         resource_uuid: a1.uuid
       )
     end
+
+    test "remove_dependency rejects an edge whose endpoints are in another project",
+         %{conn: conn, project: p} do
+      # A second project with its own dependency edge b1 -> b2.
+      other = fixture_project(%{"start_mode" => "immediate"})
+
+      {:ok, b1} =
+        Projects.create_assignment(%{
+          "project_uuid" => other.uuid,
+          "task_uuid" => fixture_task().uuid,
+          "status" => "todo"
+        })
+
+      {:ok, b2} =
+        Projects.create_assignment(%{
+          "project_uuid" => other.uuid,
+          "task_uuid" => fixture_task().uuid,
+          "status" => "todo"
+        })
+
+      {:ok, _} = Projects.add_dependency(b1.uuid, b2.uuid)
+
+      # Crafted event from project p's LV must NOT touch the other project's edge.
+      {:ok, view, _html} = live(conn, "/en/admin/projects/list/#{p.uuid}")
+
+      _ =
+        render_click(view, "remove_dependency", %{
+          "assignment" => b1.uuid,
+          "depends_on" => b2.uuid
+        })
+
+      assert [_] = Projects.list_dependencies(b1.uuid)
+    end
   end
 
   describe "PubSub recognized handle_info branches" do
