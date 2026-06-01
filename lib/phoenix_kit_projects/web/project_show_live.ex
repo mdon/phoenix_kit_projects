@@ -287,12 +287,24 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     subproject_child_tasks =
       Map.new(expanded_subs, fn a -> {a.uuid, Projects.list_assignments(a.child_project_uuid)} end)
 
+    # Mirror `Projects.project_summaries/1`: an EMPTY sub-project (its child has
+    # no assignments of its own yet) is neutral in the progress average — keep
+    # it in `total` for the task-count display but drop it from the progress
+    # denominator so it doesn't drag the project's % down before it holds any
+    # work. Without this the header % here and the dashboard card disagree.
+    empty_subs =
+      Enum.count(assignments, fn a ->
+        Assignment.subproject?(a) and empty_subproject?(Map.get(subproject_summaries, a.uuid))
+      end)
+
+    progress_total = max(total - empty_subs, 0)
+
     assign(socket,
       assignments: assignments,
       deps_by_assignment: deps_by_assignment,
       total_tasks: total,
       done_tasks: done,
-      progress_pct: if(total > 0, do: round(progress_sum / total), else: 0),
+      progress_pct: if(progress_total > 0, do: round(progress_sum / progress_total), else: 0),
       schedule: schedule,
       subproject_summaries: subproject_summaries,
       subproject_child_tasks: subproject_child_tasks
@@ -312,6 +324,13 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
 
     Map.new(subs, fn a -> {a.uuid, Map.get(summaries_by_child, a.child_project_uuid)} end)
   end
+
+  # A sub-project whose child has no assignments of its own — `total == 0` in
+  # the child's summary (matches `project_summaries/1`'s "empty" definition). A
+  # missing summary (nil) is treated as empty too: no child rows to summarize.
+  defp empty_subproject?(%{total: 0}), do: true
+  defp empty_subproject?(nil), do: true
+  defp empty_subproject?(_), do: false
 
   # Recomputes the workflow-status list + current selection from the
   # (possibly just-reloaded) project. Re-resolves against the live catalog
@@ -679,7 +698,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
 
         socket
         |> update_assignment_with_activity(a, attrs, "projects.assignment_completed",
-          metadata: %{"task" => a.task.title, "project" => socket.assigns.project.name}
+          metadata: %{"task" => Assignment.label(a), "project" => socket.assigns.project.name}
         )
         |> maybe_sync_and_reload()
     end
@@ -696,7 +715,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
 
         socket
         |> update_assignment_with_activity(a, attrs, "projects.assignment_started",
-          metadata: %{"task" => a.task.title}
+          metadata: %{"task" => Assignment.label(a)}
         )
         |> maybe_sync_and_reload()
     end
@@ -717,7 +736,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
 
         socket
         |> update_assignment_with_activity(a, attrs, "projects.assignment_reopened",
-          metadata: %{"task" => a.task.title}
+          metadata: %{"task" => Assignment.label(a)}
         )
         |> maybe_sync_and_reload()
     end
@@ -762,7 +781,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
               resource_type: "assignment",
               resource_uuid: uuid,
               metadata: %{
-                "task" => a.task.title,
+                "task" => Assignment.label(a),
                 "from" => old_dur,
                 "to" => "#{dur} #{unit}"
               }
@@ -781,7 +800,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
               resource_type: "assignment",
               resource_uuid: uuid,
               metadata: %{
-                "task" => a.task.title,
+                "task" => Assignment.label(a),
                 "from" => old_dur,
                 "to" => "#{dur} #{unit}"
               }
@@ -911,7 +930,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
               actor_uuid: Activity.actor_uuid(socket),
               resource_type: "assignment",
               resource_uuid: uuid,
-              metadata: %{"task" => a.task.title, "track_progress" => new_value}
+              metadata: %{"task" => Assignment.label(a), "track_progress" => new_value}
             )
 
             recompute_owning_subproject(socket, a)
@@ -922,7 +941,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
               actor_uuid: Activity.actor_uuid(socket),
               resource_type: "assignment",
               resource_uuid: uuid,
-              metadata: %{"task" => a.task.title, "track_progress" => new_value}
+              metadata: %{"task" => Assignment.label(a), "track_progress" => new_value}
             )
 
             {:noreply, put_flash(socket, :error, gettext("Could not toggle tracking."))}
@@ -1299,7 +1318,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
           actor_uuid: Activity.actor_uuid(socket),
           resource_type: "assignment",
           resource_uuid: a.uuid,
-          metadata: %{"task" => a.task.title, "progress_pct" => pct}
+          metadata: %{"task" => Assignment.label(a), "progress_pct" => pct}
         )
 
         recompute_owning_subproject(socket, a)
@@ -1314,7 +1333,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
           actor_uuid: Activity.actor_uuid(socket),
           resource_type: "assignment",
           resource_uuid: a.uuid,
-          metadata: %{"task" => a.task.title, "progress_pct" => pct}
+          metadata: %{"task" => Assignment.label(a), "progress_pct" => pct}
         )
 
         {:noreply,

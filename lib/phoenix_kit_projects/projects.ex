@@ -957,14 +957,32 @@ defmodule PhoenixKitProjects.Projects do
   pointed at would be left orphaned, so they're deleted explicitly here. The
   whole subtree comes down in one transaction; `:project_deleted` is broadcast
   for every project removed.
+
+  Refuses to delete a project that is itself **embedded as a sub-project** of
+  another project — its `child_project_uuid` FK is `ON DELETE RESTRICT`, so a
+  raw `repo().delete` would raise `Ecto.ConstraintError` rather than return a
+  tuple. Such a project is reached (and removed) through its parent's timeline,
+  or `detach_subproject/1` first; deleting it standalone returns
+  `{:error, :still_a_subproject}`.
   """
-  @spec delete_project(Project.t()) :: {:ok, Project.t()} | {:error, term()}
+  @spec delete_project(Project.t()) :: {:ok, Project.t()} | {:error, :still_a_subproject | term()}
   def delete_project(%Project{} = p) do
-    repo().transaction(fn -> delete_project_tree_in_tx(p) end)
-    |> case do
-      {:ok, deleted} -> {:ok, deleted}
-      {:error, reason} -> {:error, reason}
+    if subproject_link_exists?(p.uuid) do
+      {:error, :still_a_subproject}
+    else
+      repo().transaction(fn -> delete_project_tree_in_tx(p) end)
+      |> case do
+        {:ok, deleted} -> {:ok, deleted}
+        {:error, reason} -> {:error, reason}
+      end
     end
+  end
+
+  # True when `child_uuid` is embedded as a sub-project of some parent (i.e. a
+  # linking assignment points at it). Guards `delete_project/1` against the
+  # `ON DELETE RESTRICT` FK that would otherwise raise mid-transaction.
+  defp subproject_link_exists?(child_uuid) do
+    repo().exists?(from(a in Assignment, where: a.child_project_uuid == ^child_uuid))
   end
 
   # Tears `project` and its entire sub-project subtree down inside the caller's
