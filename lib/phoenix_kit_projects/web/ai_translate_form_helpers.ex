@@ -12,7 +12,10 @@ defmodule PhoenixKitProjects.Web.AITranslateFormHelpers do
 
   import Phoenix.Component, only: [assign: 2]
 
-  alias PhoenixKitProjects.Translations
+  # Availability, endpoint/prompt lists, and default-prompt resolution now
+  # come from core's shared AI-translation pipeline rather than a
+  # projects-local context — same helpers catalogue + publishing use.
+  alias PhoenixKit.Modules.AI.Translations
 
   @doc """
   Assigns the AI-translate bar's initial mount state onto `socket`.
@@ -43,11 +46,11 @@ defmodule PhoenixKitProjects.Web.AITranslateFormHelpers do
 
     if Phoenix.LiveView.connected?(socket) do
       assign(socket,
-        ai_selected_endpoint_uuid: Translations.get_default_ai_endpoint_uuid(),
-        ai_selected_prompt_uuid: Translations.get_default_ai_prompt_uuid(),
-        ai_endpoints: Translations.list_ai_endpoints(),
-        ai_prompts: Translations.list_ai_prompts(),
-        ai_default_prompt_exists: Translations.default_translation_prompt_exists?()
+        ai_selected_endpoint_uuid: Translations.default_endpoint_uuid(),
+        ai_selected_prompt_uuid: Translations.default_prompt_uuid(),
+        ai_endpoints: Translations.list_endpoints(),
+        ai_prompts: Translations.list_prompts(),
+        ai_default_prompt_exists: Translations.default_prompt_exists?()
       )
     else
       assign(socket,

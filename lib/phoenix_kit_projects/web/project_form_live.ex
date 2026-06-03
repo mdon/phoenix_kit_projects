@@ -7,10 +7,9 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
 
   import PhoenixKitWeb.Components.MultilangForm
 
-  alias PhoenixKit.PubSub.Manager, as: PubSubManager
+  alias PhoenixKit.Modules.AI.Translations
   alias PhoenixKit.Utils.Values
-  alias PhoenixKitProjects.{Activity, Errors, L10n, Paths, Projects, Statuses, Translations}
-  alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
+  alias PhoenixKitProjects.{Activity, Errors, L10n, Paths, Projects, Statuses}
   alias PhoenixKitProjects.Schemas.Project
   alias PhoenixKitProjects.Web.AITranslateFormHelpers
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
@@ -67,9 +66,9 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
   defp maybe_subscribe_translations(%{assigns: %{live_action: :new}} = socket), do: socket
 
   defp maybe_subscribe_translations(socket) do
-    if Phoenix.LiveView.connected?(socket) and Translations.ai_translation_available?() and
+    if Phoenix.LiveView.connected?(socket) and Translations.available?() and
          is_binary(socket.assigns.project.uuid) do
-      PubSubManager.subscribe(ProjectsPubSub.topic_project(socket.assigns.project.uuid))
+      Translations.subscribe("project", socket.assigns.project.uuid)
     end
 
     socket
@@ -293,11 +292,11 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
   def handle_event("select_ai_scope", _params, socket), do: {:noreply, socket}
 
   def handle_event("generate_default_ai_prompt", _params, socket) do
-    case Translations.generate_default_translation_prompt() do
+    case Translations.ensure_default_prompt() do
       {:ok, %{uuid: uuid}} ->
         {:noreply,
          socket
-         |> assign(:ai_prompts, Translations.list_ai_prompts())
+         |> assign(:ai_prompts, Translations.list_prompts())
          |> assign(:ai_default_prompt_exists, true)
          |> assign(:ai_selected_prompt_uuid, uuid)
          |> put_flash(:info, gettext("Default translation prompt generated."))}
@@ -402,7 +401,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
 
   @impl true
   def handle_info(
-        {:projects, :translation_started, %{resource_uuid: uuid, target_lang: lang}},
+        {:ai_translation, :translation_started, %{resource_uuid: uuid, target_lang: lang}},
         socket
       )
       when uuid == socket.assigns.project.uuid do
@@ -415,7 +414,8 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
   end
 
   def handle_info(
-        {:projects, :translation_completed, %{resource_uuid: uuid, target_lang: lang} = payload},
+        {:ai_translation, :translation_completed,
+         %{resource_uuid: uuid, target_lang: lang} = payload},
         socket
       )
       when uuid == socket.assigns.project.uuid do
@@ -464,7 +464,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
   end
 
   def handle_info(
-        {:projects, :translation_failed, %{resource_uuid: uuid, target_lang: lang}},
+        {:ai_translation, :translation_failed, %{resource_uuid: uuid, target_lang: lang}},
         socket
       )
       when uuid == socket.assigns.project.uuid do
@@ -474,9 +474,9 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
      |> put_flash(:error, gettext("Translation to %{lang} failed.", lang: String.upcase(lang)))}
   end
 
-  # Catch-all for unrelated PubSub events (other projects' translations,
-  # CRUD broadcasts, etc.) — the form only cares about its own project.
-  def handle_info({:projects, _action, _payload}, socket), do: {:noreply, socket}
+  # Catch-all for unrelated AI-translation events (another resource on a
+  # shared topic, stale events) — the form only cares about its own project.
+  def handle_info({:ai_translation, _event, _payload}, socket), do: {:noreply, socket}
 
   defp dispatch_ai_translate(%{assigns: %{live_action: :new}} = socket, _lang) do
     put_flash(
@@ -491,10 +491,10 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
     # — fall back to the configured defaults if the user never opened
     # the modal (e.g. a host-driven shortcut to enqueue).
     endpoint_uuid =
-      socket.assigns.ai_selected_endpoint_uuid || Translations.get_default_ai_endpoint_uuid()
+      socket.assigns.ai_selected_endpoint_uuid || Translations.default_endpoint_uuid()
 
     prompt_uuid =
-      socket.assigns.ai_selected_prompt_uuid || Translations.get_default_ai_prompt_uuid()
+      socket.assigns.ai_selected_prompt_uuid || Translations.default_prompt_uuid()
 
     cond do
       endpoint_uuid in [nil, ""] ->
@@ -527,7 +527,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
     }
 
     case Translations.enqueue_all_missing(base_params, target_langs) do
-      {:ok, %{in_flight: [_ | _] = enqueued_langs, enqueued: n, errors: errors}} ->
+      {:ok, %{in_flight: [_ | _] = enqueued_langs, errors: errors}} ->
         socket
         |> assign(
           :ai_translate_in_flight,
@@ -535,7 +535,10 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
         )
         |> AITranslateFormHelpers.bump_translation_started(length(enqueued_langs))
         |> maybe_flash_partial_errors(errors)
-        |> put_flash(:info, gettext("Translating to %{count} languages…", count: n))
+        |> put_flash(
+          :info,
+          gettext("Translating to %{count} languages…", count: length(enqueued_langs))
+        )
 
       {:ok, %{errors: [_ | _] = errors}} ->
         maybe_flash_partial_errors(socket, errors)
@@ -633,7 +636,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
       assigns.live_action == :new ->
         nil
 
-      not Translations.ai_translation_available?() ->
+      not Translations.available?() ->
         nil
 
       true ->
