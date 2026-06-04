@@ -10,8 +10,8 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
   alias PhoenixKit.Utils.Values
   alias PhoenixKitProjects.{Activity, Errors, L10n, Paths, Projects, Statuses}
   alias PhoenixKitProjects.Schemas.Project
-  alias PhoenixKitWeb.Components.AITranslate.FormGlue
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
+  alias PhoenixKitWeb.Components.AITranslate.FormGlue
 
   require Logger
 
