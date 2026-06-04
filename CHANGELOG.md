@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.9.0 - 2026-06-04
+
+**AI translation now runs on core's shared pipeline.** The module's bespoke AI-translation stack (its own `Translations` context, `TranslateResourceWorker`, and `AITranslateBar`) is replaced by core's generic pipeline plus the shared translate modal/glue — the same one catalogue uses. Net deletion of ~3300 lines of duplicated machinery. Translatable fields are unchanged (project/template: `name` + `description`; task: `title` + `description`; assignment: `description`), stored as before in each schema's `translations` JSONB.
+
+### Added
+
+- **`PhoenixKitProjects.AITranslatable`** — the `PhoenixKit.Modules.AI.Translatable` adapter for the four resource types (`project`, `template`, `task`, `assignment`), registered via the new `ai_translatables/0` callback. `source_fields/2` reads each schema's `translatable_fields/0` from `translations[lang]` or the primary column; `put_translation/4` merges results into the `translations` JSONB under a `FOR UPDATE` row lock so concurrent per-language jobs can't drop sibling languages; `fetch/2` validates the `is_template` flag so a project job can't cross-translate a template (or vice versa).
+- **`PhoenixKitProjects.AITranslateBinding`** — the `PhoenixKitWeb.Components.AITranslate.FormBinding` for the project/task/template form LVs (existing-translation langs, changeset merge, actor uuid).
+- **"Taking a while" stall hint** on bulk translations — comes for free from the shared `FormGlue`.
+- Adapter unit tests (`fetch` with `is_template` validation, `source_fields` column/override/blank handling, `put_translation` merge + `:resource_not_found` rollback).
+
+### Changed
+
+- **Minimum `phoenix_kit` is now `~> 1.7.130`** — the release shipping the generic AI-translation pipeline (`PhoenixKit.Modules.AI.{Translatable,Translations,TranslateWorker}` + the shared `AITranslate.{FormGlue,FormBinding}` UI) this module now depends on.
+- The project/task/template form LVs delegate their AI-translate wiring to the shared `FormGlue` instead of carrying an inline copy of the dispatch/config/handle_info state machine.
+- The per-translation audit entry is now core's generic `ai.translation_added` (module `"ai"`) rather than `projects.translation_added`.
+- `update_task/3` and `update_assignment_form/3` gain a `broadcast: false` option (mirroring `update_project/3`); the translation adapter passes it so a write inside its `FOR UPDATE` transaction doesn't fire a pre-commit `:*_updated` broadcast. Existing 2-arity callers are unaffected.
+
+### Removed
+
+- The bespoke `PhoenixKitProjects.Translations` context, `Workers.TranslateResourceWorker`, and `Web.Components.AITranslateBar` (plus the `Web.AITranslateFormHelpers` module) — behaviour is now covered by core.
+
+### Fixed
+
+- Post-merge review follow-ups (PR #18): flattened `AITranslatable.source_value/2`, aligned the blank-binary predicate across the adapter and binding, and fixed `credo --strict` alias ordering of the shared `FormGlue` alias in the three form LVs.
+
 ## 0.8.0 - 2026-06-01
 
 **Nested sub-projects** — an assignment can now embed a whole child project in its parent's timeline *instead of* a task template, so a project becomes a first-class step inside another project. The child is the source of truth; its status, progress, planned hours, and completion **roll up** the tree (depth-capped, empty children neutral) and the linking row behaves like any task — drag to reorder, give it dependencies, remove it. Also adds a polymorphic **assignee on projects** (and therefore sub-projects), mirroring the one-of team/department/person shape assignments already use.

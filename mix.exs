@@ -1,7 +1,7 @@
 defmodule PhoenixKitProjects.MixProject do
   use Mix.Project
 
-  @version "0.8.0"
+  @version "0.9.0"
   @source_url "https://github.com/BeamLabEU/phoenix_kit_projects"
 
   def project do
@@ -67,15 +67,16 @@ defmodule PhoenixKitProjects.MixProject do
 
   defp deps do
     [
-      # 1.7.128 is the floor — that's the release that ships the sub-project
-      # schema: V127 (`child_project_uuid` on `phoenix_kit_project_assignments`,
-      # with `task_uuid` made nullable + the task/child XOR check) and V128
-      # (the polymorphic assignee columns on `phoenix_kit_projects`). Both are
-      # required by `Projects` and the assignment/project schemas.
-      # (It also still satisfies the earlier floors: V125 for the workflow-status
-      # schema `PhoenixKitProjects.Statuses` requires, and 1.7.117 for the
-      # AI-translation delegation in `TranslateResourceWorker`.)
-      {:phoenix_kit, "~> 1.7.128"},
+      # 1.7.130 is the floor — that's the release that ships the generic
+      # AI-translation pipeline this module now plugs into: the
+      # `PhoenixKit.Modules.AI.{Translatable,Translations,TranslateWorker}`
+      # behaviour/orchestration + the shared
+      # `PhoenixKitWeb.Components.AITranslate.{FormGlue,FormBinding}` UI
+      # (consumed by `AITranslatable` / `AITranslateBinding` and the form LVs).
+      # (It also still satisfies the earlier floors: V127 `child_project_uuid` +
+      # V128 project-assignee columns shipped in 1.7.128, V125 for the
+      # workflow-status schema `PhoenixKitProjects.Statuses` requires.)
+      {:phoenix_kit, "~> 1.7.130"},
       {:phoenix_kit_staff, "~> 0.1"},
       {:phoenix_kit_comments, "~> 0.2"},
 
