@@ -87,8 +87,11 @@ defmodule PhoenixKitProjects.MixProject do
       # workflow-status schema `PhoenixKitProjects.Statuses` requires.
       pk_dep(:phoenix_kit, "~> 1.7.130"),
       # PhoenixKitAI owns the generic AI-translation pipeline this module's
-      # `AITranslatable` / `AITranslateBinding` code plugs into.
-      pk_dep(:phoenix_kit_ai, "~> 0.3"),
+      # `AITranslatable` / `AITranslateBinding` code plugs into. 0.4 is the
+      # floor — that's the release that actually ships the AI-translation move
+      # (`PhoenixKitAI.{Translatable,Translations,Components.AITranslate.*}`);
+      # 0.3.0 predates it and won't compile against this module.
+      pk_dep(:phoenix_kit_ai, "~> 0.4"),
       pk_dep(:phoenix_kit_staff, "~> 0.1"),
       pk_dep(:phoenix_kit_comments, "~> 0.2"),
 

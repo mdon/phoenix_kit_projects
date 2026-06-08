@@ -8,10 +8,10 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
 
   import PhoenixKitWeb.Components.MultilangForm
 
+  alias PhoenixKitAI.Components.AITranslate.FormGlue
   alias PhoenixKitProjects.{Activity, L10n, Paths, Projects, Statuses}
   alias PhoenixKitProjects.Schemas.Project
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
-  alias PhoenixKitAI.Components.AITranslate.FormGlue
 
   # Default wrapper class for the standalone admin page. Embedders can
   # override via `live_render(... session: %{"wrapper_class" => "..."})`.

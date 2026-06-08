@@ -10,10 +10,10 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
 
   require Logger
 
+  alias PhoenixKitAI.Components.AITranslate.FormGlue
   alias PhoenixKitProjects.{Activity, L10n, Paths, Projects}
   alias PhoenixKitProjects.Schemas.Task
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
-  alias PhoenixKitAI.Components.AITranslate.FormGlue
 
   # Default wrapper class for the standalone admin page. Embedders can
   # override via `live_render(... session: %{"wrapper_class" => "..."})`.
