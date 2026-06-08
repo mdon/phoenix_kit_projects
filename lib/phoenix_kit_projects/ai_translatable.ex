@@ -1,7 +1,7 @@
 defmodule PhoenixKitProjects.AITranslatable do
   @moduledoc """
-  `PhoenixKit.Modules.AI.Translatable` adapter for projects resources —
-  the small per-module hook into core's generic AI-translation pipeline.
+  `PhoenixKitAI.Translatable` adapter for projects resources —
+  the small per-module hook into PhoenixKitAI's generic AI-translation pipeline.
 
   Serves four resource types — `"project"`, `"template"` (a `Project` with
   `is_template: true`), `"task"`, and `"assignment"` — each translating the
@@ -27,7 +27,7 @@ defmodule PhoenixKitProjects.AITranslatable do
   merges results back atomically.
   """
 
-  @behaviour PhoenixKit.Modules.AI.Translatable
+  @behaviour PhoenixKitAI.Translatable
 
   import Ecto.Query
 
