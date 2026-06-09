@@ -1675,6 +1675,16 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
             >
               <.icon name="hero-folder-plus" class="w-4 h-4" /> {gettext("Add sub-project")}
             </.smart_link>
+            <%!-- Switch to the Gantt / waterfall timeline view of the same
+                 project (read-only horizontal bars + dependency arrows). --%>
+            <.smart_link
+              navigate={Paths.project_gantt(@project.uuid)}
+              emit={{PhoenixKitProjects.Web.ProjectGanttLive, %{"id" => @project.uuid}}}
+              embed_mode={@embed_mode}
+              class="btn btn-outline btn-sm gap-1"
+            >
+              <.icon name="hero-chart-bar-square" class="w-4 h-4" /> {gettext("Timeline")}
+            </.smart_link>
             <%!-- Inline workflow-status picker (the current value). The
                  status-list *source* is chosen on the new/edit form (and the
                  global default in Settings), not here. Hidden when no

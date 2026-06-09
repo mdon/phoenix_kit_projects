@@ -204,6 +204,18 @@ defmodule PhoenixKitProjects do
         live_view: {PhoenixKitProjects.Web.ProjectShowLive, :show}
       },
       %Tab{
+        id: :admin_projects_project_gantt,
+        label: "Timeline",
+        gettext_backend: PhoenixKitProjects.Gettext,
+        gettext_domain: "default",
+        path: "projects/list/:id/gantt",
+        level: :admin,
+        permission: module_key(),
+        parent: :admin_projects,
+        visible: false,
+        live_view: {PhoenixKitProjects.Web.ProjectGanttLive, :show}
+      },
+      %Tab{
         id: :admin_projects_template_new,
         label: "New Template",
         gettext_backend: PhoenixKitProjects.Gettext,

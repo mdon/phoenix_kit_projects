@@ -106,6 +106,10 @@ defmodule PhoenixKitProjects.MixProject do
       # for polymorphic assignee FKs (team / department / person).
       {:phoenix_live_view, "~> 1.1"},
       {:ecto_sql, "~> 3.13"},
+      # Gantt/waterfall chart for the project timeline view. Local path dep
+      # while we validate it pre-publish; switches to `{:live_gantt, "~> 0.1"}`
+      # once the package is on Hex.
+      {:live_gantt, path: "../live_gantt"},
       # Already transitive via :phoenix_kit, but pinned explicitly here so
       # `mix gettext.extract` / `mix gettext.merge` run against this app's
       # own `PhoenixKitProjects.Gettext` backend (call sites for project-
