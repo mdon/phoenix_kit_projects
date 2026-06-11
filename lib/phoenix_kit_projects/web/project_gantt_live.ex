@@ -24,7 +24,7 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
   require Logger
 
   @default_wrapper_class "flex flex-col w-full px-4 py-6 gap-4"
-  @valid_zooms ~w(hour day week month)a
+  @valid_zooms ~w(min5 min15 hour day week month)a
 
   # ── Mount ───────────────────────────────────────────────────────
 
@@ -122,9 +122,8 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
   def handle_event("set_zoom", %{"zoom" => zoom}, socket) do
     case parse_zoom(zoom) do
       nil ->
-        # The schedule is the same at every zoom (real durations) — zoom only
-        # changes column density, range buffer, and the marker precision. So
-        # just reflow the display; no event rebuild.
+        # Unknown preset → ignore. (The schedule is zoom-independent — real
+        # durations — so a display recompute is all a valid one ever needs.)
         {:noreply, socket}
 
       z ->
@@ -184,13 +183,13 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
     zoom = resolve_zoom(socket.assigns.zoom, events)
 
     assign(socket,
-      # Store the resolved concrete zoom so the switcher highlights it and
-      # later reloads don't re-auto-pick over the user's choice.
+      # Store the resolved concrete zoom so the switcher highlights it and later
+      # reloads don't re-auto-pick over the user's choice.
       zoom: zoom,
       date_range: compute_range(events, zoom),
-      # At hour zoom, a precise "now" gives an exact marker + current-hour
+      # At a sub-day zoom, a precise "now" gives an exact marker + current-slot
       # column highlight; coarser zooms only need the date.
-      today: if(zoom == :hour, do: DateTime.utc_now(), else: Date.utc_today())
+      today: if(sub_day_zoom?(zoom), do: DateTime.utc_now(), else: Date.utc_today())
     )
   end
 
@@ -207,6 +206,8 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
   end
 
   defp resolve_zoom(zoom, _events), do: zoom
+
+  defp sub_day_zoom?(zoom), do: zoom in [:hour, :min15, :min5]
 
   defp span_days([]), do: nil
 
@@ -410,18 +411,18 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
   end
 
   defp compute_range(events, zoom) do
-    # Events may be date- or datetime-precise (hour zoom); the window is always
-    # whole days, so collapse every endpoint to its date.
+    # Events may be date- or datetime-precise; the window is always whole days,
+    # so collapse every endpoint to its date.
     dates =
       Enum.flat_map(events, fn e ->
         [as_date(e.start), as_date(LiveGantt.Task.effective_end(e))]
       end)
 
     # One empty day of buffer on the left (a task ends on its exclusive `end`
-    # date, so the right already shows one empty day — no `last` padding). At
-    # hour zoom a whole day is 24 empty columns, so drop the left buffer there
-    # and let the first task's empty leading hours be the breathing room.
-    left_buffer = if zoom == :hour, do: 0, else: 1
+    # date, so the right already shows one empty day — no `last` padding). At a
+    # sub-day zoom a whole day is many empty columns, so drop the left buffer
+    # there and let the first task's empty leading hours be the breathing room.
+    left_buffer = if sub_day_zoom?(zoom), do: 0, else: 1
 
     first = dates |> Enum.min(Date) |> Date.add(-left_buffer)
     last = Enum.max(dates, Date)
@@ -491,7 +492,7 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
             expanded={@expanded}
             on_toggle_expand="toggle_subproject"
             on_zoom_change="set_zoom"
-            zooms={[:hour, :day, :week, :month]}
+            zooms={[:min5, :min15, :hour, :day, :week, :month]}
             show_header={true}
             show_navigation={false}
             enable_hooks={true}
