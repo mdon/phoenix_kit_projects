@@ -77,13 +77,7 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
       connectors: [],
       expanded: MapSet.new(),
       date_range: Date.range(Date.utc_today(), Date.add(Date.utc_today(), 7)),
-      today: Date.utc_today(),
-      # Fit-to-width: `available_px` is the viewport width the LgAutoScroll hook
-      # reports; `day_px` is the px-per-day we derive from it so a short project
-      # fills the container instead of leaving a gap. `nil` until first measured
-      # → the library falls back to the zoom's default density.
-      available_px: nil,
-      day_px: nil
+      today: Date.utc_today()
     ]
   end
 
@@ -128,12 +122,13 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
   def handle_event("set_zoom", %{"zoom" => zoom}, socket) do
     case parse_zoom(zoom) do
       nil ->
+        # The schedule is the same at every zoom (real durations) — zoom only
+        # changes column density, range buffer, and the marker precision. So
+        # just reflow the display; no event rebuild.
         {:noreply, socket}
 
       z ->
-        # Crossing into/out of :hour changes the layout resolution (day- vs
-        # hour-precise), so rebuild the events after switching zoom.
-        {:noreply, socket |> assign(zoom: z) |> load_gantt()}
+        {:noreply, socket |> assign(zoom: z) |> reflow_display()}
     end
   end
 
@@ -166,13 +161,6 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
      )}
   end
 
-  # The LgAutoScroll hook reports the available timeline width (mount + resize);
-  # recompute px-per-day so a short project fills the container. No event reload
-  # needed — only the geometry scale changes.
-  def handle_event("lg-fit-width", %{"available_px" => px}, socket) when is_integer(px) do
-    {:noreply, socket |> assign(available_px: px) |> assign_day_px()}
-  end
-
   # ── Data loading ────────────────────────────────────────────────
 
   defp load_gantt(socket) do
@@ -180,53 +168,35 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
     deps = Projects.list_all_dependencies(project.uuid)
     lang = L10n.current_content_lang()
 
-    zoom = resolve_zoom(socket.assigns.zoom, project, deps, lang)
-    {events, connectors} = build_gantt(project, deps, zoom, lang)
-    date_range = compute_range(events)
+    {events, connectors} = build_gantt(project, deps, lang)
 
     socket
-    |> assign(
+    |> assign(events: events, connectors: connectors)
+    |> reflow_display()
+  end
+
+  # Display-only recompute from the already-built events: resolve the zoom,
+  # the visible window, and the marker. The SCHEDULE itself is zoom-independent
+  # (real durations), so changing zoom never rebuilds events — it only changes
+  # column density, the range buffer, and the marker precision.
+  defp reflow_display(socket) do
+    events = socket.assigns.events
+    zoom = resolve_zoom(socket.assigns.zoom, events)
+
+    assign(socket,
       # Store the resolved concrete zoom so the switcher highlights it and
       # later reloads don't re-auto-pick over the user's choice.
       zoom: zoom,
-      events: events,
-      connectors: connectors,
-      date_range: date_range,
+      date_range: compute_range(events, zoom),
       # At hour zoom, a precise "now" gives an exact marker + current-hour
       # column highlight; coarser zooms only need the date.
       today: if(zoom == :hour, do: DateTime.utc_now(), else: Date.utc_today())
     )
-    |> assign_day_px()
   end
 
-  # Derives the fit-to-width px-per-day from the last viewport width the hook
-  # reported. `nil` (not yet measured) → the library uses the zoom default.
-  # Recomputed on load + zoom change (new zoom default / range) and on resize.
-  defp assign_day_px(socket) do
-    assign(socket,
-      day_px:
-        fit_day_px(socket.assigns.zoom, socket.assigns.available_px, socket.assigns.date_range)
-    )
-  end
-
-  defp fit_day_px(_zoom, nil, _range), do: nil
-
-  defp fit_day_px(zoom, available_px, range) when is_integer(available_px) do
-    total_days = max(Date.diff(range.last, range.first) + 1, 1)
-    # Only ever WIDEN past the zoom's natural density — a long chart keeps its
-    # default px-per-day and scrolls; a short one stretches to fill. Floor (not
-    # ceil) so content never overruns the viewport by a px or two and trips a
-    # spurious horizontal scrollbar; any few-px remainder is an invisible gap.
-    max(LiveGantt.default_day_width_px(zoom), div(available_px, total_days))
-  end
-
-  # Picks an initial zoom that fits the project's span; an explicit zoom passes
-  # through untouched. Measured from a day-resolution layout (day/week/month
-  # share it; only :hour re-layouts), so a few-day project opens at hour/day
-  # detail and a multi-month one at week/month.
-  defp resolve_zoom(:auto, project, deps, lang) do
-    {events, _} = build_gantt(project, deps, :day, lang)
-
+  # Picks an initial zoom that fits the project's real span; an explicit zoom
+  # passes through. A few-hour project opens at hour, a few-week one at day, etc.
+  defp resolve_zoom(:auto, events) do
     case span_days(events) do
       nil -> :week
       n when n <= 2 -> :hour
@@ -236,7 +206,7 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
     end
   end
 
-  defp resolve_zoom(zoom, _project, _deps, _lang), do: zoom
+  defp resolve_zoom(zoom, _events), do: zoom
 
   defp span_days([]), do: nil
 
@@ -250,31 +220,29 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
   end
 
   # Maps the project's assignments — and every sub-project's descendants — onto
-  # `LiveGantt.Task` structs. The durations→dates layout (sequential waterfall,
-  # sub-project span, day-aligned minimum span) is delegated to
-  # `LiveGantt.Layout.sequential/2`; we only supply each task's effective
-  # weekday/weekend calendar via the `:advance` callback. Dependencies become
-  # finish-to-start connectors.
-  defp build_gantt(project, deps, zoom, lang) do
+  # `LiveGantt.Task` structs, ALWAYS at the real (hour-precise) schedule so the
+  # layout is identical at every display zoom — a 2-hour task is a 2-hour bar,
+  # not padded out to a whole day. The display zoom only changes column density,
+  # so tasks pack the same in day, week, or hour view. The durations→dates
+  # layout (sequential waterfall, sub-project span) is delegated to
+  # `LiveGantt.Layout.sequential/2`; we supply each task's weekday/weekend
+  # calendar via `:advance`. Dependencies become finish-to-start connectors.
+  defp build_gantt(project, deps, lang) do
     items = collect_items(project, nil, 0)
-    anchor = schedule_anchor(project)
-
-    # Hour zoom lays tasks out at hour precision (NaiveDateTime bars); coarser
-    # zooms stay day-aligned so short bars remain readable/clickable.
-    {start, min_span} =
-      if zoom == :hour,
-        do: {DateTime.to_naive(anchor), {:hour, 1}},
-        else: {DateTime.to_date(anchor), {:day, 1}}
 
     layout =
       LiveGantt.Layout.sequential(items,
-        start: start,
+        start: DateTime.to_naive(schedule_anchor(project)),
         id: & &1.uuid,
         parent_id: & &1.parent_uuid,
         order: & &1.position,
         duration: fn it -> assignment_hours(it.assignment, it.project) end,
         advance: &advance_through_calendar/3,
-        min_span: min_span
+        # No artificial minimum — reflect the real schedule. A task spans exactly
+        # its duration; a zero-duration task collapses to a milestone (diamond),
+        # the standard Gantt convention. LiveGantt still floors the rendered bar
+        # at a few px so a short task stays visible/clickable.
+        min_span: {:second, 0}
       )
 
     events =
@@ -436,12 +404,12 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
   # the chart across the empty gap just to keep the today marker on screen.
   # When today falls outside this window, LiveGantt shows an off-screen
   # directional "Today" hint at the edge instead of widening the axis.
-  defp compute_range([]) do
+  defp compute_range([], _zoom) do
     today = Date.utc_today()
-    Date.range(Date.add(today, -3), Date.add(today, 14))
+    Date.range(Date.add(today, -1), Date.add(today, 7))
   end
 
-  defp compute_range(events) do
+  defp compute_range(events, zoom) do
     # Events may be date- or datetime-precise (hour zoom); the window is always
     # whole days, so collapse every endpoint to its date.
     dates =
@@ -449,8 +417,14 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
         [as_date(e.start), as_date(LiveGantt.Task.effective_end(e))]
       end)
 
-    first = dates |> Enum.min(Date) |> Date.add(-2)
-    last = dates |> Enum.max(Date) |> Date.add(2)
+    # One empty day of buffer on the left (a task ends on its exclusive `end`
+    # date, so the right already shows one empty day — no `last` padding). At
+    # hour zoom a whole day is 24 empty columns, so drop the left buffer there
+    # and let the first task's empty leading hours be the breathing room.
+    left_buffer = if zoom == :hour, do: 0, else: 1
+
+    first = dates |> Enum.min(Date) |> Date.add(-left_buffer)
+    last = Enum.max(dates, Date)
 
     Date.range(first, last)
   end
@@ -521,8 +495,6 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
             show_header={true}
             show_navigation={false}
             enable_hooks={true}
-            fit_width={true}
-            day_width_px={@day_px}
             class="max-h-[70vh]"
           />
         </div>

@@ -220,19 +220,27 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLiveTest do
            "sub-project bar (#{width}px) should span its 2 children (~48px), not stub"
   end
 
-  # Pulls "width: Npx" off the lg-bar div carrying the given event id.
+  # The bar's width renders as a PERCENTAGE of the content width (responsive
+  # layout); reconstruct pixels via `% × content_width` (the timeline's
+  # `min-width`) so the px-based assertions still hold.
   defp bar_width_px(html, event_id) do
-    [_, w] =
-      Regex.run(
-        ~r/data-event-id="#{event_id}"[^>]*?style="[^"]*?width:\s*(\d+)px/,
-        html
-      ) ||
-        Regex.run(
-          ~r/style="[^"]*?width:\s*(\d+)px[^"]*?"[^>]*?data-event-id="#{event_id}"/,
-          html
-        ) || [nil, "0"]
+    pct =
+      case Regex.run(
+             ~r/style="[^"]*?width:\s*([\d.]+)%[^"]*?"[^>]*?data-event-id="#{event_id}"/,
+             html
+           ) ||
+             Regex.run(~r/data-event-id="#{event_id}"[^>]*?style="[^"]*?width:\s*([\d.]+)%/, html) do
+        [_, p] -> elem(Float.parse(p), 0)
+        _ -> 0.0
+      end
 
-    String.to_integer(w)
+    content_width =
+      case Regex.run(~r/min-width:\s*(\d+)px/, html) do
+        [_, w] -> String.to_integer(w)
+        _ -> 0
+      end
+
+    round(pct / 100 * content_width)
   end
 
   test "empty project shows the empty state, no chart", %{conn: conn} do
