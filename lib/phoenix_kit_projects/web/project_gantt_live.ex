@@ -628,7 +628,10 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
               <button
                 type="button"
                 class="btn btn-xs btn-ghost"
-                phx-click="fit_project"
+                phx-click={
+                  Phoenix.LiveView.JS.push("fit_project")
+                  |> LiveGantt.scroll_to_start("project-gantt-#{@project.uuid}")
+                }
                 title={gettext("Fit the project's tasks")}
               >
                 {gettext("Project")}
