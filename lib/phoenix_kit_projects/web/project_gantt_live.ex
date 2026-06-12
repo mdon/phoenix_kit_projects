@@ -73,6 +73,11 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
       # `:auto` → load_gantt picks an initial zoom that fits the project's span;
       # resolved to a concrete zoom on first load, so manual switching sticks.
       zoom: :auto,
+      # The visible window. `nil` → fit to the project's tasks (the "Project"
+      # home view); a concrete range → the user has navigated (prev/next or
+      # jumped to today), and that window persists across zoom changes/reloads
+      # until they hit "Project".
+      nav_range: nil,
       events: [],
       connectors: [],
       expanded: MapSet.new(),
@@ -131,6 +136,39 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
     end
   end
 
+  # ── Timeline navigation ─────────────────────────────────────────
+  # The window (`date_range`) can be panned and jumped. `nil` nav_range = the
+  # "Project" home view (fit to tasks); any jump/pan sets a concrete window.
+
+  # Page the window earlier/later (‹ ›) by ~3/4 of its width — a sliver of the
+  # previous view carries over for orientation. A task overlapping the new
+  # window still renders (clipped) even if it started in an earlier page.
+  def handle_event("navigate", %{"direction" => dir}, socket) do
+    {first, last} = window_bounds(socket.assigns.date_range)
+    step = max(div(Date.diff(last, first) * 3, 4), 1)
+    delta = if dir == "next", do: step, else: -step
+
+    nav = Date.range(Date.add(first, delta), Date.add(last, delta))
+    {:noreply, socket |> assign(nav_range: nav) |> reflow_display()}
+  end
+
+  # Jump to today: re-center the current window on today (keeping its width, so
+  # the scale is unchanged) and `auto_scroll_today` lands on the today line.
+  def handle_event("jump_today", _params, socket) do
+    {first, last} = window_bounds(socket.assigns.date_range)
+    width = max(Date.diff(last, first), 1)
+    half = div(width, 2)
+    today = Date.utc_today()
+
+    nav = Date.range(Date.add(today, -half), Date.add(today, width - half))
+    {:noreply, socket |> assign(nav_range: nav) |> reflow_display()}
+  end
+
+  # Home: drop the navigated window and refit to the project's tasks.
+  def handle_event("fit_project", _params, socket) do
+    {:noreply, socket |> assign(nav_range: nil) |> reflow_display()}
+  end
+
   # Toggle a sub-project's expand state (the LiveGantt chevron fires this).
   # Events already carry every descendant (tagged with parent_id); LiveGantt
   # shows/hides them from `expanded`, so no reload/requery is needed here.
@@ -186,7 +224,9 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
       # Store the resolved concrete zoom so the switcher highlights it and later
       # reloads don't re-auto-pick over the user's choice.
       zoom: zoom,
-      date_range: compute_range(events, zoom),
+      # A navigated window wins; otherwise fit to the tasks. So zoom changes and
+      # reloads keep wherever the user paged to.
+      date_range: socket.assigns.nav_range || compute_range(events, zoom),
       # At a sub-day zoom, a precise "now" gives an exact marker + current-slot
       # column highlight; coarser zooms only need the date.
       today: if(sub_day_zoom?(zoom), do: DateTime.utc_now(), else: Date.utc_today())
@@ -430,6 +470,8 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
     Date.range(first, last)
   end
 
+  defp window_bounds(%Date.Range{first: first, last: last}), do: {first, last}
+
   defp as_date(%Date{} = d), do: d
   defp as_date(%NaiveDateTime{} = t), do: NaiveDateTime.to_date(t)
   defp as_date(%DateTime{} = t), do: DateTime.to_date(t)
@@ -492,12 +534,27 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
             expanded={@expanded}
             on_toggle_expand="toggle_subproject"
             on_zoom_change="set_zoom"
+            on_navigate="navigate"
+            on_scroll_today="jump_today"
             zooms={[:min5, :min15, :hour, :day, :week, :month]}
             show_header={true}
-            show_navigation={false}
+            show_navigation={true}
+            show_edge_indicators={false}
+            show_today_edge={false}
             enable_hooks={true}
             class="max-h-[70vh]"
-          />
+          >
+            <:toolbar_start>
+              <button
+                type="button"
+                class="btn btn-xs btn-ghost"
+                phx-click="fit_project"
+                title={gettext("Fit the project's tasks")}
+              >
+                {gettext("Project")}
+              </button>
+            </:toolbar_start>
+          </LiveGantt.gantt>
         </div>
       <% end %>
     </div>
