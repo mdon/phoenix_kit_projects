@@ -82,6 +82,8 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
       connectors: [],
       expanded: MapSet.new(),
       date_range: Date.range(Date.utc_today(), Date.add(Date.utc_today(), 7)),
+      window_start: nil,
+      window_end: nil,
       today: Date.utc_today()
     ]
   end
@@ -219,14 +221,31 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
   defp reflow_display(socket) do
     events = socket.assigns.events
     zoom = resolve_zoom(socket.assigns.zoom, events)
+    nav = socket.assigns.nav_range
+
+    # At a sub-day zoom, fit the POSITIONING window tight against the tasks (one
+    # column of buffer either side) instead of letting the axis run midnight-to-
+    # midnight — a whole day is a wall of empty columns at hour/15m/5m. Only when
+    # we're showing the auto-fit view; once the user pages (nav_range set) the
+    # window is their explicit day-granular choice, so we leave it whole-day.
+    {ws, we} =
+      if is_nil(nav) and sub_day_zoom?(zoom) and events != [] do
+        compute_window(events, zoom)
+      else
+        {nil, nil}
+      end
 
     assign(socket,
       # Store the resolved concrete zoom so the switcher highlights it and later
       # reloads don't re-auto-pick over the user's choice.
       zoom: zoom,
       # A navigated window wins; otherwise fit to the tasks. So zoom changes and
-      # reloads keep wherever the user paged to.
-      date_range: socket.assigns.nav_range || compute_range(events, zoom),
+      # reloads keep wherever the user paged to. `date_range` stays whole-day (it
+      # drives event partition / edge counts); the sub-day window is a separate
+      # positioning override that must stay covered by it.
+      date_range: cover_range(nav || compute_range(events, zoom), ws, we),
+      window_start: ws,
+      window_end: we,
       # At a sub-day zoom, a precise "now" gives an exact marker + current-slot
       # column highlight; coarser zooms only need the date.
       today: if(sub_day_zoom?(zoom), do: DateTime.utc_now(), else: Date.utc_today())
@@ -472,9 +491,68 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
 
   defp window_bounds(%Date.Range{first: first, last: last}), do: {first, last}
 
+  # A tight sub-day positioning window: one column-slot before the first task to
+  # one slot after the last, snapped to the zoom's slot boundaries (so column
+  # labels land on round clock times). Returns `{NaiveDateTime, NaiveDateTime}`.
+  defp compute_window(events, zoom) do
+    slot = window_slot_minutes(zoom)
+
+    starts = events |> Enum.map(& &1.start) |> Enum.reject(&is_nil/1) |> Enum.map(&as_naive/1)
+    ends =
+      events
+      |> Enum.map(&LiveGantt.Task.effective_end/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(&as_naive/1)
+
+    case {starts, ends} do
+      {[_ | _], [_ | _]} ->
+        first = Enum.min(starts, NaiveDateTime)
+        last = Enum.max(ends, NaiveDateTime)
+
+        ws = first |> floor_to_slot(slot) |> NaiveDateTime.add(-slot, :minute)
+        we = last |> ceil_to_slot(slot) |> NaiveDateTime.add(slot, :minute)
+        {ws, we}
+
+      _ ->
+        {nil, nil}
+    end
+  end
+
+  defp window_slot_minutes(:hour), do: 60
+  defp window_slot_minutes(:min15), do: 15
+  defp window_slot_minutes(:min5), do: 5
+
+  defp floor_to_slot(%NaiveDateTime{} = t, slot) do
+    floored = div(t.hour * 60 + t.minute, slot) * slot
+    NaiveDateTime.new!(NaiveDateTime.to_date(t), Time.new!(div(floored, 60), rem(floored, 60), 0))
+  end
+
+  defp ceil_to_slot(%NaiveDateTime{} = t, slot) do
+    floored = floor_to_slot(t, slot)
+    if NaiveDateTime.compare(t, floored) == :eq,
+      do: floored,
+      else: NaiveDateTime.add(floored, slot, :minute)
+  end
+
+  # Widen a whole-day range so it still covers a sub-day window whose edges may
+  # spill onto an adjacent date (e.g. a first task minutes after midnight pushes
+  # `window_start` to the previous day). Keeps partition/edge-count consistent.
+  defp cover_range(%Date.Range{} = range, %NaiveDateTime{} = ws, %NaiveDateTime{} = we) do
+    Date.range(
+      Enum.min([range.first, NaiveDateTime.to_date(ws)], Date),
+      Enum.max([range.last, NaiveDateTime.to_date(we)], Date)
+    )
+  end
+
+  defp cover_range(%Date.Range{} = range, _ws, _we), do: range
+
   defp as_date(%Date{} = d), do: d
   defp as_date(%NaiveDateTime{} = t), do: NaiveDateTime.to_date(t)
   defp as_date(%DateTime{} = t), do: DateTime.to_date(t)
+
+  defp as_naive(%NaiveDateTime{} = t), do: t
+  defp as_naive(%DateTime{} = t), do: DateTime.to_naive(t)
+  defp as_naive(%Date{} = d), do: NaiveDateTime.new!(d, ~T[00:00:00])
 
   defp parse_zoom(zoom) do
     z = String.to_existing_atom(zoom)
@@ -529,6 +607,8 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
             events={@events}
             connectors={@connectors}
             date_range={@date_range}
+            window_start={@window_start}
+            window_end={@window_end}
             zoom={@zoom}
             today={@today}
             expanded={@expanded}
