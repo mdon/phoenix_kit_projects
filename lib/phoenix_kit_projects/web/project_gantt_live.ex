@@ -304,10 +304,17 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
         min_span: {:second, 0}
       )
 
+    # `items` is already in flattened tree order (each sub-project parent
+    # immediately followed by its descendants). Pass that index as `extra.order`
+    # so the chart keeps this stable hierarchical order — otherwise the library
+    # auto-places rows by dependency/date, and expanding a sub-project re-sorts
+    # its rolled-up bar away from its siblings.
     events =
-      Enum.map(items, fn it ->
+      items
+      |> Enum.with_index()
+      |> Enum.map(fn {it, idx} ->
         %{start: s, end: e} = Map.fetch!(layout, it.uuid)
-        build_task(it, s, e, lang)
+        build_task(it, s, e, lang, idx)
       end)
 
     {events, tree_connectors(items)}
@@ -378,11 +385,11 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
   defp from_utc_dt(dt, %Date{}), do: DateTime.to_date(dt)
   defp from_utc_dt(dt, %NaiveDateTime{}), do: DateTime.to_naive(dt)
 
-  defp build_task(it, start_date, end_date, lang) do
+  defp build_task(it, start_date, end_date, lang, order) do
     a = it.assignment
 
     extra =
-      %{actions: task_actions(a, it.project.uuid)}
+      %{actions: task_actions(a, it.project.uuid), order: order}
       |> then(&if(it.parent_uuid, do: Map.put(&1, :parent_id, it.parent_uuid), else: &1))
 
     %PhoenixLiveGantt.Task{

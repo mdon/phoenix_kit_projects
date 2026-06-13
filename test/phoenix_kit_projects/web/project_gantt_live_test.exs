@@ -144,6 +144,52 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLiveTest do
     assert html =~ ~s(data-to-id="#{c2.uuid}")
   end
 
+  test "expanding a sub-project keeps it in place (stable row order)", %{conn: conn} do
+    # Sub-projects carry `extra.order` so the chart keeps the flattened tree
+    # order. Without it the library auto-places rows by dependency/date, and
+    # expanding a sub-project re-sorts its rolled-up bar below its siblings.
+    # The reorder only surfaces once connectors exist (they drive the auto-sort),
+    # so Phase A gets an intra-phase dependency.
+    project = fixture_project(%{"start_mode" => "immediate"})
+    {:ok, _} = Projects.start_project(project)
+    project = Projects.get_project!(project.uuid)
+
+    {:ok, %{child_project: pa, assignment: la}} =
+      Projects.create_subproject(project.uuid, %{"name" => "Phase A"})
+
+    {:ok, %{child_project: pb, assignment: lb}} =
+      Projects.create_subproject(project.uuid, %{"name" => "Phase B"})
+
+    t1 = fixture_task(%{"estimated_duration" => 2, "estimated_duration_unit" => "days"})
+    t2 = fixture_task(%{"estimated_duration" => 2, "estimated_duration_unit" => "days"})
+    {:ok, a1} = Projects.create_assignment(%{"project_uuid" => pa.uuid, "task_uuid" => t1.uuid})
+    {:ok, a2} = Projects.create_assignment(%{"project_uuid" => pa.uuid, "task_uuid" => t2.uuid})
+    {:ok, _} = Projects.add_dependency(a2.uuid, a1.uuid)
+
+    tb = fixture_task(%{"estimated_duration" => 2, "estimated_duration_unit" => "days"})
+    {:ok, _} = Projects.create_assignment(%{"project_uuid" => pb.uuid, "task_uuid" => tb.uuid})
+
+    {:ok, view, _html} = live(conn, Paths.project_gantt(project.uuid))
+    html = render_click(view, "toggle_subproject", %{"event-id" => la.uuid})
+
+    # Rows render in order; the FIRST occurrence of each id (its label row) gives
+    # the row order. Phase A stays before Phase B, with A's children between them.
+    a_pos = row_index(html, la.uuid)
+    a1_pos = row_index(html, a1.uuid)
+    b_pos = row_index(html, lb.uuid)
+
+    assert a_pos >= 0 and a1_pos >= 0 and b_pos >= 0
+    assert a_pos < a1_pos, "Phase A must stay above its own child"
+    assert a1_pos < b_pos, "Phase A's child must stay above Phase B (no reorder)"
+  end
+
+  defp row_index(html, uuid) do
+    case :binary.match(html, "data-event-id=\"#{uuid}\"") do
+      {pos, _} -> pos
+      :nomatch -> -1
+    end
+  end
+
   test "zoom switcher updates the chart", %{conn: conn, actor_uuid: actor} do
     {project, _a1, _a2} = started_project_with_tasks(actor)
 
