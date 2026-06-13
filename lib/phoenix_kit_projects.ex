@@ -51,7 +51,25 @@ defmodule PhoenixKitProjects do
   end
 
   @impl PhoenixKit.Module
-  def css_sources, do: [:phoenix_kit_projects]
+  # Includes :phoenix_live_gantt so the host's Tailwind scans the gantt's
+  # classes (used by the Timeline tab) with no manual `@source` — the
+  # css-sources compiler resolves the dep atom to deps/phoenix_live_gantt.
+  def css_sources, do: [:phoenix_kit_projects, :phoenix_live_gantt]
+
+  @impl PhoenixKit.Module
+  # The Timeline tab renders the gantt with enable_hooks={true}, so the host's
+  # LiveSocket needs the gantt's JS hooks. Declaring the bundle here lets the
+  # :phoenix_kit_js_sources compiler wire it into the host automatically — no
+  # manual app.js import/spread. The bundle ships in phoenix_live_gantt's priv/.
+  def js_sources do
+    [
+      %{
+        app: :phoenix_live_gantt,
+        file: "static/assets/phoenix_live_gantt.js",
+        global: "PhoenixLiveGanttHooks"
+      }
+    ]
+  end
 
   def ai_translatables do
     [
