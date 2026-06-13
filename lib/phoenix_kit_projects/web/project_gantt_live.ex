@@ -47,8 +47,9 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
          |> WebHelpers.close_or_navigate(Paths.projects())}
 
       project ->
+        # `topic_tasks` (global task-template edits) is constant; the per-project
+        # topics for the whole tree are subscribed in `load_gantt`/`subscribe_tree`.
         if connected?(socket) do
-          ProjectsPubSub.subscribe(ProjectsPubSub.topic_project(project.uuid))
           ProjectsPubSub.subscribe(ProjectsPubSub.topic_tasks())
         end
 
@@ -80,6 +81,9 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
       nav_range: nil,
       events: [],
       connectors: [],
+      # Per-project PubSub topics already subscribed (the whole rendered tree;
+      # grows as sub-projects appear). Avoids double-subscribing on reload.
+      subscribed_projects: MapSet.new(),
       expanded: MapSet.new(),
       date_range: Date.range(Date.utc_today(), Date.add(Date.utc_today(), 7)),
       window_start: nil,
@@ -206,11 +210,29 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
     project = socket.assigns.project
     lang = L10n.current_content_lang()
 
-    {events, connectors} = build_gantt(project, lang)
+    {events, connectors, project_uuids} = build_gantt(project, lang)
 
     socket
+    |> subscribe_tree(project_uuids)
     |> assign(events: events, connectors: connectors)
     |> reflow_display()
+  end
+
+  # Live updates: a sub-project's tasks and dependencies broadcast on the CHILD
+  # project's topic, so subscribing to just the root misses every edit inside a
+  # sub-project. Subscribe to every project in the rendered tree. A newly added
+  # sub-project arrives via a parent-topic broadcast (the link assignment is on
+  # the parent), which reloads and subscribes the new child here; `seen` tracks
+  # what's already subscribed so we never double-subscribe (and double-reload).
+  defp subscribe_tree(socket, project_uuids) do
+    if connected?(socket) do
+      seen = socket.assigns.subscribed_projects
+      fresh = Enum.reject(project_uuids, &MapSet.member?(seen, &1))
+      Enum.each(fresh, &ProjectsPubSub.subscribe(ProjectsPubSub.topic_project(&1)))
+      assign(socket, subscribed_projects: MapSet.union(seen, MapSet.new(project_uuids)))
+    else
+      socket
+    end
   end
 
   # Display-only recompute from the already-built events: resolve the zoom,
@@ -317,19 +339,23 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
         build_task(it, s, e, lang, idx)
       end)
 
-    {events, tree_connectors(items)}
+    # Every project in the rendered tree (parent + sub-project descendants).
+    # Used both to gather dependencies and to subscribe for live updates —
+    # dependencies and assignments inside a sub-project live on the CHILD
+    # project, not the parent.
+    project_uuids = items |> Enum.map(& &1.project.uuid) |> Enum.uniq()
+
+    {events, tree_connectors(project_uuids), project_uuids}
   end
 
   # A dependency is stored on the project that OWNS the dependent assignment, so
   # a sub-project task's dependencies live under the CHILD project, not the
   # parent. `list_all_dependencies/1` is single-project; gather across every
-  # project in the rendered tree (parent + descendants) so arrows inside and
-  # between sub-projects draw — otherwise a project built entirely from
-  # sub-project tasks shows no connectors at all.
-  defp tree_connectors(items) do
-    items
-    |> Enum.map(& &1.project.uuid)
-    |> Enum.uniq()
+  # project in the rendered tree so arrows inside and between sub-projects draw —
+  # otherwise a project built entirely from sub-project tasks shows no
+  # connectors at all.
+  defp tree_connectors(project_uuids) do
+    project_uuids
     |> Enum.flat_map(&Projects.list_all_dependencies/1)
     |> Enum.map(fn d -> %{from: d.depends_on_uuid, to: d.assignment_uuid} end)
   end

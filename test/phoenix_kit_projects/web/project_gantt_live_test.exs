@@ -190,6 +190,39 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLiveTest do
     end
   end
 
+  test "live-updates the chart when a sub-project task changes (PubSub)", %{conn: conn} do
+    # "Open it on a monitor and it stays current." A sub-project's task
+    # broadcasts on the CHILD project's topic; the gantt subscribes to the whole
+    # tree, so a status change inside a sub-project must refresh the chart with
+    # no client interaction. (Subscribing to only the root project missed this.)
+    project = fixture_project(%{"start_mode" => "immediate"})
+    {:ok, _} = Projects.start_project(project)
+    project = Projects.get_project!(project.uuid)
+
+    {:ok, %{child_project: child, assignment: link}} =
+      Projects.create_subproject(project.uuid, %{"name" => "Phase"})
+
+    t = fixture_task(%{"estimated_duration" => 2, "estimated_duration_unit" => "days"})
+
+    {:ok, child_a} =
+      Projects.create_assignment(%{
+        "project_uuid" => child.uuid,
+        "task_uuid" => t.uuid,
+        "status" => "todo"
+      })
+
+    {:ok, view, _html} = live(conn, Paths.project_gantt(project.uuid))
+    render_click(view, "toggle_subproject", %{"event-id" => link.uuid})
+    refute render(view) =~ "bg-success"
+
+    # Change the sub-project task's status "from outside" — the context
+    # broadcasts on the child topic; the LiveView never receives a client event.
+    {:ok, _} = Projects.update_assignment_status(child_a, %{"status" => "done"})
+
+    # The gantt got the broadcast and re-rendered the bar in the "done" color.
+    assert render(view) =~ "bg-success"
+  end
+
   test "zoom switcher updates the chart", %{conn: conn, actor_uuid: actor} do
     {project, _a1, _a2} = started_project_with_tasks(actor)
 
