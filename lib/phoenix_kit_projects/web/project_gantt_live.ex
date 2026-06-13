@@ -495,6 +495,33 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
   defp gantt_color("in_progress"), do: "bg-warning"
   defp gantt_color(_), do: "bg-primary"
 
+  # The chart's CHROME strings (toolbar, zoom labels, Today, prev/next, popover +
+  # expand/collapse labels) — localized via this app's gettext, matching how the
+  # rest of the projects UI translates. Task CONTENT (titles, assignees) is
+  # already localized upstream in `build_task/5`. Month names reuse
+  # `L10n.short_month/1` (the same gettext-backed helper the date formatters use).
+  defp gantt_translations do
+    %{
+      labels: %{
+        today: gettext("Today"),
+        month: gettext("Month"),
+        week: gettext("Week"),
+        day: gettext("Day"),
+        hour: gettext("Hour"),
+        min15: gettext("15m"),
+        min5: gettext("5m"),
+        task: gettext("Task"),
+        ungrouped: gettext("Ungrouped"),
+        prev: gettext("Previous"),
+        next: gettext("Next"),
+        no_title: gettext("(No title)"),
+        expand_subproject: gettext("Expand sub-project"),
+        collapse_subproject: gettext("Collapse sub-project")
+      },
+      month_names_short: Map.new(1..12, &{&1, L10n.short_month(&1)})
+    }
+  end
+
   defp assignee_label(a) do
     cond do
       a.assigned_person && a.assigned_person.user -> a.assigned_person.user.email
@@ -657,6 +684,7 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
             zoom={@zoom}
             today={@today}
             expanded={@expanded}
+            translations={gantt_translations()}
             on_toggle_expand="toggle_subproject"
             on_zoom_change="set_zoom"
             on_navigate="navigate"
