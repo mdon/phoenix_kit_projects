@@ -2223,6 +2223,9 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
             session: %{
               "id" => @project.uuid,
               "headless" => true,
+              # No wrapper padding — the show page already pads this content area;
+              # the gantt's own `px-4 py-6` would double it and push the chart down.
+              "wrapper_class" => "",
               "locale" => L10n.current_content_lang()
             })}
         <% end %>
