@@ -109,7 +109,7 @@ defmodule PhoenixKitProjects.MixProject do
       # Gantt/waterfall chart for the project timeline view. Local path dep
       # while we validate it pre-publish; switches to `{:phoenix_live_gantt, "~> 0.1"}`
       # once the package is on Hex.
-      {:phoenix_live_gantt, path: "../live_gantt"},
+      {:phoenix_live_gantt, path: "../phoenix_live_gantt"},
       # Already transitive via :phoenix_kit, but pinned explicitly here so
       # `mix gettext.extract` / `mix gettext.merge` run against this app's
       # own `PhoenixKitProjects.Gettext` backend (call sites for project-
