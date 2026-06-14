@@ -54,7 +54,8 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLiveTest do
   test "renders one bar per assignment with titles", %{conn: conn, actor_uuid: actor} do
     {project, _a1, _a2} = started_project_with_tasks(actor)
 
-    {:ok, _view, html} = live_isolated(conn, ProjectGanttLive, session: %{"id" => project.uuid})
+    {:ok, view, _html} = live_isolated(conn, ProjectGanttLive, session: %{"id" => project.uuid})
+    html = render(view)
 
     # The chart wrapper + a bar per assignment (lg-bar marker class).
     assert html =~ "lg-wrap"
@@ -70,7 +71,8 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLiveTest do
        %{conn: conn, actor_uuid: actor} do
     {project, a1, _a2} = started_project_with_tasks(actor)
 
-    {:ok, view, html} = live_isolated(conn, ProjectGanttLive, session: %{"id" => project.uuid})
+    {:ok, view, _html} = live_isolated(conn, ProjectGanttLive, session: %{"id" => project.uuid})
+    html = render(view)
 
     # The popover action is wired (the bar's own phx-value-event-id carries the
     # assignment uuid; the action adds phx-value-project).
@@ -90,7 +92,8 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLiveTest do
     {:ok, %{child_project: child}} =
       Projects.create_subproject(project.uuid, %{"name" => "Phase"})
 
-    {:ok, view, html} = live_isolated(conn, ProjectGanttLive, session: %{"id" => project.uuid})
+    {:ok, view, _html} = live_isolated(conn, ProjectGanttLive, session: %{"id" => project.uuid})
+    html = render(view)
 
     assert html =~ ~s(phx-click="gantt_open")
     assert html =~ ~s(phx-value-child="#{child.uuid}")
@@ -103,7 +106,8 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLiveTest do
     {project, a1, a2} = started_project_with_tasks(actor)
     {:ok, _} = Projects.add_dependency(a2.uuid, a1.uuid)
 
-    {:ok, _view, html} = live_isolated(conn, ProjectGanttLive, session: %{"id" => project.uuid})
+    {:ok, view, _html} = live_isolated(conn, ProjectGanttLive, session: %{"id" => project.uuid})
+    html = render(view)
 
     # The SVG connector overlay renders when there's at least one edge.
     assert html =~ "lg-connectors"
@@ -240,7 +244,8 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLiveTest do
     # ~5-day span (2d + 3d tasks) → should open at :day, not the old fixed :week.
     {project, _a1, _a2} = started_project_with_tasks(actor)
 
-    {:ok, _view, html} = live_isolated(conn, ProjectGanttLive, session: %{"id" => project.uuid})
+    {:ok, view, _html} = live_isolated(conn, ProjectGanttLive, session: %{"id" => project.uuid})
+    html = render(view)
 
     # The :day zoom button is the active one (aria-pressed="true").
     assert html =~
@@ -290,7 +295,8 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLiveTest do
         "task_uuid" => child_task.uuid
       })
 
-    {:ok, view, html} = live_isolated(conn, ProjectGanttLive, session: %{"id" => project.uuid})
+    {:ok, view, _html} = live_isolated(conn, ProjectGanttLive, session: %{"id" => project.uuid})
+    html = render(view)
 
     # Collapsed: the expand chevron renders (the library detected a
     # sub-project because the child is in the event list), but the child's
@@ -359,7 +365,8 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLiveTest do
   test "empty project shows the empty state, no chart", %{conn: conn} do
     project = fixture_project(%{"start_mode" => "immediate"})
 
-    {:ok, _view, html} = live_isolated(conn, ProjectGanttLive, session: %{"id" => project.uuid})
+    {:ok, view, _html} = live_isolated(conn, ProjectGanttLive, session: %{"id" => project.uuid})
+    html = render(view)
 
     refute html =~ "lg-wrap"
     assert html =~ "No tasks to chart yet."

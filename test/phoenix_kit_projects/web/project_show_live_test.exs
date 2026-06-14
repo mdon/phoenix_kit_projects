@@ -599,12 +599,16 @@ defmodule PhoenixKitProjects.Web.ProjectShowLiveTest do
 
     test "the /gantt route opens the gantt tab with the nested chart mounted", %{conn: conn} do
       project = started_project_for_tabs()
-      {:ok, _view, html} = live(conn, "/en/admin/projects/list/#{project.uuid}/gantt")
+      {:ok, view, html} = live(conn, "/en/admin/projects/list/#{project.uuid}/gantt")
 
       assert html =~ ~s(role="tablist")
       # Same page, gantt tab active → the nested ProjectGanttLive is rendered.
-      assert html =~ "lg-wrap"
-      assert html =~ "lg-bar"
+      # Its build is deferred off the first paint, so settle the child LV before
+      # asserting the chart (render/1 drains the child's :load_gantt message).
+      gantt = find_live_child(view, "project-gantt-live-#{project.uuid}")
+      chart = render(gantt)
+      assert chart =~ "lg-wrap"
+      assert chart =~ "lg-bar"
     end
 
     test "switch_tab mounts the gantt on first open, then keeps it mounted", %{conn: conn} do
@@ -612,10 +616,12 @@ defmodule PhoenixKitProjects.Web.ProjectShowLiveTest do
       {:ok, view, html} = live(conn, "/en/admin/projects/list/#{project.uuid}")
       refute html =~ "lg-wrap"
 
-      html = render_click(view, "switch_tab", %{"tab" => "gantt"})
-      assert html =~ "lg-wrap"
+      render_click(view, "switch_tab", %{"tab" => "gantt"})
+      gantt = find_live_child(view, "project-gantt-live-#{project.uuid}")
+      assert render(gantt) =~ "lg-wrap"
 
-      # Switching back hides it (CSS) but keeps it mounted (lazy-once).
+      # Switching back hides it (CSS) but keeps it mounted (lazy-once) — the
+      # built chart stays in the (hidden) DOM.
       html = render_click(view, "switch_tab", %{"tab" => "list"})
       assert html =~ "lg-wrap"
     end

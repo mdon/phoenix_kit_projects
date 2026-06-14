@@ -18,8 +18,11 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
   alias PhoenixKitProjects.{L10n, Paths, Projects}
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Schemas.{Assignment, Project}
-  alias PhoenixKitProjects.Schemas.Task, as: TaskSchema
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
+
+  # Schedule/assignee helpers shared with ProjectShowLive. See WebHelpers.
+  import PhoenixKitProjects.Web.Helpers,
+    only: [assignee_label: 1, task_counts_weekends?: 2, assignment_hours: 2]
 
   require Logger
 
@@ -53,15 +56,27 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
           ProjectsPubSub.subscribe(ProjectsPubSub.topic_tasks())
         end
 
-        {:ok,
-         socket
-         |> assign(default_assigns(session))
-         |> assign(
-           page_title: Project.localized_name(project, L10n.current_content_lang()),
-           project: project,
-           is_template: project.is_template
-         )
-         |> load_gantt()}
+        socket =
+          socket
+          |> assign(default_assigns(session))
+          |> assign(
+            page_title: Project.localized_name(project, L10n.current_content_lang()),
+            project: project,
+            is_template: project.is_template
+          )
+
+        # On the live (connected) mount, defer the per-project build off the first
+        # paint so the Timeline tab shows a skeleton immediately. The dead
+        # (HTTP/SEO/no-JS) render builds inline so it ships the real chart.
+        socket =
+          if connected?(socket) do
+            send(self(), :load_gantt)
+            assign(socket, gantt_loading: true)
+          else
+            load_gantt(socket)
+          end
+
+        {:ok, socket}
     end
   end
 
@@ -91,13 +106,20 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
       date_range: Date.range(Date.utc_today(), Date.add(Date.utc_today(), 7)),
       window_start: nil,
       window_end: nil,
-      today: Date.utc_today()
+      today: Date.utc_today(),
+      # True between the connected mount and the {:continue, :load_gantt} that
+      # builds the chart — drives the loading skeleton so the first paint isn't
+      # blocked on N per-project queries (and doesn't flash the empty state).
+      gantt_loading: false
     ]
   end
 
+  # Deferred initial build (off the first paint — see mount).
+  @impl true
+  def handle_info(:load_gantt, socket), do: {:noreply, load_gantt(socket)}
+
   # ── PubSub reactivity (read-only — just reload) ──────────────────
 
-  @impl true
   def handle_info({:projects, event, _payload}, socket)
       when event in [
              :assignment_created,
@@ -217,7 +239,7 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
 
     socket
     |> subscribe_tree(project_uuids)
-    |> assign(events: events, connectors: connectors)
+    |> assign(events: events, connectors: connectors, gantt_loading: false)
     |> reflow_display()
   end
 
@@ -469,29 +491,6 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
   defp schedule_anchor(%Project{scheduled_start_date: %DateTime{} = at}), do: at
   defp schedule_anchor(_), do: DateTime.utc_now()
 
-  defp assignment_hours(a, project) do
-    weekends? = task_counts_weekends?(a, project)
-
-    if a.estimated_duration && a.estimated_duration_unit do
-      TaskSchema.to_hours(a.estimated_duration, a.estimated_duration_unit, weekends?)
-    else
-      task = a.task
-
-      TaskSchema.to_hours(
-        task && task.estimated_duration,
-        task && task.estimated_duration_unit,
-        weekends?
-      )
-    end
-  end
-
-  defp task_counts_weekends?(a, project) do
-    case a.counts_weekends do
-      nil -> project.counts_weekends
-      val -> val
-    end
-  end
-
   # ── Display helpers ─────────────────────────────────────────────
 
   defp gantt_color("done"), do: "bg-success"
@@ -523,15 +522,6 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
       },
       month_names_short: Map.new(1..12, &{&1, L10n.short_month(&1)})
     }
-  end
-
-  defp assignee_label(a) do
-    cond do
-      a.assigned_person && a.assigned_person.user -> a.assigned_person.user.email
-      a.assigned_team -> a.assigned_team.name
-      a.assigned_department -> a.assigned_department.name
-      true -> nil
-    end
   end
 
   # Fit the visible window to the TASKS (small padding either side), NOT to
@@ -663,11 +653,23 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
         </div>
       </div>
 
-      <%= if @events == [] do %>
-        <.empty_state
-          icon="hero-chart-bar-square"
-          title={gettext("No tasks to chart yet.")}
+      <%= if @gantt_loading do %>
+        <div
+          class="border border-base-200 rounded-lg overflow-hidden p-4 space-y-3"
+          aria-busy="true"
+          aria-label={gettext("Loading the timeline…")}
         >
+          <div class="h-6 w-1/3 bg-base-200 rounded animate-pulse"></div>
+          <div class="h-4 w-2/3 bg-base-200/70 rounded animate-pulse"></div>
+          <div class="h-4 w-1/2 bg-base-200/70 rounded animate-pulse"></div>
+          <div class="h-4 w-3/5 bg-base-200/70 rounded animate-pulse"></div>
+        </div>
+      <% else %>
+        <%= if @events == [] do %>
+          <.empty_state
+            icon="hero-chart-bar-square"
+            title={gettext("No tasks to chart yet.")}
+          >
           <:cta>
             <.smart_link
               navigate={Paths.new_assignment(@project.uuid)}
@@ -719,6 +721,7 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
             </:toolbar_start>
           </PhoenixLiveGantt.gantt>
         </div>
+        <% end %>
       <% end %>
     </div>
     """

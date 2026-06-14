@@ -3,6 +3,16 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   Show a project with a vertical timeline of assignments.
   Supports inline status changes, duration editing, dependency
   management, and tracks who completed each task.
+
+  ## List / Timeline tabs
+
+  The page has two views — the vertical task list and the embedded
+  `ProjectGanttLive` Timeline — toggled by tabs under the shared header.
+  Switching is instant (an assign flip) and the gantt is lazily mounted on first
+  open. Keeping the URL in sync (the trailing `/gantt` segment + browser
+  back/forward) is an **optional host-app concern**: the host registers a
+  `ProjectTabsUrl` JS hook that pushes/reads `history` state. The tabs work
+  fully without it — only the URL won't follow the active tab.
   """
 
   use PhoenixKitWeb, :live_view
@@ -21,6 +31,11 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   alias PhoenixKitProjects.Schemas.Task, as: TaskSchema
   alias PhoenixKitProjects.Web.Components.AssignmentStatusBadge
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
+
+  # Schedule/assignee helpers shared with ProjectGanttLive — imported so the
+  # template's bare calls resolve. See PhoenixKitProjects.Web.Helpers.
+  import PhoenixKitProjects.Web.Helpers,
+    only: [assignee_label: 1, task_counts_weekends?: 2, assignment_hours: 2]
 
   require Logger
 
@@ -1404,15 +1419,6 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     end
   end
 
-  defp assignee_label(a) do
-    cond do
-      a.assigned_person && a.assigned_person.user -> a.assigned_person.user.email
-      a.assigned_team -> a.assigned_team.name
-      a.assigned_department -> a.assigned_department.name
-      true -> nil
-    end
-  end
-
   defp assignee_type(a) do
     cond do
       a.assigned_person_uuid -> gettext("Person")
@@ -1423,25 +1429,6 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   end
 
   # ── Schedule calculation ─────────────────────────────────────────
-
-  defp to_hours(n, unit, counts_weekends), do: TaskSchema.to_hours(n, unit, counts_weekends)
-
-  defp task_counts_weekends?(a, project) do
-    case a.counts_weekends do
-      nil -> project.counts_weekends
-      val -> val
-    end
-  end
-
-  defp assignment_hours(a, project) do
-    weekends? = task_counts_weekends?(a, project)
-
-    if a.estimated_duration && a.estimated_duration_unit do
-      to_hours(a.estimated_duration, a.estimated_duration_unit, weekends?)
-    else
-      to_hours(a.task.estimated_duration, a.task.estimated_duration_unit, weekends?)
-    end
-  end
 
   defp calculate_schedule(%{started_at: nil}, _), do: nil
   defp calculate_schedule(_project, []), do: nil
