@@ -296,9 +296,16 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
         |> assign_status_init(child)
 
       {project, assignment} ->
+        task_name =
+          assignment.task && Task.localized_title(assignment.task, L10n.current_content_lang())
+
         socket
         |> assign(
-          page_title: gettext("Edit assignment"),
+          page_title:
+            if(task_name,
+              do: gettext("Edit task: %{name}", name: task_name),
+              else: gettext("Edit assignment")
+            ),
           kind: "task",
           sp_form: to_form(Projects.change_project(%Project{}), as: :subproject),
           sp_mode: "new",
@@ -1463,20 +1470,6 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
         </.form>
       <% else %>
       <.form for={@form} id="assignment-form" phx-change="validate" phx-submit="save" phx-debounce="300" class="flex flex-col gap-4">
-        <%!-- Language tabs render only when multilang is on AND >1 language enabled.
-             Single-field translation (description-only): no `<.multilang_fields_wrapper>`
-             needed — the rest of the form keeps its primary-language values across
-             tab switches because their inputs aren't translatable. --%>
-        <%= if @multilang_enabled do %>
-          <div class="card bg-base-100 shadow">
-            <.multilang_tabs
-              multilang_enabled={@multilang_enabled}
-              language_tabs={@language_tabs}
-              current_lang={@current_lang}
-            />
-          </div>
-        <% end %>
-
         <div class="card bg-base-100 shadow">
           <div class="card-body flex flex-col gap-3">
             <%= if @live_action == :new do %>
@@ -1544,6 +1537,17 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
             <% end %>
 
             <div class="divider text-xs text-base-content/50 my-1">{gettext("Details")}</div>
+
+            <%!-- Only `description` is translatable, so the language tabs live
+                 right above it (single-field translation: no fields_wrapper).
+                 The other inputs keep their primary-language values across
+                 switches because they aren't translatable. --%>
+            <.multilang_tabs
+              :if={@multilang_enabled}
+              multilang_enabled={@multilang_enabled}
+              language_tabs={@language_tabs}
+              current_lang={@current_lang}
+            />
 
             <.translatable_field
               field_name="description"
