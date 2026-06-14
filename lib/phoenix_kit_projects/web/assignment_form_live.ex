@@ -1530,13 +1530,11 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
               <% else %>
                 <.input name="new_task_title" label={gettext("Task title")} value={@new_task_title} required />
               <% end %>
-            <% else %>
-              <div class="text-sm text-base-content/60">
-                {gettext("Task:")} <span class="font-medium">{@assignment.task && Task.localized_title(@assignment.task, L10n.current_content_lang())}</span>
-              </div>
-            <% end %>
 
-            <div class="divider text-xs text-base-content/50 my-1">{gettext("Details")}</div>
+              <%!-- Separates task-selection from the details below (new form only;
+                   the edit form's task is already named in the page header). --%>
+              <div class="divider text-xs text-base-content/50 my-1">{gettext("Details")}</div>
+            <% end %>
 
             <%!-- Only `description` is translatable, so the language tabs live
                  right above it (single-field translation: no fields_wrapper).
