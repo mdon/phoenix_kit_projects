@@ -1536,10 +1536,10 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
               <div class="divider text-xs text-base-content/50 my-1">{gettext("Details")}</div>
             <% end %>
 
-            <%!-- Only `description` is translatable, so the language tabs live
-                 right above it (single-field translation: no fields_wrapper).
-                 The other inputs keep their primary-language values across
-                 switches because they aren't translatable. --%>
+            <%!-- `description` is the only translatable field: the language tabs
+                 sit above it and the field goes INSIDE the wrapper so a language
+                 switch shows the skeleton + cleanly re-mounts. The non-translatable
+                 fields below stay outside the wrapper (and keep their values). --%>
             <.multilang_tabs
               :if={@multilang_enabled}
               multilang_enabled={@multilang_enabled}
@@ -1547,23 +1547,39 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
               current_lang={@current_lang}
             />
 
-            <.translatable_field
-              field_name="description"
-              form_prefix="assignment"
-              changeset={@form.source}
-              schema_field={:description}
+            <.multilang_fields_wrapper
               multilang_enabled={@multilang_enabled}
               current_lang={@current_lang}
-              primary_language={@primary_language}
-              lang_data={WebHelpers.lang_data(@form, @current_lang)}
-              secondary_name={"assignment[translations][#{@current_lang}][description]"}
-              lang_data_key="description"
-              label={gettext("Description")}
-              type="textarea"
-              rows={3}
-            />
+              skeleton_class="space-y-2"
+              fields_class=""
+            >
+              <:skeleton>
+                <div class="space-y-2">
+                  <div class="bg-base-content/15 rounded h-4 w-24 animate-pulse"></div>
+                  <div class="bg-base-content/15 rounded h-16 w-full animate-pulse"></div>
+                </div>
+              </:skeleton>
 
-            <div class="flex gap-2">
+              <.translatable_field
+                field_name="description"
+                form_prefix="assignment"
+                changeset={@form.source}
+                schema_field={:description}
+                multilang_enabled={@multilang_enabled}
+                current_lang={@current_lang}
+                primary_language={@primary_language}
+                lang_data={WebHelpers.lang_data(@form, @current_lang)}
+                secondary_name={"assignment[translations][#{@current_lang}][description]"}
+                lang_data_key="description"
+                label={gettext("Description")}
+                type="textarea"
+                rows={3}
+              />
+            </.multilang_fields_wrapper>
+
+            <%!-- Bigger gap separating the translatable Description (governed by
+                 the language tabs) from the non-translatable fields below. --%>
+            <div class="flex gap-2 mt-4">
               <div class="flex-1">
                 <.input field={@form[:estimated_duration]} label={gettext("Duration")} type="number" />
               </div>
