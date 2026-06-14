@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.10.0 - 2026-06-14
+
+**Gantt / Timeline view for projects.** The project show page gains a **List / Timeline** tab pair under the shared header. The new Timeline (`ProjectGanttLive`, on the [`phoenix_live_gantt`](https://hex.pm/packages/phoenix_live_gantt) package) renders the project's assignments as an hour-precise sequential schedule with dependency arrows, sub-project roll-ups, and live updates across the whole sub-project tree.
+
+### Added
+
+- **Timeline tab** — URL-driven (`/list/:id/gantt`) and instant (lazy-mounted with a loading skeleton on first open, then kept so zoom/expand survive tab switches). 5m/15m/hour/day/week/month zooms with auto-fit, timeline pagination, stable hierarchical row order, and fully localized chrome. Templates and embedded/emit renders stay list-only.
+- **Zero-config module assets** — `css_sources/0` now includes `:phoenix_live_gantt` so the host's Tailwind scans the gantt classes with no manual `@source`. A new `js_sources/0` declares the gantt hook bundle for core's `:phoenix_kit_js_sources` compiler (a harmless no-op until that core release ships; the CSS resolves against current core today).
+- **AI-translate on the assignment form** — the one-click AI-translate button/modal now covers the assignment `description` (the last translatable form that was missing it), matching the project/task/template forms. The description disables while a translation is in flight.
+
+### Fixed
+
+- **`NotLoaded` crash on `:project_updated`** — the lifecycle PubSub handler reloaded the project without the assignee preload, crashing the re-render for any project with an assignee (e.g. a second admin tab editing). Now reloads via `get_project_with_assignee/1`. Pinned by a regression test.
+- **Blank page for a template on the `/gantt` route** — a template uuid reached via `/list/:id/gantt` resolved to the gantt tab, but the tab bar and gantt are both template-excluded, so the page rendered empty. Templates now pin to the List tab.
+
+### Changed
+
+- **Dependency upgrades** — `phoenix_kit` → 1.7.145, `phoenix_kit_ai` → 0.8.0, `phoenix_live_view` → 1.2.1, `phoenix` → 1.8.8 (plus `leaf`, `phoenix_kit_comments`, `phoenix_kit_entities`). No requirement-floor changes — existing constraints already admit the new versions.
+- **Fused schedule + progress card** — the schedule summary and progress bar on the show page now read as one card (the progress bar is the card's bottom edge).
+- **Assignment edit form polish** — the page title now names the task (“Edit task: …”); the language tabs connect to the description with a skeleton on switch; dropped the redundant “Task:” line and “Details” divider.
+- **`version/0` reads `mix.exs @version`** so the module version can't drift from the release version.
+- **Deduped schedule/assignee helpers** shared by `ProjectShowLive` and `ProjectGanttLive` into `Web.Helpers` (the extracted `assignment_hours/2` is now nil-safe for sub-project links).
+
 ## 0.9.3 - 2026-06-08
 
 ### Fixed
