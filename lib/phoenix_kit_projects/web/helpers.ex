@@ -653,6 +653,24 @@ defmodule PhoenixKitProjects.Web.Helpers do
   @spec assign_embed_user(Phoenix.LiveView.Socket.t(), map()) ::
           Phoenix.LiveView.Socket.t()
   def assign_embed_user(socket, session) when is_map(session) do
+    # Prefer core's canonical implementation when the running phoenix_kit
+    # exposes it (the release that promoted this helper into
+    # `PhoenixKitWeb.Users.Auth`); fall back to the local copy against older
+    # cores so the Hex-pinned build stays green. `apply/3` (not a direct
+    # call) keeps compilation warning-free against a core that lacks the
+    # function. The two are behaviourally identical — drop the fallback
+    # (and `resolve_embed_identity/1`) once the `phoenix_kit` floor includes
+    # the core helper.
+    if function_exported?(PhoenixKitWeb.Users.Auth, :assign_embedded_current_user, 2) do
+      apply(PhoenixKitWeb.Users.Auth, :assign_embedded_current_user, [socket, session])
+    else
+      local_assign_embed_user(socket, session)
+    end
+  end
+
+  def assign_embed_user(socket, _session), do: socket
+
+  defp local_assign_embed_user(socket, session) do
     # A non-nil scope means the on_mount hook already ran (router mount).
     # on_mount runs before mount/3, so an embedded mount — which skips the
     # live_session entirely — always sees nil here. Don't clobber a real
@@ -668,8 +686,6 @@ defmodule PhoenixKitProjects.Web.Helpers do
       socket
     end
   end
-
-  def assign_embed_user(socket, _session), do: socket
 
   # Loads the user behind the host-supplied uuid and pairs it with a scope.
   # `get_user/1` is nil-safe (validates the uuid shape, returns nil on a
