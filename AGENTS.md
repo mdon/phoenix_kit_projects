@@ -1202,3 +1202,25 @@ forces expected_pct = 100" fix). Resolves the impedance mismatch
 where the proportional model correctly handles "5 days = Mon→Fri" but
 overstates "52 minutes started Saturday evening" as not-yet-due until
 Monday morning.
+
+## TODOs
+
+Workspace-tracked cleanups not ready for an inline `# TODO` in `lib/`.
+
+### Drop the embed-user core-helper fallback (after the next core release)
+
+`Web.Helpers.assign_embed_user/2` delegates to core's
+`PhoenixKitWeb.Users.Auth.assign_embedded_current_user/2` **only when the
+running `phoenix_kit` exposes it** — a `function_exported?`/`apply`
+forward-compat guard — and otherwise falls back to a local copy
+(`local_assign_embed_user/2` + `resolve_embed_identity/1`) so the
+Hex-pinned build stays green against older cores. The two paths are
+behaviourally identical.
+
+Once the `phoenix_kit` requirement floor in `mix.exs` includes the release
+that ships `assign_embedded_current_user/2`: **remove the guard, the
+`local_assign_embed_user/2` fallback, and `resolve_embed_identity/1`, and
+call the core helper directly.** The core helper landed in core's local
+tree (unpushed, riding a separate core change) on 2026-06-17; this cleanup
+unblocks once that core release is out and the pin is bumped. Reference:
+projects PR #22 (`53224a3`).
