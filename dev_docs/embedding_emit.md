@@ -87,7 +87,7 @@ The opinionated wrapper. Host mounts it once via `live_render`:
      # The viewer's UUID, forwarded into every child session so the
      # comments composer + activity actor work in the embed. Source from
      # the host's own authenticated user, never request params.
-     "current_user_uuid" => @phoenix_kit_current_user.uuid,
+     "current_user_uuid" => @phoenix_kit_current_scope.user.uuid,
      "root_view" => %{
        "lv" => "Elixir.PhoenixKitProjects.Web.OverviewLive",
        "session" => %{
@@ -127,7 +127,7 @@ topic:
 {:projects, :opened, %{lv: module(), session: map(), frame_ref: integer() | nil}}
 {:projects, :closed, %{frame_ref: integer() | nil}}
 {:projects, :saved, %{kind: kind(), action: :create | :update,
-                      record: struct(), close: boolean(),
+                      record: %{uuid: binary()}, close: boolean(),
                       next: {module(), map()} | nil,
                       frame_ref: integer() | nil}}
 {:projects, :deleted, %{kind: kind(), uuid: binary(), close: boolean(),
@@ -199,8 +199,9 @@ In `PhoenixKitProjects.Web.Helpers`:
 - **`navigate_after_save(socket, default_path, opts) :: socket`** —
   for form save success. Navigate mode push-navigates; emit mode
   broadcasts `:saved` with `kind: :project | :task | :template |
-  :assignment`, `record:`, and `action: :create | :update` from
-  opts.
+  :assignment`, `record: %{uuid: ...}` (uuid only — never the full
+  struct, which could leak PII over the wire), and `action: :create |
+  :update` from opts.
 - **`notify_deleted_or_navigate(socket, kind, uuid, fallback_path)
   :: socket`** — for delete success. Emit mode broadcasts `:deleted`.
 
@@ -261,9 +262,15 @@ into every emit — the popup host relies on this for race-safe pops.
 
 - **Multi-tenant topic namespacing** — out of scope until core
   grows tenants. Document that the host owns the topic name.
-- **PopupHost permission gate** — embedded LVs already self-gate
-  via `permission: "projects"`. PopupHost is a UI shell, not an auth
-  boundary.
+- **Embed-path authorization** — there is **none** in this module, by
+  design. The `permission: "projects"` gate is enforced only by core's
+  `:phoenix_kit_ensure_admin` `on_mount`, which runs for **router-mounted**
+  admin pages — it does **not** run for an off-router (`live_render`)
+  mount. So embedded mutation handlers are NOT role-gated, and
+  `assign_embed_user/2` reconstructs the viewer for **audit + the comments
+  composer, not authorization**. The **host MUST gate the embedding page**
+  to projects-authorized users (the same way it owns which page hosts the
+  embed). PopupHost is a UI shell, not an auth boundary.
 - **`previous_record` in `:saved` payload** — overkill for v1; add
   if a host genuinely needs diff display.
 - **Cross-module promotion** to `PhoenixKitWeb.Components.PopupHost`

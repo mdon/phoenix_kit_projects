@@ -117,6 +117,16 @@ checklist for new LVs. Read it before adding a new LV.
 > `:not_mounted_at_router` process and can't see the host's `conn`,
 > assigns, or the router's auth `on_mount` hook — it only gets the
 > `session` map you hand it. Same mechanism as `session["locale"]`.
+>
+> ⚠️ **Identity ≠ authorization.** The `permission: "projects"` gate lives
+> in core's `:phoenix_kit_ensure_admin` `on_mount`, which runs only for
+> router-mounted admin pages — **never** for an off-router `live_render`
+> mount. So embedded mutation handlers are NOT role-gated, and
+> `current_user_uuid` reconstructs the viewer for audit + the comments
+> composer only. **The host MUST gate the embedding page to
+> projects-authorized users** (and source the uuid from its own trusted
+> scope, never request params — the signed session stops client tampering,
+> not unauthorized hosts).
 
 Common shape for **read-only LVs** (Overview / Projects / Templates /
 Tasks / ProjectShow):
@@ -243,6 +253,12 @@ Event vocabulary (UI-intent verbs, disjoint from
 {:projects, :saved, %{kind, action, record, close, next, frame_ref}}
 {:projects, :deleted, %{kind, uuid, close, frame_ref}}
 ```
+
+`record` on `:saved` is **`%{uuid: ...}` only**, never the full Ecto
+struct — the payload rides a host-supplied PubSub topic that may be
+relayed over the client-readable wire, and a preloaded record (e.g.
+`assigned_person: [:user]`) would leak PII. `kind` conveys the type;
+the host re-fetches by uuid if it needs the record.
 
 `close: bool` — emitter-controlled "should the modal frame pop after
 this event?" `navigate_after_save/3` defaults to `true` (form saves
