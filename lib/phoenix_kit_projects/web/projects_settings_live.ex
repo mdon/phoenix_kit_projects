@@ -38,7 +38,12 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
        default_status_entity_uuid: Statuses.global_default_status_entity_uuid(),
        use_status_translations: Statuses.global_use_status_translations?()
      )
-     |> WebHelpers.assign_embed_state(session)}
+     |> WebHelpers.assign_embed_state(session)
+     # Reconstruct the acting user across the `live_render` boundary so the
+     # status-default activity log records the real actor (not nil) when this
+     # settings panel is embedded off-router. No-op on the router path, where
+     # core's on_mount hook already set the scope. See `assign_embed_user/2`.
+     |> WebHelpers.assign_embed_user(session)}
   end
 
   @impl true

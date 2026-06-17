@@ -109,6 +109,41 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLiveTest do
     end
   end
 
+  # The settings panel carries the embed-state plumbing (`assign_embed_state`)
+  # and logs every mutation by `Activity.actor_uuid/1`, so when a host renders
+  # it off-router via `live_render` it must also reconstruct the acting user
+  # from `session["current_user_uuid"]` — otherwise the audit row records a nil
+  # actor (the embed bug PR #22 fixed for the other LVs but missed here).
+  describe "embedded off-router (current_user_uuid contract)" do
+    setup do
+      entity = seed_shared_status_entity!()
+      {:ok, entity: entity}
+    end
+
+    test "embedded mutation attributes the activity to current_user_uuid", %{
+      conn: conn,
+      entity: entity,
+      actor_uuid: actor_uuid
+    } do
+      # `live_isolated` mounts without the router's `:phoenix_kit_ensure_admin`
+      # on_mount, so the scope is absent unless the host bridges it. Pre-fix the
+      # activity logged actor_uuid: nil; the `assign_embed_user/2` wiring
+      # reconstructs the real viewer from the session uuid.
+      Statuses.set_default_status_entity(nil)
+
+      {:ok, view, _html} =
+        live_isolated(conn, PhoenixKitProjects.Web.ProjectsSettingsLive,
+          session: %{"current_user_uuid" => actor_uuid}
+        )
+
+      view |> element("form") |> render_change(%{"entity_uuid" => entity.uuid})
+
+      assert Statuses.global_default_status_entity_uuid() == entity.uuid
+
+      assert_activity_logged("projects.default_status_entity_set", actor_uuid: actor_uuid)
+    end
+  end
+
   describe "with entities disabled" do
     setup do
       disable_entities!()
