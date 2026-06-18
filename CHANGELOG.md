@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.11.0 - 2026-06-18
+
+**Embedded current-user identity + broadcast-after-commit correctness.** Fixes the reported bug where the integrated comments composer showed *"Sign in to post a comment."* when an embeddable LiveView is rendered in a host app, and hardens every projects mutation so a rolled-back transaction can no longer leak a PubSub event.
+
+### Fixed
+
+- **Embedded comments composer + activity actor recorded no user.** An LV mounted via `live_render` (`:not_mounted_at_router`) never runs core's `:phoenix_kit_ensure_admin` `on_mount`, so `phoenix_kit_current_scope` / `phoenix_kit_current_user` were absent — the comments drawer flipped to *"Sign in to post a comment."* and `Activity.actor_uuid/1` logged `nil` for every embedded mutation. The host now bridges identity via `session["current_user_uuid"]` (a string uuid, never the `%User{}` struct), which `Web.Helpers.assign_embed_user/2` reloads into the scope at mount. Wired into all nine embeddable LVs, the nested gantt hop, the global settings panel, and `PopupHostLive` (which forwards the key into the root view and every stacked frame). Unknown / inactive / DB-error uuids degrade to anonymous, never a crash.
+- **Phantom PubSub events on rollback.** Every in-transaction broadcast (`:project_deleted`, `:assignment_created`, `:project_completed`/`:project_reopened`, and the clone / closure-pull / template-dependency fan-out) now fires only *after* the enclosing transaction commits, so a rollback can no longer leak an event for a row that never persisted.
+- **Gantt mount race.** `ProjectGanttLive` now subscribes to the root project's topic *before* its initial read, so a broadcast landing while the tree is building isn't dropped.
+
+### Changed
+
+- **Emit `:saved` payload trimmed (contract change for emit-mode hosts).** `{:projects, :saved, …}` now carries `record: %{uuid: …}` instead of the full Ecto struct — a preloaded record could ship user PII over a host-relayed, client-readable session. The `kind` conveys the type; a host that needs the record re-fetches it by uuid.
+- **New `current_user_uuid` embed-session key**, documented in `dev_docs/embedding_emit.md`. Identity reconstruction drives audit attribution + the comments composer, **not authorization** — embedded mounts run no admin `on_mount`, so the host MUST gate the embedding page itself (a previously incorrect "embedded LVs self-gate" claim in the docs is corrected).
+- **`broadcast: false` opt** added to `create_project/2`, `create_assignment/2`, and `add_dependency/3` (default `true`, backward compatible) so callers inside a larger transaction emit a single event after commit.
+- **Dependency upgrades** — `phoenix_kit` → 1.7.161, `phoenix_kit_ai` → 0.9.0, `phoenix_kit_staff` → 0.6.0, `phoenix_kit_comments` → 0.2.11, `phoenix_live_view` → 1.2.3 (markdown handling in the dependency tree moved off `earmark` to `mdex`). No requirement-floor changes — existing constraints already admit the new versions.
+- **`@spec` coverage** added across `paths`, `pub_sub`, `activity`, `l10n`, the web helpers, and every schema `changeset`.
+
+### Internal
+
+- Broadcast-suppression and embed actor-attribution regression tests (embed create → `assert_activity_logged`, inactive / empty / unknown-uuid degradation, `PopupHostLive` forwarding, settings-panel embed actor), plus Task changeset edge cases. `.dialyzer_ignore.exs` pruned of four stale filters for files removed in the AI-translation migration.
+
 ## 0.10.0 - 2026-06-14
 
 **Gantt / Timeline view for projects.** The project show page gains a **List / Timeline** tab pair under the shared header. The new Timeline (`ProjectGanttLive`, on the [`phoenix_live_gantt`](https://hex.pm/packages/phoenix_live_gantt) package) renders the project's assignments as an hour-precise sequential schedule with dependency arrows, sub-project roll-ups, and live updates across the whole sub-project tree.
