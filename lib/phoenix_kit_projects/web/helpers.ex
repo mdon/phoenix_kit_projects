@@ -662,6 +662,10 @@ defmodule PhoenixKitProjects.Web.Helpers do
     # (and `resolve_embed_identity/1`) once the `phoenix_kit` floor includes
     # the core helper.
     if function_exported?(PhoenixKitWeb.Users.Auth, :assign_embedded_current_user, 2) do
+      # `apply/3` is intentional here (see above): a direct call would emit an
+      # `unknown_function` warning — fatal under `--warnings-as-errors` — when
+      # compiled against an older core that lacks this helper.
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
       apply(PhoenixKitWeb.Users.Auth, :assign_embedded_current_user, [socket, session])
     else
       local_assign_embed_user(socket, session)
