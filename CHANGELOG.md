@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.13.0 - 2026-06-22
+
+**Timeline (Gantt) lays tasks out in dependency order.** A prerequisite is now always charted before the task that depends on it — even when it was drag-positioned later — so finish-to-start arrows point forward instead of rendering as backward red "conflict" detours. Pairs with `phoenix_live_gantt` 0.2.0 (whole-week/month axis snapping, date-range week labels, solid arrowheads).
+
+### Fixed
+
+- **A prerequisite positioned after its dependent drew a backward "conflict" arrow.** When a prerequisite task was positioned (drag order) *after* the task depending on it, `ProjectGanttLive` laid the waterfall out by raw `position`, so the prerequisite was scheduled later and its finish-to-start connector pointed backward — a red dashed "conflict" detour — forcing the dependent's bar to weave around the misplaced prerequisite. The view now orders each project's assignments topologically (prerequisites first, drag-`position` as the tiebreaker) before the waterfall. No-op when the manual order already respects dependencies; cycle-safe (degrades to position order); out-of-scope dependencies are ignored.
+
+### Changed
+
+- **Dependency upgrade — `phoenix_live_gantt` → 0.2.0**, picked up automatically via the floating `~> 0.1` pin: whole-week/month axis snapping, date-range week labels, and solid arrowheads. Other transitive lock bumps: `phoenix_kit_ai` 0.10.0, `req` 0.6.2, `mdex` 0.13.1 / `mdex_native` 0.2.2. No `mix.exs` requirement-floor changes.
+
+### Internal
+
+- `order_by_dependencies/2` no longer re-sorts by `position` before the topological pass — `list_assignments` already returns rows position-ordered, so the sort was a no-op. The Gantt bar-position test helper now fails loudly on a markup miss instead of defaulting to `0.0` (which would have let the `<=` assertion pass trivially).
+
 ## 0.12.0 - 2026-06-18
 
 **Timeline tab in embedded project views + host-insertable Gantt.** A host that embeds `ProjectShowLive` now gets the **List / Timeline** tab pair (previously embeds were list-only), and `ProjectGanttLive` (the Timeline view) is now in the embeddable-LV whitelist so hosts can insert it directly. URL-sync stays opt-in and off by default for embeds, so an embedded page never rewrites the host's address bar.
