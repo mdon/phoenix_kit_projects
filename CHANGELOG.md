@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.14.0 - 2026-06-22
+
+**Timeline (Gantt) keeps the user's manual order — it no longer reorders tasks by dependency.** This reverses 0.13.0's dependency-ordering: `phoenix_live_gantt` 0.3.0 ships a connector router that lays out *any* task order followably, so the Timeline now charts tasks in the exact order the user drag-positioned them. When a manual order places a dependent before its prerequisite, the chart draws an honest backward finish-to-start arrow rather than silently re-sorting the rows behind the user's back. Pairs with `phoenix_live_gantt` 0.3.0 (order-independent connector routing).
+
+### Changed
+
+- **The Timeline respects drag order, not dependency order.** `ProjectGanttLive` lays the waterfall out by each project's raw `position` again (`Layout.sequential` `:order`), and the flattened-tree row order is preserved as before via `extra.order`. 0.13.0 inserted a topological pre-sort so a prerequisite was always charted above its dependent; with 0.3.0's router that reorder is no longer needed — a backward dependency is now shown, not hidden. Behaviorally this is a revert of 0.13.0's headline change, which is why it lands as a new minor rather than a patch on top of it.
+- **Dependency floor raised — `phoenix_live_gantt` `~> 0.1` → `~> 0.3`.** 0.3.0 is the floor because the order-independent connector router is what makes laying tasks out in raw drag order followable; on 0.2.x a violating order drew a tangled backward "conflict" detour. `mix.lock` moves `phoenix_live_gantt` 0.2.0 → 0.3.0.
+
+### Internal
+
+- Removed `order_by_dependencies/2` and `emit_in_dependency_order/4` from `ProjectGanttLive` (the greedy stable topological sort, ~70 lines) — the layout no longer pre-sorts, so the helpers and their `Projects.list_all_dependencies/1` read for ordering are gone (dependencies are still gathered tree-wide for the *connectors*). The rewritten "keeps the user's drag order" test now also asserts the backward dependency still renders as a connector (`data-from-id`/`data-to-id`), so the order-independent-routing claim is verified, not just commented.
+
 ## 0.13.0 - 2026-06-22
 
 **Timeline (Gantt) lays tasks out in dependency order.** A prerequisite is now always charted before the task that depends on it — even when it was drag-positioned later — so finish-to-start arrows point forward instead of rendering as backward red "conflict" detours. Pairs with `phoenix_live_gantt` 0.2.0 (whole-week/month axis snapping, date-range week labels, solid arrowheads).

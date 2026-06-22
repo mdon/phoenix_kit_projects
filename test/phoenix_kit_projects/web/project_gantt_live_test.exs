@@ -131,6 +131,13 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLiveTest do
 
     assert row_index(html, a1.uuid) < row_index(html, a2.uuid),
            "the given order (a1 then a2) must be preserved, not reordered by dependency"
+
+    # ...and the backward dependency is still drawn (the connector router lays it
+    # out followably rather than the chart dropping or reordering it). a1 depends
+    # on a2, so the edge runs from the prerequisite a2 to the dependent a1.
+    assert html =~ "lg-connector"
+    assert html =~ ~s(data-from-id="#{a2.uuid}")
+    assert html =~ ~s(data-to-id="#{a1.uuid}")
   end
 
   test "maps a dependency BETWEEN sub-project tasks to a connector (tree-wide)",
