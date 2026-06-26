@@ -133,6 +133,7 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
              :assignment_created,
              :assignment_updated,
              :assignment_deleted,
+             :assignment_reordered,
              :dependency_added,
              :dependency_removed,
              :task_updated,
@@ -140,7 +141,10 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
              :project_updated,
              :project_completed,
              :project_reopened,
-             :project_started
+             :project_started,
+             :project_status_changed,
+             :project_archived,
+             :project_unarchived
            ] do
     case Projects.get_project_with_assignee(socket.assigns.project.uuid) do
       nil -> {:noreply, socket}
