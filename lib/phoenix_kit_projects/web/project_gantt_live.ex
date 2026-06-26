@@ -697,6 +697,11 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
         </.empty_state>
       <% else %>
         <div class="border border-base-200 rounded-lg overflow-hidden">
+          <%!-- Show each task's name ON the bars that are wide enough to fit it
+               (≥ half the label), and a clean bar on the ones that aren't — the
+               fit test is a per-bar CSS container query, so it tracks the bar's
+               rendered width at every zoom. Other options: :none / :outside /
+               :inside; tune the threshold with label_fit_ratio. --%>
           <PhoenixLiveGantt.gantt
             id={"project-gantt-#{@project.uuid}"}
             events={@events}
@@ -713,6 +718,8 @@ defmodule PhoenixKitProjects.Web.ProjectGanttLive do
             on_navigate="navigate"
             on_scroll_today="jump_today"
             zooms={[:min5, :min15, :hour, :day, :week, :month]}
+            label_position={:fit}
+            label_fit_ratio={0.4}
             show_header={true}
             show_navigation={true}
             show_edge_indicators={false}
