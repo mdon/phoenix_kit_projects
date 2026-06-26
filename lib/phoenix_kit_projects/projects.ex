@@ -2798,6 +2798,15 @@ defmodule PhoenixKitProjects.Projects do
               Keyword.put(opts, :metadata, %{"project_uuid" => project_uuid})
             )
 
+            # The gantt and the list lay tasks out in `position` order, so a
+            # reorder is visible state — broadcast it so OTHER open views reload
+            # (the acting view already reloaded itself).
+            if Keyword.get(opts, :broadcast, true) do
+              ProjectsPubSub.broadcast_assignment(:assignment_reordered, %{
+                project_uuid: project_uuid
+              })
+            end
+
             :ok
 
           {:error, reason} ->

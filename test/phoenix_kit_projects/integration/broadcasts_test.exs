@@ -151,6 +151,61 @@ defmodule PhoenixKitProjects.Integration.BroadcastsTest do
     end
   end
 
+  describe "assignment reorder broadcasts" do
+    test "reorder_assignments fires :assignment_reordered on the project topic" do
+      project = new_project!()
+      task_a = new_task!()
+      task_b = new_task!()
+
+      {:ok, a} =
+        Projects.create_assignment(%{
+          "project_uuid" => project.uuid,
+          "task_uuid" => task_a.uuid,
+          "status" => "todo"
+        })
+
+      {:ok, b} =
+        Projects.create_assignment(%{
+          "project_uuid" => project.uuid,
+          "task_uuid" => task_b.uuid,
+          "status" => "todo"
+        })
+
+      ProjectsPubSub.subscribe(ProjectsPubSub.topic_project(project.uuid))
+
+      :ok = Projects.reorder_assignments(project.uuid, [b.uuid, a.uuid])
+
+      assert_receive {:projects, :assignment_reordered, %{project_uuid: pp}}, 500
+      assert pp == project.uuid
+    end
+
+    test "reorder_assignments broadcast: false suppresses the event" do
+      project = new_project!()
+      task_a = new_task!()
+      task_b = new_task!()
+
+      {:ok, a} =
+        Projects.create_assignment(%{
+          "project_uuid" => project.uuid,
+          "task_uuid" => task_a.uuid,
+          "status" => "todo"
+        })
+
+      {:ok, b} =
+        Projects.create_assignment(%{
+          "project_uuid" => project.uuid,
+          "task_uuid" => task_b.uuid,
+          "status" => "todo"
+        })
+
+      ProjectsPubSub.subscribe(ProjectsPubSub.topic_project(project.uuid))
+
+      :ok = Projects.reorder_assignments(project.uuid, [b.uuid, a.uuid], broadcast: false)
+
+      refute_receive {:projects, :assignment_reordered, _}, 200
+    end
+  end
+
   # Pins the broadcast-after-commit refactor: every in-transaction broadcast
   # was moved out so a rollback can't leak a phantom event. The two observable,
   # deterministic mechanisms the refactor relies on are (a) the `broadcast:

@@ -290,6 +290,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
              :assignment_created,
              :assignment_updated,
              :assignment_deleted,
+             :assignment_reordered,
              :dependency_added,
              :dependency_removed,
              # Task-library renames change displayed assignment titles.
@@ -305,7 +306,9 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
              :project_completed,
              :project_reopened,
              :project_started,
-             :project_status_changed
+             :project_status_changed,
+             :project_archived,
+             :project_unarchived
            ] do
     # Must re-preload the assignee: the render derefs @project.assigned_person.user
     # (assignee_label/1), so a plain get_project/1 here leaves it NotLoaded and the
@@ -1216,10 +1219,9 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
 
   # SortableGrid drop handler. Validates the new order against the
   # project's assignments, applies positions atomically, and pushes a
-  # `sortable:flash` back so the dragged card flashes green/red. The
-  # LV reload happens via the assignment_updated PubSub fan-out
-  # triggered by the position writes — no explicit `load_assignments`
-  # needed here.
+  # `sortable:flash` back so the dragged card flashes green/red. This
+  # session reloads explicitly (immediate feedback); OTHER open views
+  # (and gantt charts) reload off the `:assignment_reordered` broadcast.
   def handle_event("reorder_assignments", %{"ordered_ids" => ordered_ids} = params, socket)
       when is_list(ordered_ids) do
     moved_id = params["moved_id"]
