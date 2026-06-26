@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.15.0 - 2026-06-26
+
+**Configurable Timeline (Gantt) appearance + cross-session reactivity.** A new **Timeline chart** card on `/admin/settings/projects` makes the whole Gantt look — bar labels, bars, what's shown, and dependency-arrow routing — globally configurable, with a live preview that updates as you change it. And a task reorder (plus project archive / unarchive / status change) now reflects on **every open** Timeline chart and project page, not just the session that made the change. Pairs with `phoenix_live_gantt` 0.4.0.
+
+### Added
+
+- **Timeline chart settings (`/admin/settings/projects`).** New `PhoenixKitProjects.GanttDisplay` stores global, presentation-only Gantt settings as plain `PhoenixKit.Settings` key/values and reads them back as the attr map `PhoenixLiveGantt.gantt/1` takes: bar-label style (`none` / `inside` / `outside` / `fit` / `watermark`) with side-alignment, overflow, fit threshold and watermark opacity; row height; minimum bar width; the progress / arrows / today-line / too-small-task-marker toggles; and dependency-arrow routing (route-around-bars + attachment mode). Every value is validated on the way in — enums against an allowed set, ratios clamped to `0.0..1.0`, ints clamped to range — so a malformed or unconfigured install always resolves to safe defaults that match the behavior shipped before this was configurable. A **live demo chart** on the settings card re-renders from the same settings as you change them; a "Reset to defaults" button restores all of them. Each change is recorded to the activity log (`projects.gantt_display_changed` / `projects.gantt_display_reset`). `ProjectGanttLive` reads the settings once at mount, so a change applies on the next chart load.
+
+### Changed
+
+- **Dependency floor raised — `phoenix_live_gantt` `~> 0.3` → `~> 0.4`.** 0.4.0 ships the bar-label API (`label_position` and friends), `row_height` / `min_bar_px`, and arrow-aware label placement that the new settings drive. `mix.lock` moves `phoenix_live_gantt` 0.3.0 → 0.4.0.
+
+### Fixed
+
+- **A task reorder now reflects on other open Timeline charts and project pages.** `Projects.reorder_assignments/3` broadcasts `:assignment_reordered`, and `ProjectShowLive` / `ProjectGanttLive` reload on it. Previously a reorder emitted no broadcast at all (the position writes are a bare two-pass `update_all` inside a transaction), so other open sessions never updated, and the acting view relied on the optimistic client-side card move while its server-side assigns could go stale. The acting handler now also reloads explicitly for immediate feedback.
+- **Project archive / unarchive / status change now reflect on open Timeline charts.** `ProjectGanttLive` subscribes to `:project_archived`, `:project_unarchived`, and `:project_status_changed`, and `ProjectShowLive` to `:project_archived` / `:project_unarchived` — lifecycle events that were already broadcast but went unhandled by these views, so an open chart kept showing the pre-change state until reloaded.
+
 ## 0.14.0 - 2026-06-22
 
 **Timeline (Gantt) keeps the user's manual order — it no longer reorders tasks by dependency.** This reverses 0.13.0's dependency-ordering: `phoenix_live_gantt` 0.3.0 ships a connector router that lays out *any* task order followably, so the Timeline now charts tasks in the exact order the user drag-positioned them. When a manual order places a dependent before its prerequisite, the chart draws an honest backward finish-to-start arrow rather than silently re-sorting the rows behind the user's back. Pairs with `phoenix_live_gantt` 0.3.0 (order-independent connector routing).
