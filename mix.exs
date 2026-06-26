@@ -110,11 +110,14 @@ defmodule PhoenixKitProjects.MixProject do
       # for polymorphic assignee FKs (team / department / person).
       {:phoenix_live_view, "~> 1.1"},
       {:ecto_sql, "~> 3.13"},
-      # Gantt/waterfall chart for the project timeline view. 0.3 is the floor —
-      # its connector router lays out any task order followably (so the timeline
-      # no longer pre-sorts by dependency). Hex by default (publish-safe); export
+      # Gantt/waterfall chart for the project timeline view. 0.4 is the floor —
+      # the timeline + the /admin/settings/projects Timeline config use its
+      # bar-label API (`label_position` :none/:inside/:outside/:fit/:watermark,
+      # `label_side`/`label_overflow`/`label_fit_ratio`/`label_watermark_opacity`),
+      # `row_height`/`min_bar_px`, and the arrow-aware label placement added in
+      # 0.4.0. Hex by default (publish-safe); export
       # PHOENIX_LIVE_GANTT_PATH=../phoenix_live_gantt to build against a local checkout.
-      pk_dep(:phoenix_live_gantt, "~> 0.3"),
+      pk_dep(:phoenix_live_gantt, "~> 0.4"),
       # Already transitive via :phoenix_kit, but pinned explicitly here so
       # `mix gettext.extract` / `mix gettext.merge` run against this app's
       # own `PhoenixKitProjects.Gettext` backend (call sites for project-
