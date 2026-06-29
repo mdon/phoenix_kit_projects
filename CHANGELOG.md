@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.16.0 - 2026-06-29
+
+**Overview month calendar of running projects.** The Overview dashboard's Running-projects panel gains a **List / Calendar** tab switch (`hero-list-bullet` / `hero-calendar-days`). The Calendar view renders every project as an all-day, multi-day "ongoing line" on a month grid: running projects span start → planned-end (always reaching at least today, so they read as ongoing), completed projects span start → completion, and scheduled projects get a one-day marker on their planned start. Bars are coloured by **project identity** (a stable colour per project, hashed over a fixed palette spread around the colour wheel) so adjacent and stacked bars stay tellable apart; a late project's **overdue tail** (the stretch past its planned end) is marked in the inverse of its own colour, so the length of the marked tail shows how late it is. Clicking a bar opens that project. Lazy-mounted on first switch, then kept so its paged month survives toggling. Pairs with the new `phoenix_live_calendar` 0.1.0 dependency.
+
+### Added
+
+- **Overview Calendar view (`OverviewLive`).** A new `List` / `Calendar` tab (core `<.nav_tabs>`) over the same Running-projects data. The Calendar embeds `PhoenixLiveCalendar.CalendarComponent` (month view, `fixed_weeks=false`, `expand_cells=true`) with an "About this calendar" info popover that describes the overdue indicator in the words of the configured animation. Bar clicks navigate to the project (or emit an `:opened` intent when the LV is embedded). Day/date placement is timezone-aware: one UTC `now` (for "deadline passed?") and one viewer-local `today` (for day placement) are computed once and threaded through the tier, sort, and calendar code so the Running cards, the sort order, and the calendar's late-marking all agree.
+- **`PhoenixKitProjects.CalendarDisplay`.** Maps the dashboard's already-loaded summaries/projects to `PhoenixLiveCalendar.Event` structs (no extra queries — reuses the existing `project_tree_summary/1` pass). Owns the per-project colour palette, the overdue-tail `extra.highlight`, and the overdue-animation settings + `<style>` generation. Every interpolated CSS value is a validated enum or a clamped number, so the generated `<style>` is safe to `raw/1`-inject. Fully unit-tested (`calendar_display_test.exs`).
+- **Calendar overdue animation settings (`/admin/settings/projects`).** A new card configures how a late project's overdue tail looks and animates — marker (diagonal inverse-colour **stripes** / **solid** inverse fill) × motion (**wave** / **flash** / **off**) plus speed, brightness range, and wave spread, each validated/clamped on read and write. A **live preview** re-renders from the same settings, and a "Reset to defaults" button restores them. Each change is recorded to the activity log (`projects.calendar_display_changed` / `projects.calendar_display_reset`).
+- **`phoenix_live_calendar` CSS/JS source wiring.** `css_sources/0` now includes `:phoenix_live_calendar` (so the host's Tailwind scans the calendar's classes with no manual `@source`), and `js_sources/0` declares its `PhoenixLiveCalendarHooks` bundle (progressive-enhancement hooks — the calendar renders without JS). `config :phoenix_live_calendar, skip_install_check: true` silences the package's CSS-install check, since CSS is wired via core's sources compiler.
+
+### Changed
+
+- **New dependency — `phoenix_live_calendar ~> 0.1`** (0.1.0). Hex by default (publish-safe); `PHOENIX_LIVE_CALENDAR_PATH=../phoenix_live_calendar` builds against a local checkout, like the other `phoenix_live_*` deps.
+
 ## 0.15.0 - 2026-06-26
 
 **Configurable Timeline (Gantt) appearance + cross-session reactivity.** A new **Timeline chart** card on `/admin/settings/projects` makes the whole Gantt look — bar labels, bars, what's shown, and dependency-arrow routing — globally configurable, with a live preview that updates as you change it. And a task reorder (plus project archive / unarchive / status change) now reflects on **every open** Timeline chart and project page, not just the session that made the change. Pairs with `phoenix_live_gantt` 0.4.0.
