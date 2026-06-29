@@ -377,7 +377,8 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <%!-- Left: Active projects (span 2) --%>
         <div class="lg:col-span-2 card bg-base-100 shadow">
-          <div class="card-body">
+          <%!-- Tighter body padding on phones so the 7-column calendar isn't squeezed. --%>
+          <div class="card-body max-sm:p-3">
             <div class="flex items-start justify-between gap-3">
               <div>
                 <h2 class="card-title text-lg">
