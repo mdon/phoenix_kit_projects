@@ -243,41 +243,89 @@ defmodule PhoenixKitProjects.CalendarDisplayTest do
   end
 
   describe "overdue animation CSS" do
-    @wave %{mode: "wave", speed: 7.0, brightness_min: 0.78, brightness_max: 1.18, wave_step: 0.16}
+    @wave %{
+      pattern: "stripes",
+      mode: "wave",
+      speed: 7.0,
+      brightness_min: 0.78,
+      brightness_max: 1.18,
+      wave_step: 0.16
+    }
 
-    test "wave mode date-staggers the delay and emits the keyframe" do
+    test "every mode paints inverse-colour 45° stripes (difference blend)" do
+      for mode <- ~w(wave flash off) do
+        css = CalendarDisplay.animation_css(%{@wave | mode: mode})
+        assert css =~ ".pk-overdue::after"
+        assert css =~ "repeating-linear-gradient(45deg"
+        assert css =~ "mix-blend-mode: difference"
+      end
+    end
+
+    test "wave mode slides the stripes" do
       css = CalendarDisplay.animation_css(@wave)
 
-      assert css =~ "@keyframes pk-overdue-wave"
-      assert css =~ "animation: pk-overdue-wave 7s ease-in-out infinite"
-      assert css =~ "animation-delay: calc(var(--pk-hl-day, 0) * -0.16s)"
-      assert css =~ "brightness(1.18)"
+      assert css =~ "@keyframes pk-overdue-stripe-slide"
+      assert css =~ "animation: pk-overdue-stripe-slide 7s linear infinite"
+      assert css =~ "calc(var(--pk-bg-x, 0) + 56.57px)"
     end
 
-    test "flash mode reuses the keyframe but omits the per-day delay (synced pulse)" do
+    test "flash mode pulses the striped overlay" do
       css = CalendarDisplay.animation_css(%{@wave | mode: "flash"})
 
-      assert css =~ "@keyframes pk-overdue-wave"
-      assert css =~ "animation: pk-overdue-wave 7s ease-in-out infinite"
-      refute css =~ "animation-delay"
+      assert css =~ "@keyframes pk-overdue-stripe-flash"
+      assert css =~ "animation: pk-overdue-stripe-flash 7s ease-in-out infinite"
+      # opacity pulse uses the (clamped) brightness range
+      assert css =~ "opacity: 0.78"
     end
 
-    test "off mode is a static inverse color with no animation" do
+    test "off mode is static stripes with no animation" do
       css = CalendarDisplay.animation_css(%{@wave | mode: "off"})
 
       refute css =~ "@keyframes"
-      refute css =~ "animation"
-      assert css =~ "filter: invert(1) brightness("
+      # only the reduced-motion safety rule mentions animation
+      refute css =~ "animation: pk-overdue"
+      assert css =~ "repeating-linear-gradient(45deg"
     end
 
     test "integers render without a trailing .0 (valid CSS)" do
       css = CalendarDisplay.animation_css(%{@wave | speed: 10.0})
-      assert css =~ "pk-overdue-wave 10s"
+      assert css =~ "pk-overdue-stripe-slide 10s"
       refute css =~ "10.0s"
     end
 
-    test "anim_modes/0 and anim_range/1 back the settings form" do
+    test "solid pattern fills with the inverse colour (filter: invert), no stripes" do
+      css = CalendarDisplay.animation_css(%{@wave | pattern: "solid"})
+
+      assert css =~ "filter: invert(1)"
+      assert css =~ "@keyframes pk-overdue-wave"
+      assert css =~ "animation-delay: calc(var(--pk-hl-day, 0) * -0.16s)"
+      refute css =~ "repeating-linear-gradient"
+    end
+
+    test "solid + off is a static inverse fill, no animation" do
+      css = CalendarDisplay.animation_css(%{@wave | pattern: "solid", mode: "off"})
+
+      assert css =~ "filter: invert(1) brightness("
+      refute css =~ "@keyframes"
+      refute css =~ "repeating-linear-gradient"
+    end
+
+    test "animation_style/1 wraps the CSS in a <style> tag" do
+      style = CalendarDisplay.animation_style(@wave)
+
+      assert String.starts_with?(style, "<style>")
+      assert String.ends_with?(style, "</style>")
+      assert style =~ "repeating-linear-gradient"
+      # labels keep per-bar black/white but get an opposite-colour halo for
+      # legibility over the stripes (not the colourful difference blend)
+      refute style =~ "mix-blend-mode: difference; }\n.cal-multiday-bar span"
+      assert style =~ ".cal-multiday-bar.text-white span { text-shadow:"
+      assert style =~ ".cal-multiday-bar.text-neutral-900 span { text-shadow:"
+    end
+
+    test "anim_modes/0, anim_patterns/0 and anim_range/1 back the settings form" do
       assert CalendarDisplay.anim_modes() == ~w(wave flash off)
+      assert CalendarDisplay.anim_patterns() == ~w(stripes solid)
       assert {lo, hi} = CalendarDisplay.anim_range("speed")
       assert lo < hi
     end

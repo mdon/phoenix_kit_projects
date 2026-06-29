@@ -144,7 +144,8 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
       # the calendar's info popover can describe it accurately. Read once here so a
       # page (re)load reflects the latest config.
       overdue_style: CalendarDisplay.animation_style(overdue_anim),
-      overdue_mode: overdue_anim.mode
+      overdue_mode: overdue_anim.mode,
+      overdue_pattern: overdue_anim.pattern
     )
   end
 
@@ -170,21 +171,15 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
 
   # The calendar info-popover sentence describing the overdue indicator, worded
   # to match the configured animation mode (set on /admin/settings/projects).
-  defp overdue_legend("flash") do
+  defp overdue_legend("solid") do
     gettext(
-      "When a project runs past its planned end, that overdue stretch flashes in the inverse of its colour — the longer it is, the more overdue the project."
+      "When a project runs past its planned end, that overdue stretch is filled with the inverse of its colour — the longer it is, the more overdue the project."
     )
   end
 
-  defp overdue_legend("off") do
+  defp overdue_legend(_stripes) do
     gettext(
-      "When a project runs past its planned end, that overdue stretch shows in the inverse of its colour — the longer it is, the more overdue the project."
-    )
-  end
-
-  defp overdue_legend(_wave) do
-    gettext(
-      "When a project runs past its planned end, a wave sweeps across that overdue stretch in the inverse of its colour — the longer it is, the more overdue the project."
+      "When a project runs past its planned end, that overdue stretch is marked with diagonal stripes — the longer the striped part, the more overdue the project."
     )
   end
 
@@ -485,6 +480,7 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                     views={[:month]}
                     date={@today}
                     today={@today}
+                    fixed_weeks={false}
                     expand_cells={true}
                     info_label={gettext("About this calendar")}
                     on_event_click={fn id -> send(self(), {:calendar_open_project, id}) end}
@@ -494,7 +490,7 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                         {gettext("Reading the calendar")}
                       </p>
                       <p>{gettext("Each project is an ongoing line across the month.")}</p>
-                      <p class="mt-1.5">{overdue_legend(@overdue_mode)}</p>
+                      <p class="mt-1.5">{overdue_legend(@overdue_pattern)}</p>
                       <p class="mt-1.5 text-base-content/50">
                         {gettext("Late projects are grouped at the top.")}
                       </p>

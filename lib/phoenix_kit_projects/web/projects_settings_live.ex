@@ -335,6 +335,13 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
     ]
   end
 
+  defp calendar_pattern_options do
+    [
+      {gettext("Stripes — diagonal inverse-colour stripes"), "stripes"},
+      {gettext("Solid — fill with the inverse colour"), "solid"}
+    ]
+  end
+
   defp calendar_mode_options do
     [
       {gettext("Wave — one band travels across"), "wave"},
@@ -663,6 +670,12 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
             class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
           >
             <.select
+              name="pattern"
+              label={gettext("Marker")}
+              value={@calendar_anim.pattern}
+              options={calendar_pattern_options()}
+            />
+            <.select
               name="mode"
               label={gettext("Animation")}
               value={@calendar_anim.mode}
@@ -683,7 +696,10 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
                 class="range range-sm"
               />
             </label>
-            <label :if={@calendar_anim.mode == "wave"} class="flex flex-col gap-1">
+            <label
+              :if={@calendar_anim.pattern == "solid" and @calendar_anim.mode == "wave"}
+              class="flex flex-col gap-1"
+            >
               <span class="text-sm font-medium">
                 {gettext("Wave spread (per day)")}: {@calendar_anim.wave_step}s
               </span>
@@ -732,13 +748,14 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
 
           <%!-- Live preview: a single project bar. The blue cells are the on-time
                stretch; the rest is the "overdue" tail, rendered exactly as on the
-               Overview (inverse color via the generated CSS + the chosen motion).
-               --pk-hl-day is staggered so the wave reads. raw/1 is safe — the CSS
-               is built only from validated/clamped numbers + the enum mode. --%>
+               Overview (the generated CSS + chosen marker/motion). The
+               SyncAnimations hook aligns the stripes + syncs the animation across
+               the cells, same as the real calendar. raw/1 is safe — the CSS is
+               built only from validated/clamped numbers + enums. --%>
           {Phoenix.HTML.raw("<style>" <> CalendarDisplay.animation_css(@calendar_anim) <> "</style>")}
           <div class="flex flex-col gap-1">
             <span class="text-xs text-base-content/60">{gettext("Preview")}</span>
-            <div class="flex gap-0.5">
+            <div id="calendar-anim-preview" phx-hook="SyncAnimations" class="flex gap-0.5">
               <div
                 :for={i <- 0..15}
                 class={["h-7 flex-1 rounded-sm bg-blue-600", i >= 5 && "pk-overdue"]}
