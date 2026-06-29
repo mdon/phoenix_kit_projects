@@ -64,7 +64,13 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
         status_counts: %{},
         today: Date.utc_today(),
         tz_offset: "0",
-        calendar_events: []
+        calendar_events: [],
+        # Which VIEW of the running projects is shown: :list (vertical list,
+        # default) or :calendar (the month view), toggled by tabs. The calendar is
+        # lazy-mounted on first switch, then kept (hidden) so its paged month
+        # survives toggling.
+        overview_tab: :list,
+        calendar_seen?: false
       )
       |> WebHelpers.assign_embed_state(session)
       |> WebHelpers.assign_embed_user(session)
@@ -277,6 +283,17 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
 
   defp overdue_seconds(_, _now), do: 0
 
+  # Running card tabs. The calendar is lazy-mounted on first open (then kept
+  # hidden when inactive, so its paged month survives toggling back and forth).
+  @impl true
+  def handle_event("switch_overview_tab", %{"tab" => "calendar"}, socket) do
+    {:noreply, assign(socket, overview_tab: :calendar, calendar_seen?: true)}
+  end
+
+  def handle_event("switch_overview_tab", _params, socket) do
+    {:noreply, assign(socket, overview_tab: :list)}
+  end
+
   @impl true
   def handle_info({:projects, _event, _payload}, socket) do
     {:noreply, reload(socket)}
@@ -362,62 +379,6 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
         />
       </div>
 
-      <%!-- Project calendar: each project as an ongoing bar across the month.
-           Renders server-side (no JS needed); clicking a bar opens the project. --%>
-      <div :if={@calendar_events != []} class="card bg-base-100 shadow">
-        <%!-- Only the OVERDUE stretch of a late project's bar (planned-end → today)
-             is marked, via CalendarDisplay's `extra.highlight` + the `pk-overdue`
-             class — so the length shows how late it is. Those day-segments render
-             in the INVERSE of the bar's own color (filter: invert). HOW they
-             animate (wave / flash / off, plus speed + brightness) is configured on
-             /admin/settings/projects; `CalendarDisplay.animation_style/0` generates
-             this <style> from those settings. Custom CSS (Tailwind won't purge
-             it); animates with no JS. The values are validated/clamped, so raw/1
-             is safe here. --%>
-        {Phoenix.HTML.raw(@overdue_style)}
-        <div class="card-body">
-          <h2 class="card-title text-lg">
-            <.icon name="hero-calendar-days" class="w-5 h-5 text-primary" /> {gettext("Project calendar")}
-          </h2>
-          <p class="text-xs text-base-content/50 -mt-1">
-            {gettext("Each project is an ongoing line; the inverse-colored tail shows how overdue it is.")}
-          </p>
-          <%!-- SyncAnimations (schedule lib hook): the overdue cells animate via
-               CSS, which drifts out of phase when paging recreates some cells.
-               This stable wrapper re-anchors every animation in its subtree to a
-               shared start time on each re-render (a MutationObserver catches the
-               inner LiveComponent's paging). Progressive enhancement — the CSS
-               still animates without JS. --%>
-          <div id="overview-calendar-sync" phx-hook="SyncAnimations" class="mt-2">
-            <.live_component
-              module={PhoenixLiveSchedule.CalendarComponent}
-              id="projects-overview-calendar"
-              events={@calendar_events}
-              views={[:month, :week]}
-              date={@today}
-              today={@today}
-              expand_cells={true}
-              info_label={gettext("About this calendar")}
-              on_event_click={fn id -> send(self(), {:calendar_open_project, id}) end}
-            >
-              <%!-- Key for the calendar's markings, shown via the calendar's own
-                   info (ⓘ) disclosure (top-left of its toolbar). The overdue line
-                   follows the configured animation mode. --%>
-              <:info>
-                <p class="mb-1 text-sm font-semibold text-base-content">
-                  {gettext("Reading the calendar")}
-                </p>
-                <p>{gettext("Each project is an ongoing line across the month.")}</p>
-                <p class="mt-1.5">{overdue_legend(@overdue_mode)}</p>
-                <p class="mt-1.5 text-base-content/50">
-                  {gettext("Late projects are grouped at the top.")}
-                </p>
-              </:info>
-            </.live_component>
-          </div>
-        </div>
-      </div>
-
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <%!-- Left: Active projects (span 2) --%>
         <div class="lg:col-span-2 card bg-base-100 shadow">
@@ -445,7 +406,21 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
               </.smart_link>
             </div>
 
-            <%= if @active_summaries == [] do %>
+            <%!-- Same running projects, two views to choose from: a vertical list
+                 (default) and the month calendar. --%>
+            <.nav_tabs
+              active_tab={to_string(@overview_tab)}
+              on_change="switch_overview_tab"
+              tabs={[
+                %{id: "list", label: gettext("List"), icon: "hero-list-bullet"},
+                %{id: "calendar", label: gettext("Calendar"), icon: "hero-calendar-days"}
+              ]}
+              class="mt-3"
+            />
+
+            <%!-- List view --%>
+            <div class={["mt-2", if(@overview_tab != :list, do: "hidden")]}>
+              <%= if @active_summaries == [] do %>
               <%= if @any_projects? do %>
                 <.empty_state
                   icon="hero-clipboard-document-list"
@@ -494,6 +469,40 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                 />
               </div>
             <% end %>
+            </div>
+
+            <%!-- Calendar tab. Lazy-mounted on first open, then kept (hidden when
+                 inactive) so its paged month + animation state survive toggling.
+                 The overdue <style> + SyncAnimations wrapper come along with it. --%>
+            <div class={["mt-2", if(@overview_tab != :calendar, do: "hidden")]}>
+              <%= if @calendar_seen? do %>
+                {Phoenix.HTML.raw(@overdue_style)}
+                <div id="overview-calendar-sync" phx-hook="SyncAnimations">
+                  <.live_component
+                    module={PhoenixLiveSchedule.CalendarComponent}
+                    id="projects-overview-calendar"
+                    events={@calendar_events}
+                    views={[:month]}
+                    date={@today}
+                    today={@today}
+                    expand_cells={true}
+                    info_label={gettext("About this calendar")}
+                    on_event_click={fn id -> send(self(), {:calendar_open_project, id}) end}
+                  >
+                    <:info>
+                      <p class="mb-1 text-sm font-semibold text-base-content">
+                        {gettext("Reading the calendar")}
+                      </p>
+                      <p>{gettext("Each project is an ongoing line across the month.")}</p>
+                      <p class="mt-1.5">{overdue_legend(@overdue_mode)}</p>
+                      <p class="mt-1.5 text-base-content/50">
+                        {gettext("Late projects are grouped at the top.")}
+                      </p>
+                    </:info>
+                  </.live_component>
+                </div>
+              <% end %>
+            </div>
           </div>
         </div>
 
