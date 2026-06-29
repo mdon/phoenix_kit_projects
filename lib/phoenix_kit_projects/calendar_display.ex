@@ -1,6 +1,6 @@
 defmodule PhoenixKitProjects.CalendarDisplay do
   @moduledoc """
-  Maps projects to `PhoenixLiveSchedule.Event` structs for the Overview
+  Maps projects to `PhoenixLiveCalendar.Event` structs for the Overview
   dashboard calendar.
 
   Each project becomes an all-day, multi-day "ongoing line" on a month grid:
@@ -20,12 +20,12 @@ defmodule PhoenixKitProjects.CalendarDisplay do
   — so the length of the marked tail shows how late the project is. The rest
   keeps its identity color.
 
-  `end` is exclusive in PhoenixLiveSchedule (`[start, end)`), so the inclusive
+  `end` is exclusive in PhoenixLiveCalendar (`[start, end)`), so the inclusive
   last day gets `+1`. Projects without a placeable start date are dropped.
   """
 
   alias PhoenixKitProjects.Schemas.Project
-  alias PhoenixLiveSchedule.Event
+  alias PhoenixLiveCalendar.Event
 
   # Distinct {bg, text} pairs — fixed Tailwind hues spread around the color wheel
   # (≥28° apart), NOT daisyUI semantic colors (those clustered into several
@@ -195,7 +195,7 @@ defmodule PhoenixKitProjects.CalendarDisplay do
   defp event(%Project{} = project, start_d, last_day_inclusive, pct, lang, extra) do
     {bg, text} = color_for(project.uuid)
 
-    PhoenixLiveSchedule.event(project.uuid, start_d,
+    PhoenixLiveCalendar.event(project.uuid, start_d,
       title: Project.localized_name(project, lang),
       end: Date.add(last_day_inclusive, 1),
       all_day: true,

@@ -43,13 +43,13 @@ defmodule PhoenixKitProjects.ModuleCallbacksTest do
     end
 
     test "css_sources/0 includes the module and the chart deps" do
-      # :phoenix_live_gantt (Timeline tab) and :phoenix_live_schedule (Overview
+      # :phoenix_live_gantt (Timeline tab) and :phoenix_live_calendar (Overview
       # calendar) are included so the host's Tailwind scans their classes via
       # core's css-sources compiler.
       assert PhoenixKitProjects.css_sources() == [
                :phoenix_kit_projects,
                :phoenix_live_gantt,
-               :phoenix_live_schedule
+               :phoenix_live_calendar
              ]
     end
 
@@ -63,9 +63,9 @@ defmodule PhoenixKitProjects.ModuleCallbacksTest do
                  global: "PhoenixLiveGanttHooks"
                },
                %{
-                 app: :phoenix_live_schedule,
-                 file: "static/assets/phoenix_live_schedule.js",
-                 global: "PhoenixLiveScheduleHooks"
+                 app: :phoenix_live_calendar,
+                 file: "static/assets/phoenix_live_calendar.js",
+                 global: "PhoenixLiveCalendarHooks"
                }
              ]
     end

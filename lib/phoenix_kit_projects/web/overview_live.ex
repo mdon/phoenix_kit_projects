@@ -475,7 +475,7 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                 {Phoenix.HTML.raw(@overdue_style)}
                 <div id="overview-calendar-sync" phx-hook="SyncAnimations">
                   <.live_component
-                    module={PhoenixLiveSchedule.CalendarComponent}
+                    module={PhoenixLiveCalendar.CalendarComponent}
                     id="projects-overview-calendar"
                     events={@calendar_events}
                     views={[:month]}
