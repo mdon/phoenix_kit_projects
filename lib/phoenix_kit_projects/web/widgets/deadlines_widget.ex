@@ -22,11 +22,12 @@ defmodule PhoenixKitProjects.Web.Widgets.DeadlinesWidget do
 
     if available?() do
       settings = assigns[:settings] || %{}
+      only_mine? = only_mine?(settings)
+      mine = if only_mine?, do: mine_uuids(scope_user_uuid(assigns[:scope])), else: nil
 
       rows =
-        limit(settings)
-        |> deadline_rows()
-        |> maybe_only_mine(only_mine?(settings), scope_user_uuid(assigns[:scope]))
+        deadline_candidates()
+        |> scope_and_limit(only_mine?, mine, limit(settings))
 
       {:ok,
        socket
@@ -56,24 +57,33 @@ defmodule PhoenixKitProjects.Web.Widgets.DeadlinesWidget do
     Enum.filter(rows, &MapSet.member?(mine_uuids, &1.project.uuid))
   end
 
+  @doc false
+  # Pure (unit-tested): narrow to the viewer's projects (when only_mine) BEFORE
+  # capping at `limit`. Order matters — capping first hides the viewer's later
+  # deadlines behind other people's nearer ones, and can empty the widget
+  # entirely even when the viewer has qualifying projects.
+  def scope_and_limit(rows, only_mine?, mine_uuids, limit)
+  def scope_and_limit(rows, false, _mine, limit), do: Enum.take(rows, limit)
+  # "Only my projects" with no resolvable viewer = no rows (never leak all).
+  def scope_and_limit(_rows, true, nil, _limit), do: []
+
+  def scope_and_limit(rows, true, %MapSet{} = mine, limit),
+    do: rows |> filter_mine(mine) |> Enum.take(limit)
+
   defp only_mine?(settings), do: settings["only_mine"] in [true, "true"]
 
-  defp maybe_only_mine(rows, false, _user_uuid), do: rows
-  # "Only my projects" with no resolvable viewer = no rows (never leak all).
-  defp maybe_only_mine(_rows, true, nil), do: []
+  defp mine_uuids(nil), do: nil
 
-  defp maybe_only_mine(rows, true, user_uuid) do
-    mine = user_uuid |> Projects.list_assignments_for_user() |> MapSet.new(& &1.project_uuid)
-    filter_mine(rows, mine)
-  end
+  defp mine_uuids(user_uuid),
+    do: user_uuid |> Projects.list_assignments_for_user() |> MapSet.new(& &1.project_uuid)
 
   # Started, unfinished projects with a computable planned end, soonest first.
-  defp deadline_rows(limit) do
+  # No cap here — `scope_and_limit/4` filters to the viewer first, then takes.
+  defp deadline_candidates do
     Projects.list_active_projects()
     |> Projects.project_summaries()
     |> Enum.filter(&(&1.planned_end && &1.progress_pct < 100))
     |> Enum.sort_by(& &1.planned_end, DateTime)
-    |> Enum.take(limit)
   rescue
     _ -> []
   end

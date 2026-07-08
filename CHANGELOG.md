@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.17.0 - 2026-07-08
+
+**Dashboard widgets for `phoenix_kit_dashboards`.** Projects now contributes **seven** dashboard widgets through the duck-typed `PhoenixKitProjects.phoenix_kit_widgets/0` — a one-way contract (projects has no dependency on the dashboards package; its Registry discovers the plain-map list and gates visibility on the `"projects"` module + permission). Each widget is a `Phoenix.LiveComponent` the host renders with `settings` / `view` / `size` / `scope`, re-querying on the host's refresh tick, with per-view `min_size` floors so minimum boxes fit without scrollbars. Every data read is guarded behind an enablement check and reuses the projects badge components and attacker-proof colour guard.
+
+### Added
+
+- **Seven dashboard widgets** (`PhoenixKitProjects.DashboardWidgets` + `web/widgets/*`): `projects.board` (every project, coloured by status — attention-sorted grid / status counts), `projects.workload` (workspace lifecycle + task-status KPIs — detailed / simple), `projects.my_tasks` (the current user's open assignments via the host `scope` → staff person), `projects.deadlines` (running projects by nearest weekend-aware `planned_end`, overdue flagged, with an "only my projects" filter), `projects.status` / `projects.schedule` (one project's status / estimate + live ETA — detailed / simple), and `projects.tasks` (a project's ongoing todo + in-progress tasks — detailed / compact). Single-project widgets pick their project from a select of current projects, resolving stored values leniently (uuid / name / external id / substring).
+- **`PhoenixKitProjects.Web.Components.DerivedStatusBadge.workflow_color/1`** is now public so widgets can colour status dots with the same `#hex`-only guard that keeps an attacker-controlled string out of the inline `style` attribute.
+
+### Fixed
+
+- **Deadlines widget "Only my projects" no longer under-reports.** The `only_mine` filter was applied *after* the row cap, so it narrowed the global nearest-`N` deadlines to the viewer's — which could render the widget empty (or short) even when the viewer had running projects whose deadlines fell just outside the global top-`N`. The viewer-filter now runs **before** the cap (new pure, unit-tested `scope_and_limit/4`), while still showing nothing when there's no resolvable viewer.
+
 ## 0.16.0 - 2026-06-29
 
 **Overview month calendar of running projects.** The Overview dashboard's Running-projects panel gains a **List / Calendar** tab switch (`hero-list-bullet` / `hero-calendar-days`). The Calendar view renders every project as an all-day, multi-day "ongoing line" on a month grid: running projects span start → planned-end (always reaching at least today, so they read as ongoing), completed projects span start → completion, and scheduled projects get a one-day marker on their planned start. Bars are coloured by **project identity** (a stable colour per project, hashed over a fixed palette spread around the colour wheel) so adjacent and stacked bars stay tellable apart; a late project's **overdue tail** (the stretch past its planned end) is marked in the inverse of its own colour, so the length of the marked tail shows how late it is. Clicking a bar opens that project. Lazy-mounted on first switch, then kept so its paged month survives toggling. Pairs with the new `phoenix_live_calendar` 0.1.0 dependency.

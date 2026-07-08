@@ -58,6 +58,26 @@ defmodule PhoenixKitProjects.DashboardWidgetsTest do
     assert [] = DeadlinesWidget.filter_mine(rows, MapSet.new([]))
   end
 
+  test "deadlines only_mine narrows BEFORE the row cap (the viewer's later deadlines survive)" do
+    alias PhoenixKitProjects.Web.Widgets.DeadlinesWidget
+
+    # Sorted by nearest deadline: a, b are other people's; c, d are the viewer's.
+    rows = for u <- ~w(a b c d), do: %{project: %{uuid: u}, planned_end: nil}
+    mine = MapSet.new(["c", "d"])
+
+    # Cap of 2, but the two nearest (a, b) aren't the viewer's — must still surface
+    # c, d rather than capping to a, b first and then filtering them all away.
+    assert [%{project: %{uuid: "c"}}, %{project: %{uuid: "d"}}] =
+             DeadlinesWidget.scope_and_limit(rows, true, mine, 2)
+
+    # only_mine with no resolvable viewer => empty (never leak all).
+    assert [] = DeadlinesWidget.scope_and_limit(rows, true, nil, 2)
+
+    # not only_mine => a plain cap, order preserved.
+    assert [%{project: %{uuid: "a"}}, %{project: %{uuid: "b"}}] =
+             DeadlinesWidget.scope_and_limit(rows, false, nil, 2)
+  end
+
   test "single-project widgets pick their project from a SELECT of {name, uuid}" do
     for key <- ~w(projects.status projects.tasks projects.schedule) do
       widget = Enum.find(DashboardWidgets.all(), &(&1.key == key))
