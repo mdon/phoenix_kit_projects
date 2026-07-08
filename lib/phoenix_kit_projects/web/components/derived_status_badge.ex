@@ -74,11 +74,14 @@ defmodule PhoenixKitProjects.Web.Components.DerivedStatusBadge do
   # is dropped to nil (badge falls back to `badge-neutral`). This keeps an
   # attacker-controlled string from ever reaching the inline `style` attribute.
   @hex_color ~r/^#[0-9a-fA-F]{3,8}$/
-  defp workflow_color(%{color: c}) when is_binary(c) do
+  @doc false
+  # Public so widgets can colour dots with the same attacker-proof guard.
+  def workflow_color(%{color: c}) when is_binary(c) do
     if Regex.match?(@hex_color, c), do: c, else: nil
   end
 
-  defp workflow_color(_), do: nil
+  @doc false
+  def workflow_color(_), do: nil
 
   defp workflow_style(status) do
     case workflow_color(status) do
