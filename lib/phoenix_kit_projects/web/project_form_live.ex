@@ -663,21 +663,11 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
                 prompt={gettext("Start from scratch")}
               />
             <% end %>
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input
-                type="hidden"
-                name={@form[:counts_weekends].name}
-                value="false"
-              />
-              <input
-                type="checkbox"
-                name={@form[:counts_weekends].name}
-                value="true"
-                checked={@form[:counts_weekends].value == true or @form[:counts_weekends].value == "true"}
-                class="checkbox checkbox-sm"
-              />
-              <span class="text-sm">{gettext("Count weekends in schedule")}</span>
-            </label>
+            <.checkbox
+              field={@form[:counts_weekends]}
+              label={gettext("Count weekends in schedule")}
+              class="checkbox-sm"
+            />
             <.select
               field={@form[:start_mode]}
               label={gettext("Start")}

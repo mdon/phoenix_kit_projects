@@ -1634,6 +1634,20 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
               options={[{gettext("To do"), "todo"}, {gettext("In progress"), "in_progress"}, {gettext("Done"), "done"}]}
             />
 
+            <%!-- NOT migrated to `<.checkbox>`: unlike Project/Template,
+                 `Assignment.counts_weekends` has no schema default — `nil`
+                 is a load-bearing third state meaning "inherit the parent
+                 project's counts_weekends" (see `Projects.node_hours/2` and
+                 `batched_planned_hours/2`, both `if is_nil(a.counts_weekends),
+                 do: project.counts_weekends, else: a.counts_weekends`). The
+                 hidden fallback below deliberately submits `""`, which Ecto's
+                 `cast/4` (empty_values) turns back into the schema default
+                 (`nil`) — preserving "inherit" on every unchecked save.
+                 `<.checkbox>` hardcodes its hidden fallback to `value="false"`
+                 (not configurable), so swapping it in would silently turn
+                 every unchecked submit into an explicit "never count
+                 weekends" override and permanently lose the inherit-from-
+                 project state through this form. --%>
             <label class="flex items-center gap-2 cursor-pointer">
               <input type="hidden" name={@form[:counts_weekends].name} value="" />
               <input
@@ -1667,10 +1681,12 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
 
             <%= if @live_action == :new and @task_mode == "new" do %>
               <div class="divider my-1"></div>
-              <label class="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" name="save_as_template" value="true" checked={@save_as_template} class="checkbox checkbox-sm" />
-                <span class="text-sm">{gettext("Save as reusable template in the task library")}</span>
-              </label>
+              <.checkbox
+                name="save_as_template"
+                checked={@save_as_template}
+                label={gettext("Save as reusable template in the task library")}
+                class="checkbox-sm"
+              />
             <% end %>
           </div>
         </div>
