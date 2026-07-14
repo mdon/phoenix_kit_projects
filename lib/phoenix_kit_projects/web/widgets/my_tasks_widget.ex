@@ -28,14 +28,14 @@ defmodule PhoenixKitProjects.Web.Widgets.MyTasksWidget do
       {:ok,
        socket
        |> assign(:available, true)
-       |> assign(:compact, compact?(assigns[:size]))
        |> assign(
          :view,
-         effective_view(assigns[:view], ~w(detailed compact), small?(assigns[:size], 4, 2))
+         effective_view(assigns[:view], ~w(detailed compact))
        )
-       |> assign(:tasks, my_tasks(scope_user_uuid(assigns[:scope]), limit(settings)))}
+       |> assign(:tasks, my_tasks(scope_user_uuid(assigns[:scope]), limit(settings)))
+       |> assign(:budget, limit(settings))}
     else
-      {:ok, assign(socket, available: false, compact: false)}
+      {:ok, assign(socket, :available, false)}
     end
   end
 
@@ -55,7 +55,7 @@ defmodule PhoenixKitProjects.Web.Widgets.MyTasksWidget do
   def render(%{available: false} = assigns) do
     ~H"""
     <div class="contents">
-      <.frame title={gettext("My tasks")} compact={@compact}><.unavailable /></.frame>
+      <.frame title={gettext("My tasks")}><.unavailable /></.frame>
     </div>
     """
   end
@@ -63,39 +63,48 @@ defmodule PhoenixKitProjects.Web.Widgets.MyTasksWidget do
   def render(assigns) do
     ~H"""
     <div class="contents">
-      <.frame title={gettext("My tasks")} icon="hero-user-circle" compact={@compact}>
+      <.frame title={gettext("My tasks")} icon="hero-user-circle">
         <.empty
           :if={@tasks == []}
           icon="hero-check-circle"
           message={gettext("Nothing assigned to you right now.")}
         />
 
-        <ul :if={@tasks != []} class="flex flex-col divide-y divide-base-200">
-          <li :for={a <- @tasks} class="flex items-center gap-2 py-1.5">
+        <%!-- N-SLOT self-fit: the box divides into the `limit` budget of
+        slots; row type scales to its slot via cq units — always fits. --%>
+        <ul :if={@tasks != []} class="flex h-full min-h-0 flex-col divide-y divide-base-200">
+          <li
+            :for={a <- @tasks}
+            class="flex min-h-0 flex-1 items-center gap-2 overflow-hidden [container-type:size]"
+          >
             <span
               :if={@view == "compact"}
-              class={["h-2 w-2 shrink-0 rounded-full", dot_class(a.status)]}
+              class={["h-[10cqh] w-[10cqh] shrink-0 rounded-full", dot_class(a.status)]}
               aria-hidden="true"
             />
             <div class="min-w-0 flex-1">
               <.link
                 navigate={Paths.project(a.project_uuid)}
-                class="block truncate text-sm hover:underline"
+                class="block truncate text-[34cqh] leading-tight hover:underline"
               >
                 {task_label(a)}
               </.link>
-              <p :if={@view == "detailed" and a.project} class="truncate text-xs text-base-content/50">
+              <p
+                :if={@view == "detailed" and a.project}
+                class="truncate text-[24cqh] leading-tight text-base-content/50"
+              >
                 {a.project.name}
               </p>
             </div>
             <span
               :if={@view == "detailed" and a.track_progress}
-              class="shrink-0 text-xs tabular-nums text-base-content/50"
+              class="shrink-0 text-[26cqh] leading-none tabular-nums text-base-content/50"
             >
               {a.progress_pct}%
             </span>
             <.assignment_status_badge :if={@view == "detailed"} status={a.status} size="sm" />
           </li>
+          <li :for={_pad <- 1..max(@budget - length(@tasks), 0)//1} class="min-h-0 flex-1"></li>
         </ul>
       </.frame>
     </div>

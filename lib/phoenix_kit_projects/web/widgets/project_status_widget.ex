@@ -23,15 +23,14 @@ defmodule PhoenixKitProjects.Web.Widgets.ProjectStatusWidget do
       {:ok,
        socket
        |> assign(:available, true)
-       |> assign(:compact, compact?(assigns[:size]))
        |> assign(:project, project)
        |> assign(
          :view,
-         effective_view(assigns[:view], ~w(detailed simple), small?(assigns[:size], 4, 2))
+         effective_view(assigns[:view], ~w(detailed simple))
        )
        |> assign_project_data(project)}
     else
-      {:ok, assign(socket, available: false, compact: false)}
+      {:ok, assign(socket, :available, false)}
     end
   end
 
@@ -66,14 +65,14 @@ defmodule PhoenixKitProjects.Web.Widgets.ProjectStatusWidget do
   @impl true
   def render(%{available: false} = assigns) do
     ~H"""
-    <div class="contents"><.frame compact={@compact} title={gettext("Project status")}><.unavailable /></.frame></div>
+    <div class="contents"><.frame title={gettext("Project status")}><.unavailable /></.frame></div>
     """
   end
 
   def render(%{project: nil} = assigns) do
     ~H"""
     <div class="contents">
-      <.frame compact={@compact} title={gettext("Project status")}>
+      <.frame title={gettext("Project status")}>
         <.empty message={gettext("No project found — pick one in this widget's settings.")} />
       </.frame>
     </div>
@@ -83,7 +82,7 @@ defmodule PhoenixKitProjects.Web.Widgets.ProjectStatusWidget do
   def render(assigns) do
     ~H"""
     <div class="contents">
-      <.frame compact={@compact} title={@project.name} href={Paths.project(@project.uuid)}>
+      <.frame title={@project.name} href={Paths.project(@project.uuid)}>
       <div class="flex flex-col gap-2">
         <div class="flex flex-wrap items-center gap-1">
           <.project_status_badge project={@project} />

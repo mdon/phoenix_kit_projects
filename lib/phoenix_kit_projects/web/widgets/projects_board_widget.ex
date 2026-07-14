@@ -36,14 +36,13 @@ defmodule PhoenixKitProjects.Web.Widgets.ProjectsBoardWidget do
       {:ok,
        socket
        |> assign(:available, true)
-       |> assign(:compact, compact?(assigns[:size]))
        |> assign(:view, effective_view(assigns[:view], ~w(grid counts)))
        |> assign(:projects, projects)
        |> assign(:tiles, tiles)
        |> assign(:status_by, status_by)
        |> assign(:buckets, buckets(projects, status_by))}
     else
-      {:ok, assign(socket, available: false, compact: false)}
+      {:ok, assign(socket, :available, false)}
     end
   end
 
@@ -60,7 +59,7 @@ defmodule PhoenixKitProjects.Web.Widgets.ProjectsBoardWidget do
   def render(%{available: false} = assigns) do
     ~H"""
     <div class="contents">
-      <.frame compact={@compact} title={gettext("Projects board")} icon="hero-squares-2x2"><.unavailable /></.frame>
+      <.frame title={gettext("Projects board")} icon="hero-squares-2x2"><.unavailable /></.frame>
     </div>
     """
   end
@@ -68,7 +67,7 @@ defmodule PhoenixKitProjects.Web.Widgets.ProjectsBoardWidget do
   def render(assigns) do
     ~H"""
     <div class="contents">
-      <.frame compact={@compact} title={gettext("Projects board")} icon="hero-squares-2x2" href={Paths.projects()}>
+      <.frame title={gettext("Projects board")} icon="hero-squares-2x2" href={Paths.projects()}>
       <.empty :if={@projects == []} icon="hero-squares-2x2" message={gettext("No projects yet.")} />
 
       <div :if={@view == "grid"} class="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-1.5">

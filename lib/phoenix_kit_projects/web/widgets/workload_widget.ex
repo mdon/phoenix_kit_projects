@@ -23,16 +23,15 @@ defmodule PhoenixKitProjects.Web.Widgets.WorkloadWidget do
       {:ok,
        socket
        |> assign(:available, true)
-       |> assign(:compact, compact?(assigns[:size]))
        |> assign(
          :view,
-         effective_view(assigns[:view], ~w(detailed simple), small?(assigns[:size], 4, 2))
+         effective_view(assigns[:view], ~w(detailed simple))
        )
        |> assign(:total, length(projects))
        |> assign(:lifecycle, lifecycle)
        |> assign(:tasks, task_counts())}
     else
-      {:ok, assign(socket, available: false, compact: false)}
+      {:ok, assign(socket, :available, false)}
     end
   end
 
@@ -46,7 +45,7 @@ defmodule PhoenixKitProjects.Web.Widgets.WorkloadWidget do
   def render(%{available: false} = assigns) do
     ~H"""
     <div class="contents">
-      <.frame compact={@compact} title={gettext("Projects workload")} icon="hero-chart-pie"><.unavailable /></.frame>
+      <.frame title={gettext("Projects workload")} icon="hero-chart-pie"><.unavailable /></.frame>
     </div>
     """
   end
@@ -54,8 +53,10 @@ defmodule PhoenixKitProjects.Web.Widgets.WorkloadWidget do
   def render(assigns) do
     ~H"""
     <div class="contents">
-      <.frame compact={@compact} title={gettext("Projects workload")} icon="hero-chart-pie" href={Paths.projects()}>
-      <div :if={@view == "simple"} class="grid grid-cols-2 gap-2">
+      <.frame title={gettext("Projects workload")} icon="hero-chart-pie" href={Paths.projects()}>
+      <%!-- Bands and KPI boxes self-fit via cq units — the whole body always
+      fits its box (dashboards are one screenful: nothing scrolls or clips). --%>
+      <div :if={@view == "simple"} class="grid h-full min-h-0 grid-cols-2 gap-2">
         <.kpi label={gettext("Running")} value={count(@lifecycle, :running)} tone="text-success" />
         <.kpi
           label={gettext("Overdue")}
@@ -64,12 +65,12 @@ defmodule PhoenixKitProjects.Web.Widgets.WorkloadWidget do
         />
       </div>
 
-      <div :if={@view == "detailed"} class="flex h-full flex-col justify-center gap-2">
-        <div>
-          <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-base-content/40">
+      <div :if={@view == "detailed"} class="flex h-full min-h-0 flex-col gap-[2cqh] [container-type:size]">
+        <div class="flex min-h-0 flex-1 flex-col">
+          <p class="mb-[1cqh] text-[9cqh] font-semibold uppercase leading-tight tracking-wide text-base-content/40">
             {gettext("Projects")} · {@total}
           </p>
-          <div class="grid grid-cols-4 gap-1.5">
+          <div class="grid min-h-0 flex-1 grid-cols-4 gap-1.5">
             <.kpi small label={gettext("Running")} value={count(@lifecycle, :running)} tone="text-success" />
             <.kpi
               small
@@ -81,11 +82,11 @@ defmodule PhoenixKitProjects.Web.Widgets.WorkloadWidget do
             <.kpi small label={gettext("Completed")} value={count(@lifecycle, :completed)} tone="text-base-content/70" />
           </div>
         </div>
-        <div>
-          <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-base-content/40">
+        <div class="flex min-h-0 flex-1 flex-col">
+          <p class="mb-[1cqh] text-[9cqh] font-semibold uppercase leading-tight tracking-wide text-base-content/40">
             {gettext("Tasks")}
           </p>
-          <div class="grid grid-cols-3 gap-1.5">
+          <div class="grid min-h-0 flex-1 grid-cols-3 gap-1.5">
             <.kpi small label={gettext("Todo")} value={@tasks["todo"] || 0} tone="text-base-content" />
             <.kpi small label={gettext("Active")} value={@tasks["in_progress"] || 0} tone="text-warning" />
             <.kpi small label={gettext("Done")} value={@tasks["done"] || 0} tone="text-success" />
@@ -106,18 +107,15 @@ defmodule PhoenixKitProjects.Web.Widgets.WorkloadWidget do
 
   defp kpi(assigns) do
     ~H"""
-    <div class={[
-      "flex flex-col items-center justify-center rounded bg-base-200/50",
-      if(@small, do: "py-1.5", else: "py-2")
-    ]}>
+    <div class="flex min-h-0 flex-col items-center justify-center overflow-hidden rounded bg-base-200/50 [container-type:size]">
       <span class={[
-        "font-bold tabular-nums",
-        if(@small, do: "text-lg leading-6", else: "text-2xl"),
+        "font-bold leading-none tabular-nums",
+        "text-[42cqh]",
         @tone
       ]}>
         {@value}
       </span>
-      <span class="text-[11px] text-base-content/50">{@label}</span>
+      <span class="truncate text-[20cqh] leading-tight text-base-content/50">{@label}</span>
     </div>
     """
   end
