@@ -66,6 +66,18 @@ defmodule PhoenixKitProjects.Web.Widgets.Helpers do
   def effective_view(view, valid) when view in ["", nil], do: List.first(valid)
   def effective_view(view, valid), do: if(view in valid, do: view, else: List.first(valid))
 
+  @doc """
+  A scale-aware self-fit font-size style: the type grows with its cq slot but
+  stays clamped to a consistent px range, so widgets look cohesive at any box
+  size (no comically large list rows, no unreadable KPI labels). The
+  `--pk-scale` var (set by the dashboards fit hook) keeps the clamp
+  proportional when the board renders scaled down.
+  """
+  @spec fit_text(number(), String.t(), number()) :: String.t()
+  def fit_text(min_px, cq, max_px) do
+    "font-size: clamp(calc(#{min_px}px * var(--pk-scale, 1)), #{cq}, calc(#{max_px}px * var(--pk-scale, 1)))"
+  end
+
   @doc "The current user's uuid out of the host-provided scope assign, or nil."
   @spec scope_user_uuid(term()) :: String.t() | nil
   def scope_user_uuid(%{user: %{uuid: uuid}}) when is_binary(uuid), do: uuid
@@ -97,6 +109,13 @@ defmodule PhoenixKitProjects.Web.Widgets.Helpers do
 
   def frame(assigns) do
     ~H"""
+    <style>
+      @container (max-height: 26px) {
+        .pk-slot-meta {
+          display: none !important;
+        }
+      }
+    </style>
     <div class="card h-full overflow-hidden bg-base-100">
       <div class="flex h-full flex-col p-3">
         <div class="mb-2 flex items-center gap-2">

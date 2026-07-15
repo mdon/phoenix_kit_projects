@@ -88,17 +88,21 @@ defmodule PhoenixKitProjects.Web.Widgets.OngoingTasksWidget do
             class={["h-[10cqh] w-[10cqh] shrink-0 rounded-full", dot_class(a.status)]}
           />
           <div class="min-w-0 flex-1">
-            <p class="truncate text-[34cqh] leading-tight">{task_label(a)}</p>
+            <p class="truncate leading-tight" style={fit_text(11, "34cqh", 15)}>
+              {task_label(a)}
+            </p>
             <p
               :if={@view == "detailed" and assignee(a)}
-              class="truncate text-[24cqh] leading-tight text-base-content/50"
+              class="pk-slot-meta truncate leading-tight text-base-content/50"
+              style={fit_text(9, "24cqh", 12)}
             >
               {assignee(a)}
             </p>
           </div>
           <span
             :if={@view == "detailed" and a.track_progress}
-            class="shrink-0 text-[26cqh] leading-none tabular-nums text-base-content/50"
+            class="shrink-0 leading-none tabular-nums text-base-content/50"
+            style={fit_text(10, "26cqh", 13)}
           >
             {a.progress_pct}%
           </span>

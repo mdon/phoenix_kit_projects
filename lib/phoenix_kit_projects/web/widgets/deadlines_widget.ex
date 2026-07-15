@@ -118,26 +118,32 @@ defmodule PhoenixKitProjects.Web.Widgets.DeadlinesWidget do
             <div class="min-w-0 flex-1">
               <.link
                 navigate={Paths.project(row.project.uuid)}
-                class="block truncate text-[34cqh] leading-tight hover:underline"
+                class="block truncate leading-tight hover:underline"
+                style={fit_text(11, "34cqh", 15)}
               >
                 {row.project.name}
               </.link>
               <p
                 :if={@view == "detailed"}
-                class="truncate text-[24cqh] leading-tight tabular-nums text-base-content/50"
+                class="pk-slot-meta truncate leading-tight tabular-nums text-base-content/50"
+                style={fit_text(9, "24cqh", 12)}
               >
                 {row.progress_pct}% · {row.done}/{row.total} {gettext("tasks")}
               </p>
             </div>
-            <span class={[
-              "shrink-0 text-[26cqh] leading-none tabular-nums",
-              if(late?(row, @now), do: "font-medium text-error", else: "text-base-content/60")
-            ]}>
+            <span
+              class={[
+                "shrink-0 leading-none tabular-nums",
+                if(late?(row, @now), do: "font-medium text-error", else: "text-base-content/60")
+              ]}
+              style={fit_text(10, "26cqh", 13)}
+            >
               {date(row.planned_end)}
             </span>
             <span
               :if={late?(row, @now)}
-              class="shrink-0 rounded-full bg-error/15 px-[0.6em] py-[0.15em] text-[22cqh] font-medium leading-tight text-error"
+              class="shrink-0 rounded-full bg-error/15 px-[0.6em] py-[0.15em] font-medium leading-tight text-error"
+              style={fit_text(9, "22cqh", 12)}
             >
               {gettext("late")}
             </span>

@@ -85,20 +85,23 @@ defmodule PhoenixKitProjects.Web.Widgets.MyTasksWidget do
             <div class="min-w-0 flex-1">
               <.link
                 navigate={Paths.project(a.project_uuid)}
-                class="block truncate text-[34cqh] leading-tight hover:underline"
+                class="block truncate leading-tight hover:underline"
+                style={fit_text(11, "34cqh", 15)}
               >
                 {task_label(a)}
               </.link>
               <p
                 :if={@view == "detailed" and a.project}
-                class="truncate text-[24cqh] leading-tight text-base-content/50"
+                class="pk-slot-meta truncate leading-tight text-base-content/50"
+                style={fit_text(9, "24cqh", 12)}
               >
                 {a.project.name}
               </p>
             </div>
             <span
               :if={@view == "detailed" and a.track_progress}
-              class="shrink-0 text-[26cqh] leading-none tabular-nums text-base-content/50"
+              class="shrink-0 leading-none tabular-nums text-base-content/50"
+              style={fit_text(10, "26cqh", 13)}
             >
               {a.progress_pct}%
             </span>

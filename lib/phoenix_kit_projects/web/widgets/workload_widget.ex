@@ -67,7 +67,10 @@ defmodule PhoenixKitProjects.Web.Widgets.WorkloadWidget do
 
       <div :if={@view == "detailed"} class="flex h-full min-h-0 flex-col gap-[2cqh] [container-type:size]">
         <div class="flex min-h-0 flex-1 flex-col">
-          <p class="mb-[1cqh] text-[9cqh] font-semibold uppercase leading-tight tracking-wide text-base-content/40">
+          <p
+            class="mb-[1cqh] font-semibold uppercase leading-tight tracking-wide text-base-content/40"
+            style={fit_text(9, "10cqh", 11)}
+          >
             {gettext("Projects")} · {@total}
           </p>
           <div class="grid min-h-0 flex-1 grid-cols-4 gap-1.5">
@@ -83,7 +86,10 @@ defmodule PhoenixKitProjects.Web.Widgets.WorkloadWidget do
           </div>
         </div>
         <div class="flex min-h-0 flex-1 flex-col">
-          <p class="mb-[1cqh] text-[9cqh] font-semibold uppercase leading-tight tracking-wide text-base-content/40">
+          <p
+            class="mb-[1cqh] font-semibold uppercase leading-tight tracking-wide text-base-content/40"
+            style={fit_text(9, "10cqh", 11)}
+          >
             {gettext("Tasks")}
           </p>
           <div class="grid min-h-0 flex-1 grid-cols-3 gap-1.5">
@@ -108,14 +114,12 @@ defmodule PhoenixKitProjects.Web.Widgets.WorkloadWidget do
   defp kpi(assigns) do
     ~H"""
     <div class="flex min-h-0 flex-col items-center justify-center overflow-hidden rounded bg-base-200/50 [container-type:size]">
-      <span class={[
-        "font-bold leading-none tabular-nums",
-        "text-[42cqh]",
-        @tone
-      ]}>
+      <span class={["font-bold leading-none tabular-nums", @tone]} style={fit_text(14, "45cqh", 22)}>
         {@value}
       </span>
-      <span class="truncate text-[20cqh] leading-tight text-base-content/50">{@label}</span>
+      <span class="truncate leading-tight text-base-content/50" style={fit_text(9, "20cqh", 11)}>
+        {@label}
+      </span>
     </div>
     """
   end
