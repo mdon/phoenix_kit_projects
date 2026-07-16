@@ -158,6 +158,9 @@ defmodule PhoenixKitProjects.Web.OverviewLiveTest do
     alias PhoenixKitProjects.{Paths, Projects}
 
     # A started project with `n` short same-day tasks; returns {project, assignments}.
+    # Starts at 00:05 UTC TODAY (not "now") so the sequential walk keeps every
+    # short task inside today — anchored at now, a run near UTC midnight pushes
+    # the tail tasks past midnight and out of today's popup (observed flake).
     defp calendar_fixture(n) do
       project =
         fixture_project(%{
@@ -166,7 +169,8 @@ defmodule PhoenixKitProjects.Web.OverviewLiveTest do
           "counts_weekends" => true
         })
 
-      {:ok, _} = Projects.start_project(project)
+      early_today = DateTime.new!(Date.utc_today(), ~T[00:05:00], "Etc/UTC")
+      {:ok, _} = Projects.start_project(project, early_today)
       project = Projects.get_project!(project.uuid)
 
       assignments =

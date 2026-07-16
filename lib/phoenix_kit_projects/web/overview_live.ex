@@ -951,46 +951,6 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                       </button>
                     </div>
 
-                    <%!-- Instant person typeahead (core search_picker): the
-                         dropdown renders client-side, the server answers
-                         "assignee_search" with limit+1-probed pages (Load
-                         more built in) — nothing preloads the people table.
-                         Picked people become removable chips; several chips
-                         filter as a union. --%>
-                    <div class="w-44">
-                      <.search_picker
-                        id="overview-assignee-search"
-                        dropdown_id="overview-assignee-dropdown"
-                        search_event="assignee_search"
-                        results_event="assignee_results"
-                        pick_event="assignee_pick"
-                        staged_event="assignee_staged"
-                        placeholder={gettext("Add person…")}
-                        class="input input-bordered input-xs w-full"
-                        searching_label={gettext("Searching…")}
-                        more_label={gettext("Load more")}
-                        loading_more_label={gettext("Loading…")}
-                        no_matches_label={gettext("No matches")}
-                        data-search-on-focus
-                      />
-                    </div>
-
-                    <span
-                      :for={p <- @assignee_selected}
-                      class="badge badge-sm badge-outline gap-1 max-w-40"
-                    >
-                      <span class="truncate">{p.name}</span>
-                      <button
-                        type="button"
-                        phx-click="remove_assignee_person"
-                        phx-value-uuid={p.uuid}
-                        class="shrink-0 hover:text-error"
-                        aria-label={gettext("Remove %{name}", name: p.name)}
-                      >
-                        <.icon name="hero-x-mark" class="w-3 h-3" />
-                      </button>
-                    </span>
-
                     <label
                       :if={@assignee_filter in [:me, :people]}
                       class="label cursor-pointer gap-1.5 text-xs"
@@ -1033,6 +993,53 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                       {gettext("Projects")}
                     </button>
                   </div>
+                </div>
+
+                <%!-- Person row (Tasks mode only): the instant typeahead gets its
+                     own full-width row — the dropdown inherits the input's width,
+                     so a cramped inline slot crushed the names. The core
+                     search_picker renders the dropdown client-side; the server
+                     answers "assignee_search" with limit+1-probed pages (Load
+                     more built in) — nothing preloads the people table. Picked
+                     people become removable chips; several chips filter as a
+                     union. --%>
+                <div class={[
+                  "flex flex-wrap items-center gap-2 mb-2",
+                  @calendar_mode != :tasks && "hidden"
+                ]}>
+                  <div class="w-full max-w-xs">
+                    <.search_picker
+                      id="overview-assignee-search"
+                      dropdown_id="overview-assignee-dropdown"
+                      search_event="assignee_search"
+                      results_event="assignee_results"
+                      pick_event="assignee_pick"
+                      staged_event="assignee_staged"
+                      placeholder={gettext("Add person…")}
+                      class="input input-bordered input-sm w-full"
+                      searching_label={gettext("Searching…")}
+                      more_label={gettext("Load more")}
+                      loading_more_label={gettext("Loading…")}
+                      no_matches_label={gettext("No matches")}
+                      data-search-on-focus
+                    />
+                  </div>
+
+                  <span
+                    :for={p <- @assignee_selected}
+                    class="badge badge-outline gap-1.5 max-w-56"
+                  >
+                    <span class="truncate">{p.name}</span>
+                    <button
+                      type="button"
+                      phx-click="remove_assignee_person"
+                      phx-value-uuid={p.uuid}
+                      class="shrink-0 hover:text-error"
+                      aria-label={gettext("Remove %{name}", name: p.name)}
+                    >
+                      <.icon name="hero-x-mark" class="w-3 h-3" />
+                    </button>
+                  </span>
                 </div>
 
                 <div
