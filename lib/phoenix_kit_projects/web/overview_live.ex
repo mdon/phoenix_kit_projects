@@ -1046,14 +1046,18 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                     class="badge badge-outline gap-1.5 max-w-56"
                   >
                     <span class="truncate">{p.name}</span>
+                    <%!-- Bare buttons get no pointer cursor from Tailwind v4's
+                         preflight and a 12px hover target is easy to miss —
+                         make removal unmistakable: pointer, padded hit area,
+                         red disc on hover. --%>
                     <button
                       type="button"
                       phx-click="remove_assignee_person"
                       phx-value-uuid={p.uuid}
-                      class="shrink-0 hover:text-error"
+                      class="shrink-0 cursor-pointer rounded-full p-0.5 -m-0.5 transition-colors hover:bg-error hover:text-error-content"
                       aria-label={gettext("Remove %{name}", name: p.name)}
                     >
-                      <.icon name="hero-x-mark" class="w-3 h-3" />
+                      <.icon name="hero-x-mark" class="w-3 h-3 block" />
                     </button>
                   </span>
 
