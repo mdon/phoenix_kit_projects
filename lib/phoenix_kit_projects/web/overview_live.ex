@@ -93,17 +93,21 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
         task_calendar_events: [],
         task_calendar_meta: %{},
         task_calendar_loaded?: false,
-        # Assignee filter over the Tasks mode: :everyone | :me | :unassigned |
-        # :people (one or more picked via the core search_picker — chips in
-        # `assignee_selected`, resolved scopes in `assignee_scopes`). Inherited
-        # semantics by default (the person, their teams, their departments —
-        # resolved by PhoenixKitProjects.Assignees); `assignee_direct_only?`
-        # narrows to personal assignments. `me_scope` caches the viewer's own
-        # resolution (:unresolved until the first calendar load; nil = no
-        # staff person, which hides the Me shortcut).
-        assignee_filter: :everyone,
+        # Assignee filter over the Tasks mode — ONE unified chip model (the
+        # AI-panel consensus, Linear-style): person chips picked via the core
+        # search_picker (Me = one-tap toggle for the viewer's own chip) plus an
+        # Unassigned toggle, all filtering as a UNION ("Me + Alice +
+        # Unassigned" works). No chips + no unassigned = Everyone (the resting
+        # state; the Everyone button is the clear-all). Inherited semantics by
+        # default (a person's chip covers them, their teams, their departments
+        # — resolved by PhoenixKitProjects.Assignees); `assignee_direct_only?`
+        # narrows person matches to personal assignments (never affects the
+        # Unassigned part). `me_scope` caches the viewer's own resolution
+        # (:unresolved until the first calendar load; nil = no staff person,
+        # which hides the Me toggle).
         assignee_selected: [],
         assignee_scopes: %{},
+        include_unassigned?: false,
         assignee_direct_only?: false,
         me_scope: :unresolved,
         unassigned_count: 0,
@@ -250,7 +254,7 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
   defp apply_task_filter(socket) do
     %{
       task_calendar_items: items,
-      assignee_filter: filter,
+      include_unassigned?: include_unassigned?,
       assignee_direct_only?: direct_only?,
       overdue_only?: overdue_only?,
       tz_offset: offset
@@ -259,7 +263,7 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
     scopes = current_scopes(socket)
     now = DateTime.utc_now() |> DateTime.to_naive()
 
-    {kept, provenance} = filter_items(items, filter, scopes, direct_only?)
+    {kept, provenance} = filter_items(items, scopes, include_unassigned?, direct_only?)
 
     {events, meta} =
       CalendarDisplay.task_events(kept, L10n.current_content_lang(), offset, now: now)
@@ -282,40 +286,60 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
     assign(socket, task_calendar_events: events, task_calendar_meta: meta)
   end
 
-  # The resolved scopes the current filter matches against — [me] for :me,
-  # the picked people's scopes for :people, [] otherwise.
-  defp current_scopes(%{assigns: %{assignee_filter: :me, me_scope: %{} = scope}}), do: [scope]
-
-  defp current_scopes(%{assigns: %{assignee_filter: :people} = assigns}) do
+  # The resolved scopes of the picked person chips (Me is just the viewer's
+  # own chip, so it needs no special case here).
+  defp current_scopes(%{assigns: assigns}) do
     assigns.assignee_selected
     |> Enum.map(&Map.get(assigns.assignee_scopes, &1.uuid))
     |> Enum.reject(&is_nil/1)
   end
 
-  defp current_scopes(_socket), do: []
+  # Applies the unified assignee filter to the raw items: a task is kept when
+  # it's unassigned (and the Unassigned toggle is on) OR any selected person's
+  # scope matches it — one UNION across chips + toggle. No chips and no
+  # toggle = everything. Person matches return the provenance map (uuid =>
+  # :direct | {:team, name} | {:department, name}) alongside; direct-only
+  # narrows PERSON matches to :direct (it never affects the Unassigned part).
+  defp filter_items(items, [], false, _direct), do: {items, %{}}
 
-  # Applies the assignee filter to the raw items. For person scopes, returns
-  # the provenance map (uuid => :direct | {:team, name} | {:department, name})
-  # alongside; direct-only narrows to :direct matches. Multiple selected
-  # people match as a UNION — a task counts when ANY of them would see it.
-  defp filter_items(items, :everyone, _scopes, _direct), do: {items, %{}}
-
-  defp filter_items(items, :unassigned, _scopes, _direct) do
-    {Enum.filter(items, fn {it, _} -> Assignees.unassigned?(it.assignment) end), %{}}
-  end
-
-  defp filter_items(items, _person_or_me, [], _direct), do: {items, %{}}
-
-  defp filter_items(items, _person_or_me, scopes, direct_only?) do
+  defp filter_items(items, scopes, include_unassigned?, direct_only?) do
     Enum.reduce(items, {[], %{}}, fn {it, span}, {kept, prov} ->
-      case match_any(it.assignment, scopes) do
-        nil -> {kept, prov}
-        :direct -> {[{it, span} | kept], prov}
-        _via when direct_only? -> {kept, prov}
-        via -> {[{it, span} | kept], Map.put(prov, it.uuid, via)}
+      if include_unassigned? and Assignees.unassigned?(it.assignment) do
+        {[{it, span} | kept], prov}
+      else
+        case match_any(it.assignment, scopes) do
+          nil -> {kept, prov}
+          :direct -> {[{it, span} | kept], prov}
+          _via when direct_only? -> {kept, prov}
+          via -> {[{it, span} | kept], Map.put(prov, it.uuid, via)}
+        end
       end
     end)
     |> then(fn {kept, prov} -> {Enum.reverse(kept), prov} end)
+  end
+
+  # Whether the viewer's own chip is in the selection (lights the Me toggle).
+  defp me_chip_active?(%{person_uuid: uuid}, selected),
+    do: Enum.any?(selected, &(&1.uuid == uuid))
+
+  defp me_chip_active?(_me_scope, _selected), do: false
+
+  defp add_person_chip(socket, uuid, name, scope) do
+    socket
+    |> assign(
+      assignee_selected: socket.assigns.assignee_selected ++ [%{uuid: uuid, name: name}],
+      assignee_scopes: Map.put(socket.assigns.assignee_scopes, uuid, scope)
+    )
+    |> apply_task_filter()
+  end
+
+  defp remove_person_chip(socket, uuid) do
+    socket
+    |> assign(
+      assignee_selected: Enum.reject(socket.assigns.assignee_selected, &(&1.uuid == uuid)),
+      assignee_scopes: Map.delete(socket.assigns.assignee_scopes, uuid)
+    )
+    |> apply_task_filter()
   end
 
   # Match across every selected scope; a :direct hit for anyone wins (so
@@ -498,26 +522,39 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
     end
   end
 
-  # Assignee quick filters. "me" only applies when the viewer resolved to a
-  # staff person (the button is hidden otherwise, but the guard is
-  # server-side). A quick filter clears any picked-people chips.
-  def handle_event("set_assignee_filter", %{"filter" => filter}, socket) do
-    new =
-      case filter do
-        "everyone" -> :everyone
-        "unassigned" -> :unassigned
-        "me" -> if(match?(%{}, socket.assigns.me_scope), do: :me)
-        _ -> nil
-      end
+  # "Everyone" — the clear-all: drop every chip and the Unassigned toggle,
+  # back to the unfiltered resting state.
+  def handle_event("clear_assignee_filter", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(assignee_selected: [], assignee_scopes: %{}, include_unassigned?: false)
+     |> apply_task_filter()}
+  end
 
-    if new do
-      {:noreply,
-       socket
-       |> assign(assignee_filter: new, assignee_selected: [], assignee_scopes: %{})
-       |> apply_task_filter()}
-    else
-      {:noreply, socket}
+  # "Me" — a one-tap toggle for the viewer's OWN person chip (it composes
+  # with other chips like any pick). Only applies when the viewer resolved
+  # to a staff person (the button is hidden otherwise; guard is server-side).
+  def handle_event("toggle_me_chip", _params, socket) do
+    case socket.assigns.me_scope do
+      %{person_uuid: uuid, person_name: name} = scope ->
+        if Enum.any?(socket.assigns.assignee_selected, &(&1.uuid == uuid)) do
+          {:noreply, remove_person_chip(socket, uuid)}
+        else
+          {:noreply, add_person_chip(socket, uuid, name, scope)}
+        end
+
+      _ ->
+        {:noreply, socket}
     end
+  end
+
+  # "Unassigned" — a toggleable part of the same union (a triage lens that
+  # composes with person chips: "Me + Unassigned" is a real view).
+  def handle_event("toggle_unassigned", _params, socket) do
+    {:noreply,
+     socket
+     |> update(:include_unassigned?, &(not &1))
+     |> apply_task_filter()}
   end
 
   # ── Person picker (core <.search_picker> contract) ──────────────
@@ -544,9 +581,9 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
     {:noreply, push_event(socket, "assignee_results", %{q: q, results: rows, has_more: has_more})}
   end
 
-  # A person picked from the dropdown — add a chip (deduped) and switch the
-  # filter to the picked set. `assignee_staged` confirms so the hook clears
-  # the input. An unknown uuid resolves to nil scope and is ignored.
+  # A person picked from the dropdown — add their chip (deduped) to the
+  # union. `assignee_staged` confirms so the hook clears the input. An
+  # unknown uuid resolves to nil scope and is ignored.
   def handle_event("assignee_pick", %{"uuid" => uuid}, socket) when is_binary(uuid) do
     already? = Enum.any?(socket.assigns.assignee_selected, &(&1.uuid == uuid))
 
@@ -563,29 +600,14 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
       scope ->
         {:noreply,
          socket
-         |> assign(
-           assignee_filter: :people,
-           assignee_selected:
-             socket.assigns.assignee_selected ++ [%{uuid: uuid, name: scope.person_name}],
-           assignee_scopes: Map.put(socket.assigns.assignee_scopes, uuid, scope)
-         )
-         |> apply_task_filter()
+         |> add_person_chip(uuid, scope.person_name, scope)
          |> push_event("assignee_staged", %{})}
     end
   end
 
-  # Chip ✕ — drop one picked person; an empty set falls back to Everyone.
+  # Chip ✕ — drop one picked person from the union.
   def handle_event("remove_assignee_person", %{"uuid" => uuid}, socket) when is_binary(uuid) do
-    selected = Enum.reject(socket.assigns.assignee_selected, &(&1.uuid == uuid))
-
-    {:noreply,
-     socket
-     |> assign(
-       assignee_selected: selected,
-       assignee_scopes: Map.delete(socket.assigns.assignee_scopes, uuid),
-       assignee_filter: if(selected == [], do: :everyone, else: :people)
-     )
-     |> apply_task_filter()}
+    {:noreply, remove_person_chip(socket, uuid)}
   end
 
   # "Direct only" narrows a person scope to personal assignments (team/
@@ -923,46 +945,40 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                        count over ALL tasks. --%>
                   <div class={["flex flex-wrap items-center gap-2", @calendar_mode != :tasks && "hidden"]}>
                     <div class="join">
+                      <%!-- One unified union: Everyone = clear-all (lit in the
+                           resting state), Me = toggle the viewer's own chip,
+                           Unassigned = toggle the no-assignee lens. All compose
+                           — "Me + Alice + Unassigned" is one view. --%>
                       <button
                         type="button"
-                        class={["btn btn-xs join-item", @assignee_filter == :everyone && "btn-active"]}
-                        phx-click="set_assignee_filter"
-                        phx-value-filter="everyone"
+                        class={[
+                          "btn btn-xs join-item",
+                          @assignee_selected == [] and not @include_unassigned? && "btn-active"
+                        ]}
+                        phx-click="clear_assignee_filter"
                       >
                         {gettext("Everyone")}
                       </button>
                       <button
                         :if={match?(%{}, @me_scope)}
                         type="button"
-                        class={["btn btn-xs join-item", @assignee_filter == :me && "btn-active"]}
-                        phx-click="set_assignee_filter"
-                        phx-value-filter="me"
+                        class={[
+                          "btn btn-xs join-item",
+                          me_chip_active?(@me_scope, @assignee_selected) && "btn-active"
+                        ]}
+                        phx-click="toggle_me_chip"
                       >
                         {gettext("Me")}
                       </button>
                       <button
                         type="button"
-                        class={["btn btn-xs join-item", @assignee_filter == :unassigned && "btn-active"]}
-                        phx-click="set_assignee_filter"
-                        phx-value-filter="unassigned"
+                        class={["btn btn-xs join-item", @include_unassigned? && "btn-active"]}
+                        phx-click="toggle_unassigned"
                       >
                         {gettext("Unassigned")}
                         <span class="badge badge-xs badge-ghost">{@unassigned_count}</span>
                       </button>
                     </div>
-
-                    <label
-                      :if={@assignee_filter in [:me, :people]}
-                      class="label cursor-pointer gap-1.5 text-xs"
-                    >
-                      <input
-                        type="checkbox"
-                        class="checkbox checkbox-xs"
-                        checked={@assignee_direct_only?}
-                        phx-click="toggle_assignee_direct"
-                      />
-                      {gettext("Direct only")}
-                    </label>
 
                     <label class="label cursor-pointer gap-1.5 text-xs">
                       <input
@@ -1040,6 +1056,21 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                       <.icon name="hero-x-mark" class="w-3 h-3" />
                     </button>
                   </span>
+
+                  <%!-- Sits next to the chips it refines: narrows PERSON matches
+                       to direct assignments (never the Unassigned lens). --%>
+                  <label
+                    :if={@assignee_selected != []}
+                    class="label cursor-pointer gap-1.5 text-xs"
+                  >
+                    <input
+                      type="checkbox"
+                      class="checkbox checkbox-xs"
+                      checked={@assignee_direct_only?}
+                      phx-click="toggle_assignee_direct"
+                    />
+                    {gettext("Direct only")}
+                  </label>
                 </div>
 
                 <div

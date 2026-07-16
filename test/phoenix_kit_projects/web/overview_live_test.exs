@@ -401,7 +401,7 @@ defmodule PhoenixKitProjects.Web.OverviewLiveTest do
       fx = filter_fixture(user)
       view = mount_with_user(conn, user)
 
-      html = render_click(view, "set_assignee_filter", %{"filter" => "me"})
+      html = render_click(view, "toggle_me_chip", %{})
       assert html =~ fx.direct.task.title
       assert html =~ fx.team_task.task.title
       refute html =~ fx.loose.task.title
@@ -412,7 +412,7 @@ defmodule PhoenixKitProjects.Web.OverviewLiveTest do
       fx = filter_fixture(user)
       view = mount_with_user(conn, user)
 
-      render_click(view, "set_assignee_filter", %{"filter" => "me"})
+      render_click(view, "toggle_me_chip", %{})
       html = render_click(view, "toggle_assignee_direct", %{})
       assert html =~ fx.direct.task.title
       refute html =~ fx.team_task.task.title
@@ -426,7 +426,7 @@ defmodule PhoenixKitProjects.Web.OverviewLiveTest do
       fx = filter_fixture(reg_user())
       view = mount_with_user(conn, reg_user())
 
-      html = render_click(view, "set_assignee_filter", %{"filter" => "unassigned"})
+      html = render_click(view, "toggle_unassigned", %{})
       assert html =~ fx.loose.task.title
       refute html =~ fx.direct.task.title
     end
@@ -476,9 +476,28 @@ defmodule PhoenixKitProjects.Web.OverviewLiveTest do
       html2 = render_click(view, "assignee_pick", %{"uuid" => fx2.person.uuid})
       assert html2 =~ fx2.direct.task.title
 
-      # A quick filter clears the picked chips.
-      html3 = render_click(view, "set_assignee_filter", %{"filter" => "everyone"})
+      # Everyone is the clear-all: chips drop.
+      html3 = render_click(view, "clear_assignee_filter", %{})
       refute html3 =~ "remove_assignee_person"
+    end
+
+    test "Me and Unassigned compose as one union", %{conn: conn} do
+      user = reg_user()
+      fx = filter_fixture(user)
+      view = mount_with_user(conn, user)
+
+      render_click(view, "toggle_me_chip", %{})
+      html = render_click(view, "toggle_unassigned", %{})
+
+      # My work AND the unassigned backlog in one view.
+      assert html =~ fx.direct.task.title
+      assert html =~ fx.team_task.task.title
+      assert html =~ fx.loose.task.title
+
+      # Toggling Me off keeps just the unassigned lens.
+      html = render_click(view, "toggle_me_chip", %{})
+      refute html =~ fx.team_task.task.title
+      assert html =~ fx.loose.task.title
     end
 
     test "assignee_search answers the picker with rows + has_more", %{conn: conn} do
@@ -504,11 +523,11 @@ defmodule PhoenixKitProjects.Web.OverviewLiveTest do
       view = mount_with_user(conn, user)
 
       html = render(view)
-      refute html =~ ~s(phx-value-filter="me")
+      refute html =~ "toggle_me_chip"
 
-      # Server-side guard: a crafted "me" is ignored.
-      html = render_click(view, "set_assignee_filter", %{"filter" => "me"})
-      assert html =~ ~s(phx-value-filter="everyone")
+      # Server-side guard: a crafted toggle is ignored (no chip appears).
+      html = render_click(view, "toggle_me_chip", %{})
+      refute html =~ "remove_assignee_person"
     end
 
     test "Overdue only keeps late tasks and drops on-schedule/done ones", %{conn: conn} do
