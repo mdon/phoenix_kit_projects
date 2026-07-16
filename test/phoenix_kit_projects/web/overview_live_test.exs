@@ -153,4 +153,174 @@ defmodule PhoenixKitProjects.Web.OverviewLiveTest do
       assert html =~ project.name or html =~ "Recently"
     end
   end
+
+  describe "calendar tab (Tasks default + Projects mode + whole-day popup)" do
+    alias PhoenixKitProjects.{Paths, Projects}
+
+    # A started project with `n` short same-day tasks; returns {project, assignments}.
+    defp calendar_fixture(n) do
+      project =
+        fixture_project(%{
+          "name" => "CalDash-#{System.unique_integer([:positive])}",
+          "start_mode" => "immediate",
+          "counts_weekends" => true
+        })
+
+      {:ok, _} = Projects.start_project(project)
+      project = Projects.get_project!(project.uuid)
+
+      assignments =
+        for i <- 1..n do
+          task =
+            fixture_task(%{
+              "title" => "CalTask #{i} #{System.unique_integer([:positive])}",
+              "estimated_duration" => 10,
+              "estimated_duration_unit" => "minutes"
+            })
+
+          {:ok, a} =
+            Projects.create_assignment(%{
+              "project_uuid" => project.uuid,
+              "task_uuid" => task.uuid
+            })
+
+          %{a | task: task}
+        end
+
+      {project, assignments}
+    end
+
+    defp open_calendar_tab(view) do
+      render_click(view, "switch_overview_tab", %{"tab" => "calendar"})
+    end
+
+    test "opens in Tasks mode: per-task events + the mode toggle", %{conn: conn} do
+      {_project, [a | _]} = calendar_fixture(2)
+
+      {:ok, view, _html} = live(conn, "/en/admin/projects")
+      html = open_calendar_tab(view)
+
+      # Both mode buttons render, Tasks active by default.
+      assert html =~ "set_calendar_mode"
+      assert html =~ ~s(phx-value-mode="tasks")
+      assert html =~ ~s(phx-value-mode="projects")
+
+      # The tasks grid renders the task titles as events.
+      assert html =~ "overview-tasks-calendar"
+      assert html =~ a.task.title
+    end
+
+    test "the mode toggle flips to the Projects view (both grids stay mounted)", %{conn: conn} do
+      {_project, _} = calendar_fixture(1)
+
+      {:ok, view, _html} = live(conn, "/en/admin/projects")
+      open_calendar_tab(view)
+
+      html = render_click(view, "set_calendar_mode", %{"mode" => "projects"})
+      # Both component instances stay in the DOM (CSS-hidden) so month
+      # navigation survives switching.
+      assert html =~ "projects-overview-calendar"
+      assert html =~ "overview-tasks-calendar"
+
+      # An unknown mode is ignored.
+      html = render_click(view, "set_calendar_mode", %{"mode" => "evil"})
+      assert html =~ "overview-tasks-calendar"
+    end
+
+    test "a day with more tasks than the cap shows the +N more link", %{conn: conn} do
+      {_project, _assignments} = calendar_fixture(8)
+
+      {:ok, view, _html} = live(conn, "/en/admin/projects")
+      html = open_calendar_tab(view)
+
+      assert html =~ "cal-more-link"
+      assert html =~ "more"
+    end
+
+    test "a day-cell click fills the whole-day popup with every task that day", %{conn: conn} do
+      {_project, assignments} = calendar_fixture(8)
+
+      {:ok, view, _html} = live(conn, "/en/admin/projects")
+      open_calendar_tab(view)
+
+      send(view.pid, {:calendar_day_click, Date.utc_today()})
+      html = render(view)
+
+      # Every task of the day is listed — including the ones behind "+N more".
+      for a <- assignments, do: assert(html =~ a.task.title)
+      # Rows open the owning project.
+      assert html =~ "day_popup_open_project"
+    end
+
+    test "the +N more click fills the same popup; closing clears it", %{conn: conn} do
+      {_project, [a | _]} = calendar_fixture(6)
+
+      {:ok, view, _html} = live(conn, "/en/admin/projects")
+      open_calendar_tab(view)
+
+      send(view.pid, {:calendar_day_more, Date.utc_today()})
+      html = render(view)
+      assert html =~ a.task.title
+      assert html =~ "day_popup_open_project"
+
+      html = render_click(view, "close_day_popup", %{})
+      # keep_in_dom: the dialog stays, flagged closed, body back to skeleton.
+      refute html =~ "day_popup_open_project"
+    end
+
+    test "an empty day's popup says nothing is scheduled", %{conn: conn} do
+      {_project, _} = calendar_fixture(1)
+
+      {:ok, view, _html} = live(conn, "/en/admin/projects")
+      open_calendar_tab(view)
+
+      send(view.pid, {:calendar_day_click, Date.add(Date.utc_today(), 300)})
+      html = render(view)
+      assert html =~ "Nothing scheduled this day."
+    end
+
+    test "a popup row click opens the project", %{conn: conn} do
+      {project, _} = calendar_fixture(1)
+
+      {:ok, view, _html} = live(conn, "/en/admin/projects")
+      open_calendar_tab(view)
+
+      render_click(view, "day_popup_open_project", %{"uuid" => project.uuid})
+      assert_redirect(view, Paths.project(project.uuid))
+    end
+
+    test "a task chip click opens the owning project", %{conn: conn} do
+      {project, [a | _]} = calendar_fixture(1)
+
+      {:ok, view, _html} = live(conn, "/en/admin/projects")
+      open_calendar_tab(view)
+
+      send(view.pid, {:calendar_open_task, a.uuid})
+      assert_redirect(view, Paths.project(project.uuid))
+    end
+
+    test "an unknown task id on chip click is a no-op", %{conn: conn} do
+      {_project, _} = calendar_fixture(1)
+
+      {:ok, view, _html} = live(conn, "/en/admin/projects")
+      open_calendar_tab(view)
+
+      send(view.pid, {:calendar_open_task, Ecto.UUID.generate()})
+      assert Process.alive?(view.pid)
+      _ = render(view)
+    end
+
+    test "Projects-mode popup rows carry the project's span", %{conn: conn} do
+      {project, _} = calendar_fixture(1)
+
+      {:ok, view, _html} = live(conn, "/en/admin/projects")
+      open_calendar_tab(view)
+      render_click(view, "set_calendar_mode", %{"mode" => "projects"})
+
+      send(view.pid, {:calendar_day_click, Date.utc_today()})
+      html = render(view)
+      assert html =~ project.name
+      assert html =~ "day_popup_open_project"
+    end
+  end
 end

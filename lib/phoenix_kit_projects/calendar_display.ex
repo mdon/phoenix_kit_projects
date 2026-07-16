@@ -1,12 +1,21 @@
 defmodule PhoenixKitProjects.CalendarDisplay do
   @moduledoc """
-  Maps projects to `PhoenixLiveCalendar.Event` structs for the Overview
-  dashboard calendar.
+  Maps projects — and, for the default Tasks mode, their scheduled tasks — to
+  `PhoenixLiveCalendar.Event` structs for the Overview dashboard calendar.
 
-  Each project becomes an all-day, multi-day "ongoing line" on a month grid:
-  running projects span start → planned-end (reaching at least today, so they
-  read as ongoing), completed projects span start → completion, and scheduled
-  projects get a one-day marker on their planned start.
+  Two mapping modes back the Overview calendar's mode toggle:
+
+    * `task_events/3` (the **Tasks** default) — every leaf task across every
+      given project, placed on the days its `ScheduleLayout` span covers,
+      colored by the OWNING project's identity color so a day reads as "what
+      happens today, across projects". Same-day tasks stack as chips,
+      multi-day tasks as bars; the LiveView caps the per-day count and the
+      grid shows a Google-style "+N more" for the rest.
+    * `events/6` (the **Projects** mode — the original view) — each project
+      as one all-day "ongoing line": running projects span start →
+      planned-end (reaching at least today, so they read as ongoing),
+      completed projects span start → completion, and scheduled projects get
+      a one-day marker on their planned start.
 
   Bars are colored by **project identity** — a stable color per project, picked
   by hashing the project id over a fixed palette of hues spread around the color
@@ -24,7 +33,9 @@ defmodule PhoenixKitProjects.CalendarDisplay do
   last day gets `+1`. Projects without a placeable start date are dropped.
   """
 
-  alias PhoenixKitProjects.Schemas.Project
+  use Gettext, backend: PhoenixKitProjects.Gettext
+
+  alias PhoenixKitProjects.Schemas.{Assignment, Project}
   alias PhoenixLiveCalendar.Event
 
   # Distinct {bg, text} pairs — fixed Tailwind hues spread around the color wheel
@@ -117,6 +128,77 @@ defmodule PhoenixKitProjects.CalendarDisplay do
 
     Enum.reject(running ++ done ++ scheduled, &is_nil/1)
   end
+
+  @doc """
+  Builds the Tasks-mode event list (+ a per-task metadata map) from prepared
+  `{item, span}` pairs — each a `PhoenixKitProjects.ScheduleLayout` item with
+  its computed `%{start: NaiveDateTime, end: NaiveDateTime}` span. Pure: the
+  caller runs the schedule walk (`ScheduleLayout.tree/1` per project) and
+  passes only the LEAF items (sub-project container assignments excluded —
+  their child tasks stand for themselves here).
+
+  Each task becomes an all-day event spanning its scheduled days in the
+  viewer's timezone (`offset`, e.g. `"+3"` — same local basis as the rest of
+  the Overview), colored by the OWNING project's identity color
+  (`color_for/1`), so tasks group visually by project across the month.
+  Exclusive ends (`[start, end)`): a span ending exactly at local midnight
+  doesn't occupy that day, and a zero-length span still shows as a one-day
+  chip.
+
+  Returns `{events, meta}` — `meta` keyed by assignment uuid with
+  `:project_uuid` / `:project_name` / `:status` for the day popup's rows and
+  click navigation.
+  """
+  @spec task_events(
+          [{map(), %{start: NaiveDateTime.t(), end: NaiveDateTime.t()}}],
+          String.t() | nil,
+          String.t()
+        ) ::
+          {[Event.t()], %{optional(String.t()) => map()}}
+  def task_events(items_with_spans, lang, offset \\ "0") do
+    Enum.map_reduce(items_with_spans, %{}, fn {item, span}, meta ->
+      %{assignment: a, project: project} = item
+
+      start_d = to_date(naive_to_utc(span.start), offset)
+      end_d = exclusive_end_date(start_d, span.end, offset)
+      {bg, text} = color_for(project.uuid)
+
+      event =
+        PhoenixLiveCalendar.event(a.uuid, start_d,
+          title: Assignment.label(a, lang) || gettext("(untitled task)"),
+          end: end_d,
+          all_day: true,
+          color: bg,
+          text_color: text
+        )
+
+      entry = %{
+        project_uuid: project.uuid,
+        project_name: Project.localized_name(project, lang),
+        status: a.status
+      }
+
+      {event, Map.put(meta, a.uuid, entry)}
+    end)
+  end
+
+  # The exclusive end DATE for a span ending at `e` (UTC naive), evaluated in
+  # the viewer's local frame: an end that falls exactly on local midnight
+  # doesn't occupy that day, any later instant does. Floored one day past the
+  # start so a zero-length span still shows as a one-day chip.
+  defp exclusive_end_date(start_d, %NaiveDateTime{} = e, offset) do
+    local_end = PhoenixKit.Utils.Date.shift_to_offset(naive_to_utc(e), offset)
+    e_date = DateTime.to_date(local_end)
+
+    exclusive =
+      if local_end.hour == 0 and local_end.minute == 0 and local_end.second == 0,
+        do: e_date,
+        else: Date.add(e_date, 1)
+
+    Enum.max([exclusive, Date.add(start_d, 1)], Date)
+  end
+
+  defp naive_to_utc(%NaiveDateTime{} = ndt), do: DateTime.from_naive!(ndt, "Etc/UTC")
 
   defp running_event(
          %{project: %Project{started_at: %DateTime{} = started} = project} = summary,

@@ -2,7 +2,8 @@ defmodule PhoenixKitProjects.CalendarDisplayTest do
   use ExUnit.Case, async: true
 
   alias PhoenixKitProjects.CalendarDisplay
-  alias PhoenixKitProjects.Schemas.Project
+  alias PhoenixKitProjects.Schemas.{Assignment, Project}
+  alias PhoenixKitProjects.Schemas.Task, as: TaskSchema
 
   @today ~D[2026-06-15]
   @palette_bgs ~w(bg-blue-600 bg-cyan-500 bg-emerald-600 bg-lime-500 bg-amber-400 bg-orange-600 bg-fuchsia-600 bg-violet-600)
@@ -328,6 +329,132 @@ defmodule PhoenixKitProjects.CalendarDisplayTest do
       assert CalendarDisplay.anim_patterns() == ~w(stripes solid)
       assert {lo, hi} = CalendarDisplay.anim_range("speed")
       assert lo < hi
+    end
+  end
+
+  describe "task_events/3 — Tasks mode" do
+    defp task_item(project, attrs) do
+      assignment =
+        struct(
+          Assignment,
+          Map.merge(
+            %{
+              uuid: "a-#{System.unique_integer([:positive])}",
+              status: "todo",
+              translations: %{},
+              task:
+                struct(TaskSchema, %{
+                  uuid: "t-#{System.unique_integer([:positive])}",
+                  title: "Task",
+                  translations: %{}
+                })
+            },
+            attrs
+          )
+        )
+
+      %{uuid: assignment.uuid, assignment: assignment, project: project, parent_uuid: nil}
+    end
+
+    defp span(s, e), do: %{start: s, end: e}
+
+    test "maps a span to an all-day event with the project's identity color" do
+      p = project(%{uuid: "proj-1", name: "Cleaning"})
+
+      item =
+        task_item(p, %{task: struct(TaskSchema, %{title: "Scrub floors", translations: %{}})})
+
+      {[e], meta} =
+        CalendarDisplay.task_events(
+          [{item, span(~N[2026-06-10 09:00:00], ~N[2026-06-12 17:00:00])}],
+          nil
+        )
+
+      assert e.title == "Scrub floors"
+      assert e.all_day
+      assert e.start == ~D[2026-06-10]
+      # Ends 17:00 on the 12th -> occupies the 12th -> exclusive end the 13th.
+      assert e.end == ~D[2026-06-13]
+      assert {e.color, e.text_color} == CalendarDisplay.color_for("proj-1")
+
+      assert %{project_uuid: "proj-1", project_name: "Cleaning", status: "todo"} =
+               meta[e.id]
+    end
+
+    test "a span ending exactly at midnight does not occupy that day" do
+      p = project(%{name: "P"})
+      item = task_item(p, %{})
+
+      {[e], _meta} =
+        CalendarDisplay.task_events(
+          [{item, span(~N[2026-06-10 08:00:00], ~N[2026-06-12 00:00:00])}],
+          nil
+        )
+
+      assert e.end == ~D[2026-06-12]
+    end
+
+    test "a zero-length span still shows as a one-day chip" do
+      p = project(%{name: "P"})
+      item = task_item(p, %{})
+
+      {[e], _meta} =
+        CalendarDisplay.task_events(
+          [{item, span(~N[2026-06-10 08:00:00], ~N[2026-06-10 08:00:00])}],
+          nil
+        )
+
+      assert e.start == ~D[2026-06-10]
+      assert e.end == ~D[2026-06-11]
+    end
+
+    test "shifts spans to the viewer's timezone offset" do
+      p = project(%{name: "P"})
+      item = task_item(p, %{})
+
+      # 23:00 UTC on the 10th is already the 11th at +3.
+      {[e], _meta} =
+        CalendarDisplay.task_events(
+          [{item, span(~N[2026-06-10 23:00:00], ~N[2026-06-10 23:30:00])}],
+          nil,
+          "+3"
+        )
+
+      assert e.start == ~D[2026-06-11]
+      assert e.end == ~D[2026-06-12]
+    end
+
+    test "tasks of one project share its color; different projects differ in id" do
+      p1 = project(%{uuid: "p-a", name: "A"})
+      p2 = project(%{uuid: "p-b", name: "B"})
+      s = span(~N[2026-06-10 08:00:00], ~N[2026-06-10 10:00:00])
+
+      {[e1, e2, e3], _meta} =
+        CalendarDisplay.task_events(
+          [{task_item(p1, %{}), s}, {task_item(p1, %{}), s}, {task_item(p2, %{}), s}],
+          nil
+        )
+
+      assert e1.color == e2.color
+      {p2_bg, _} = CalendarDisplay.color_for("p-b")
+      assert e3.color == p2_bg
+    end
+
+    test "falls back to the untitled label when the assignment has no resolvable title" do
+      # A sub-project link whose child_project isn't loaded resolves no label;
+      # the mapper must degrade to "(untitled task)" rather than crash. (The
+      # Overview filters sub-project containers out, but the mapper is pure and
+      # shouldn't depend on that.)
+      p = project(%{name: "P"})
+      item = task_item(p, %{task: nil, child_project_uuid: "cp-1", child_project: nil})
+
+      {[e], _meta} =
+        CalendarDisplay.task_events(
+          [{item, span(~N[2026-06-10 08:00:00], ~N[2026-06-10 10:00:00])}],
+          nil
+        )
+
+      assert e.title =~ "untitled"
     end
   end
 end
