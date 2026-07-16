@@ -61,6 +61,11 @@ defmodule PhoenixKitProjects.CalendarDisplay do
   # from the settings below.
   @overdue_class "pk-overdue"
 
+  # Tasks-mode late marker: a red inset ring on the chip/bar (Tailwind
+  # utilities as literals so the host's scan emits them; the identity color
+  # stays readable underneath).
+  @late_class "ring-2 ring-error ring-inset"
+
   # ── Overdue animation (configured on /admin/settings/projects) ──────────────
   # The overdue stretch is marked in the INVERSE of the bar's own color — either
   # as diagonal stripes (default) or a solid fill (`pattern`). These settings
@@ -146,22 +151,33 @@ defmodule PhoenixKitProjects.CalendarDisplay do
   chip.
 
   Returns `{events, meta}` — `meta` keyed by assignment uuid with
-  `:project_uuid` / `:project_name` / `:status` for the day popup's rows and
-  click navigation.
+  `:project_uuid` / `:project_name` / `:status` / `:late` for the day popup's
+  rows, the overdue filter, and click navigation.
+
+  Options:
+
+    * `:now` — a UTC `NaiveDateTime`; when given, a not-done task whose span
+      ended before it is **late**: its chip/bar gets a red inset ring
+      (`@late_class`) and its meta entry `late: true`. Without `:now` nothing
+      is flagged (pure date math only).
   """
   @spec task_events(
           [{map(), %{start: NaiveDateTime.t(), end: NaiveDateTime.t()}}],
           String.t() | nil,
-          String.t()
+          String.t(),
+          keyword()
         ) ::
           {[Event.t()], %{optional(String.t()) => map()}}
-  def task_events(items_with_spans, lang, offset \\ "0") do
+  def task_events(items_with_spans, lang, offset \\ "0", opts \\ []) do
+    now = Keyword.get(opts, :now)
+
     Enum.map_reduce(items_with_spans, %{}, fn {item, span}, meta ->
       %{assignment: a, project: project} = item
 
       start_d = to_date(naive_to_utc(span.start), offset)
       end_d = exclusive_end_date(start_d, span.end, offset)
       {bg, text} = color_for(project.uuid)
+      late? = late?(a, span, now)
 
       event =
         PhoenixLiveCalendar.event(a.uuid, start_d,
@@ -169,17 +185,27 @@ defmodule PhoenixKitProjects.CalendarDisplay do
           end: end_d,
           all_day: true,
           color: bg,
-          text_color: text
+          text_color: text,
+          class: if(late?, do: @late_class)
         )
 
       entry = %{
         project_uuid: project.uuid,
         project_name: Project.localized_name(project, lang),
-        status: a.status
+        status: a.status,
+        late: late?
       }
 
       {event, Map.put(meta, a.uuid, entry)}
     end)
+  end
+
+  # A task is late when it isn't done and its scheduled span ended before
+  # `now` — the schedule says it should already have finished.
+  defp late?(_a, _span, nil), do: false
+
+  defp late?(a, span, %NaiveDateTime{} = now) do
+    a.status != "done" and NaiveDateTime.compare(span.end, now) == :lt
   end
 
   # The exclusive end DATE for a span ending at `e` (UTC naive), evaluated in

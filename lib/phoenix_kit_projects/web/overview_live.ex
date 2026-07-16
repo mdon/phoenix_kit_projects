@@ -5,7 +5,16 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
   use Gettext, backend: PhoenixKitProjects.Gettext
   use PhoenixKitProjects.Web.Components
 
-  alias PhoenixKitProjects.{Activity, CalendarDisplay, L10n, Paths, Projects, ScheduleLayout}
+  alias PhoenixKitProjects.{
+    Activity,
+    Assignees,
+    CalendarDisplay,
+    L10n,
+    Paths,
+    Projects,
+    ScheduleLayout
+  }
+
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Schemas.{Assignment, Project, Task}
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
@@ -78,9 +87,27 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
         calendar_mode: :tasks,
         # Tasks-mode data — computed lazily on the first calendar open (the
         # schedule walk is per-project queries), then kept fresh by reload/1.
+        # `task_calendar_items` caches the raw {item, span} walk; the filtered
+        # events/meta derive from it in memory, so filter flips never re-query.
+        task_calendar_items: [],
         task_calendar_events: [],
         task_calendar_meta: %{},
         task_calendar_loaded?: false,
+        # Assignee filter over the Tasks mode: :everyone | :me | :unassigned |
+        # {:person, uuid}. Inherited semantics by default (the person, their
+        # teams, their departments — resolved once into `assignee_scope` by
+        # PhoenixKitProjects.Assignees); `assignee_direct_only?` narrows to
+        # personal assignments. `me_scope` caches the viewer's own resolution
+        # (:unresolved until the first calendar load; nil = no staff person,
+        # which hides the Me shortcut).
+        assignee_filter: :everyone,
+        assignee_scope: nil,
+        assignee_direct_only?: false,
+        assignee_people: [],
+        me_scope: :unresolved,
+        unassigned_count: 0,
+        # Show only late tasks (not done + scheduled span already ended).
+        overdue_only?: false,
         # The whole-day popup (Google-style): nil when closed, else
         # %{date: Date, rows: [row]} filled by a day-cell / "+N more" click.
         day_popup: nil
@@ -180,8 +207,10 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
   # Builds the Tasks-mode calendar: run the shared schedule walk per project
   # (same walk as the show page's Timeline/Calendar tabs), keep LEAF tasks
   # (sub-project containers excluded — their child tasks stand for
-  # themselves), and map them to identity-colored all-day events + the meta
-  # map the day popup and click navigation read.
+  # themselves), cache the raw {item, span} list, and derive the filtered
+  # events/meta from it. Also resolves the picker options, the unassigned
+  # count (over ALL items — it's a triage signal, not a filtered view), and
+  # the viewer's own assignee scope (once per mount).
   defp load_task_calendar(socket, active, upcoming, completed, offset) do
     items_with_spans =
       (active ++ upcoming ++ completed)
@@ -194,14 +223,93 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
         |> Enum.map(&{&1, Map.fetch!(layout, &1.uuid)})
       end)
 
-    {events, meta} =
-      CalendarDisplay.task_events(items_with_spans, L10n.current_content_lang(), offset)
+    me_scope =
+      case socket.assigns.me_scope do
+        :unresolved ->
+          Assignees.scope_for_user(socket.assigns[:user_uuid], L10n.current_content_lang())
 
-    assign(socket,
-      task_calendar_events: events,
-      task_calendar_meta: meta,
-      task_calendar_loaded?: true
+        resolved ->
+          resolved
+      end
+
+    socket
+    |> assign(
+      task_calendar_items: items_with_spans,
+      task_calendar_loaded?: true,
+      tz_offset: offset,
+      assignee_people: Assignees.people_options(),
+      me_scope: me_scope,
+      unassigned_count:
+        Enum.count(items_with_spans, fn {it, _} -> Assignees.unassigned?(it.assignment) end)
     )
+    |> apply_task_filter()
+  end
+
+  # Derives the visible events/meta from the cached walk + the current
+  # assignee/overdue filter. In-memory only — filter flips never re-query.
+  defp apply_task_filter(socket) do
+    %{
+      task_calendar_items: items,
+      assignee_filter: filter,
+      assignee_direct_only?: direct_only?,
+      overdue_only?: overdue_only?,
+      tz_offset: offset
+    } = socket.assigns
+
+    scope = current_scope(socket)
+    now = DateTime.utc_now() |> DateTime.to_naive()
+
+    {kept, provenance} = filter_items(items, filter, scope, direct_only?)
+
+    {events, meta} =
+      CalendarDisplay.task_events(kept, L10n.current_content_lang(), offset, now: now)
+
+    # Provenance ("via <team>") rides the meta so popup rows can show WHY a
+    # task is in a person's view without implying personal ownership.
+    meta =
+      Map.new(meta, fn {uuid, entry} ->
+        {uuid, Map.put(entry, :via, Map.get(provenance, uuid))}
+      end)
+
+    {events, meta} =
+      if overdue_only? do
+        late = events |> Enum.filter(&meta[&1.id].late) |> MapSet.new(& &1.id)
+        {Enum.filter(events, &MapSet.member?(late, &1.id)), meta}
+      else
+        {events, meta}
+      end
+
+    assign(socket, task_calendar_events: events, task_calendar_meta: meta)
+  end
+
+  defp current_scope(%{assigns: %{assignee_filter: :me, me_scope: %{} = scope}}), do: scope
+
+  defp current_scope(%{assigns: %{assignee_filter: {:person, _}, assignee_scope: scope}}),
+    do: scope
+
+  defp current_scope(_socket), do: nil
+
+  # Applies the assignee filter to the raw items. For person scopes, returns
+  # the provenance map (uuid => :direct | {:team, name} | {:department, name})
+  # alongside; direct-only narrows to :direct matches.
+  defp filter_items(items, :everyone, _scope, _direct), do: {items, %{}}
+
+  defp filter_items(items, :unassigned, _scope, _direct) do
+    {Enum.filter(items, fn {it, _} -> Assignees.unassigned?(it.assignment) end), %{}}
+  end
+
+  defp filter_items(items, _person_or_me, nil, _direct), do: {items, %{}}
+
+  defp filter_items(items, _person_or_me, scope, direct_only?) do
+    Enum.reduce(items, {[], %{}}, fn {it, span}, {kept, prov} ->
+      case Assignees.match(it.assignment, scope) do
+        nil -> {kept, prov}
+        :direct -> {[{it, span} | kept], prov}
+        _via when direct_only? -> {kept, prov}
+        via -> {[{it, span} | kept], Map.put(prov, it.uuid, via)}
+      end
+    end)
+    |> then(fn {kept, prov} -> {Enum.reverse(kept), prov} end)
   end
 
   # First-open build (reload/1 skips the walk until the tab has been seen).
@@ -371,6 +479,66 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
     end
   end
 
+  # Assignee quick filters. "me" only applies when the viewer resolved to a
+  # staff person (the button is hidden otherwise, but the guard is server-side).
+  def handle_event("set_assignee_filter", %{"filter" => filter}, socket) do
+    new =
+      case filter do
+        "everyone" -> :everyone
+        "unassigned" -> :unassigned
+        "me" -> if(match?(%{}, socket.assigns.me_scope), do: :me)
+        _ -> nil
+      end
+
+    if new do
+      {:noreply,
+       socket
+       |> assign(assignee_filter: new, assignee_scope: nil)
+       |> apply_task_filter()}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  # The person picker (a phx-change form). An empty value resets to Everyone;
+  # an unknown uuid resolves to nil scope and falls back to Everyone too.
+  def handle_event("pick_assignee_person", %{"person" => ""}, socket) do
+    {:noreply,
+     socket
+     |> assign(assignee_filter: :everyone, assignee_scope: nil)
+     |> apply_task_filter()}
+  end
+
+  def handle_event("pick_assignee_person", %{"person" => uuid}, socket) when is_binary(uuid) do
+    case Assignees.scope_for_person(uuid, L10n.current_content_lang()) do
+      nil ->
+        {:noreply, socket}
+
+      scope ->
+        {:noreply,
+         socket
+         |> assign(assignee_filter: {:person, uuid}, assignee_scope: scope)
+         |> apply_task_filter()}
+    end
+  end
+
+  # "Direct only" narrows a person scope to personal assignments (team/
+  # department inheritance off).
+  def handle_event("toggle_assignee_direct", _params, socket) do
+    {:noreply,
+     socket
+     |> update(:assignee_direct_only?, &(not &1))
+     |> apply_task_filter()}
+  end
+
+  # "Overdue only" — late tasks (not done, scheduled span already ended).
+  def handle_event("toggle_overdue_only", _params, socket) do
+    {:noreply,
+     socket
+     |> update(:overdue_only?, &(not &1))
+     |> apply_task_filter()}
+  end
+
   # Close the whole-day popup (the PkDialog hook mirrors ESC/backdrop/✕ back
   # to this event so the server flag stays in sync).
   def handle_event("close_day_popup", _params, socket) do
@@ -457,8 +625,9 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
         id: e.id,
         title: e.title,
         color: e.color,
-        subtitle: m[:project_name],
+        subtitle: row_subtitle(m),
         status: m[:status],
+        late: m[:late] || false,
         project_uuid: m[:project_uuid]
       }
     end)
@@ -474,9 +643,20 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
         color: e.color,
         subtitle: project_span_label(e),
         status: nil,
+        late: false,
         project_uuid: e.id
       }
     end)
+  end
+
+  # "Project · via Team" — the provenance rider explains WHY a task appears
+  # in a person-scoped view (it may be a team/department assignment, not a
+  # personal one).
+  defp row_subtitle(m) do
+    case m[:via] do
+      {_kind, name} -> "#{m[:project_name]} · #{gettext("via %{name}", name: name)}"
+      _ -> m[:project_name]
+    end
   end
 
   # Events whose [start, end) span covers `date`, soonest-starting first.
@@ -669,8 +849,82 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                  don't match the trigger — they navigate instead. --%>
             <div class={["mt-2", if(@overview_tab != :calendar, do: "hidden")]}>
               <%= if @calendar_seen? do %>
-                <div class="flex justify-end mb-2">
-                  <div class="join">
+                <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mb-2">
+                  <%!-- Assignee + overdue filters (Tasks mode only). Inherited
+                       semantics by default: Me / a person includes their teams
+                       and departments; "Direct only" narrows to personal
+                       assignments. Unassigned is a triage view with a live
+                       count over ALL tasks. --%>
+                  <div class={["flex flex-wrap items-center gap-2", @calendar_mode != :tasks && "hidden"]}>
+                    <div class="join">
+                      <button
+                        type="button"
+                        class={["btn btn-xs join-item", @assignee_filter == :everyone && "btn-active"]}
+                        phx-click="set_assignee_filter"
+                        phx-value-filter="everyone"
+                      >
+                        {gettext("Everyone")}
+                      </button>
+                      <button
+                        :if={match?(%{}, @me_scope)}
+                        type="button"
+                        class={["btn btn-xs join-item", @assignee_filter == :me && "btn-active"]}
+                        phx-click="set_assignee_filter"
+                        phx-value-filter="me"
+                      >
+                        {gettext("Me")}
+                      </button>
+                      <button
+                        type="button"
+                        class={["btn btn-xs join-item", @assignee_filter == :unassigned && "btn-active"]}
+                        phx-click="set_assignee_filter"
+                        phx-value-filter="unassigned"
+                      >
+                        {gettext("Unassigned")}
+                        <span class="badge badge-xs badge-ghost">{@unassigned_count}</span>
+                      </button>
+                    </div>
+
+                    <form :if={@assignee_people != []} phx-change="pick_assignee_person">
+                      <label class="select select-xs w-44">
+                        <select name="person">
+                          <option value="">{gettext("Person…")}</option>
+                          <option
+                            :for={{name, uuid} <- @assignee_people}
+                            value={uuid}
+                            selected={@assignee_filter == {:person, uuid}}
+                          >
+                            {name}
+                          </option>
+                        </select>
+                      </label>
+                    </form>
+
+                    <label
+                      :if={@assignee_filter == :me or match?({:person, _}, @assignee_filter)}
+                      class="label cursor-pointer gap-1.5 text-xs"
+                    >
+                      <input
+                        type="checkbox"
+                        class="checkbox checkbox-xs"
+                        checked={@assignee_direct_only?}
+                        phx-click="toggle_assignee_direct"
+                      />
+                      {gettext("Direct only")}
+                    </label>
+
+                    <label class="label cursor-pointer gap-1.5 text-xs">
+                      <input
+                        type="checkbox"
+                        class="checkbox checkbox-xs checkbox-error"
+                        checked={@overdue_only?}
+                        phx-click="toggle_overdue_only"
+                      />
+                      {gettext("Overdue only")}
+                    </label>
+                  </div>
+
+                  <div class="join ml-auto">
                     <button
                       type="button"
                       class={["btn btn-xs join-item", @calendar_mode == :tasks && "btn-active"]}
@@ -703,7 +957,7 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                       module={PhoenixLiveCalendar.CalendarComponent}
                       id="overview-tasks-calendar"
                       events={@task_calendar_events}
-                      views={[:month]}
+                      views={[:month, :agenda]}
                       date={@today}
                       today={@today}
                       fixed_weeks={false}
@@ -725,8 +979,14 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                         <p class="mt-1.5">
                           {gettext("Tasks share their project's color. Click a task to open its project.")}
                         </p>
+                        <p class="mt-1.5">
+                          {gettext("A red ring marks a late task — not done, but past its scheduled days.")}
+                        </p>
                         <p class="mt-1.5 text-base-content/50">
                           {gettext("Busy days cap the list — click the day or its +N more link to see everything scheduled that day.")}
+                        </p>
+                        <p class="mt-1.5 text-base-content/50">
+                          {gettext("Placement is computed from each project's task order and durations — it moves as tasks are edited, reordered, or completed.")}
                         </p>
                       </:info>
                     </.live_component>
@@ -805,6 +1065,9 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                             <span :if={row.subtitle} class="block text-xs text-base-content/60 truncate">
                               {row.subtitle}
                             </span>
+                          </span>
+                          <span :if={row.late} class="badge badge-xs badge-error">
+                            {gettext("late")}
                           </span>
                           <.assignment_status_badge :if={row.status} status={row.status} size="xs" />
                         </button>

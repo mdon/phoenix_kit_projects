@@ -108,6 +108,10 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
       # initial-plus-controlled, so re-passing the same value on PubSub
       # reloads preserves the user's own month navigation.
       anchor_date: nil,
+      # The whole-day popup (same pattern as the Overview calendar): nil when
+      # closed, else %{date: Date, rows: [row]} filled by a day-cell / "+N
+      # more" click. The dialog itself opens client-side (PkDialogTrigger).
+      day_popup: nil,
       today: Date.utc_today(),
       # Per-project PubSub topics already subscribed (the whole rendered tree;
       # grows as sub-projects appear). Avoids double-subscribing on reload.
@@ -125,30 +129,17 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
 
   # The calendar component's callbacks arrive as process messages.
   def handle_info({:calendar_event_click, assignment_uuid}, socket) do
-    case Map.get(socket.assigns.click_targets, assignment_uuid) do
-      {:subproject, child_uuid} ->
-        {:noreply,
-         WebHelpers.navigate_or_open(socket,
-           to: Paths.project(child_uuid),
-           open: {PhoenixKitProjects.Web.ProjectShowLive, %{"id" => child_uuid}}
-         )}
+    {:noreply, navigate_to_target(socket, assignment_uuid)}
+  end
 
-      {:task, project_uuid} ->
-        {:noreply,
-         WebHelpers.navigate_or_open(socket,
-           to: Paths.edit_assignment(project_uuid, assignment_uuid),
-           open:
-             {PhoenixKitProjects.Web.AssignmentFormLive,
-              %{
-                "live_action" => "edit",
-                "project_id" => project_uuid,
-                "id" => assignment_uuid
-              }}
-         )}
+  # A day cell or its "+N more" link was clicked — fill the whole-day popup
+  # (the dialog already opened client-side in the same frame).
+  def handle_info({:calendar_date_click, %Date{} = date}, socket) do
+    {:noreply, open_day_popup(socket, date)}
+  end
 
-      nil ->
-        {:noreply, socket}
-    end
+  def handle_info({:calendar_more_click, %Date{} = date}, socket) do
+    {:noreply, open_day_popup(socket, date)}
   end
 
   # ── PubSub reactivity (read-only — just reload) ──────────────────
@@ -185,6 +176,61 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
   def handle_info(msg, socket) do
     Logger.debug("[ProjectCalendarLive] unexpected handle_info: #{inspect(msg)}")
     {:noreply, socket}
+  end
+
+  # ── Events (day popup) ──────────────────────────────────────────
+
+  @impl true
+  def handle_event("close_day_popup", _params, socket) do
+    {:noreply, assign(socket, day_popup: nil)}
+  end
+
+  # A row inside the day popup — same targets as a chip click.
+  def handle_event("day_popup_item_click", %{"uuid" => uuid}, socket) when is_binary(uuid) do
+    {:noreply, socket |> assign(day_popup: nil) |> navigate_to_target(uuid)}
+  end
+
+  # A leaf task opens its assignment edit form; a sub-project drills into the
+  # child project. Unknown id (stale render) is a no-op.
+  defp navigate_to_target(socket, assignment_uuid) do
+    case Map.get(socket.assigns.click_targets, assignment_uuid) do
+      {:subproject, child_uuid} ->
+        WebHelpers.navigate_or_open(socket,
+          to: Paths.project(child_uuid),
+          open: {PhoenixKitProjects.Web.ProjectShowLive, %{"id" => child_uuid}}
+        )
+
+      {:task, project_uuid} ->
+        WebHelpers.navigate_or_open(socket,
+          to: Paths.edit_assignment(project_uuid, assignment_uuid),
+          open:
+            {PhoenixKitProjects.Web.AssignmentFormLive,
+             %{
+               "live_action" => "edit",
+               "project_id" => project_uuid,
+               "id" => assignment_uuid
+             }}
+        )
+
+      nil ->
+        socket
+    end
+  end
+
+  # The popup's rows for `date`: every event whose [start, end) span covers
+  # it, soonest-starting first, with the status badge the chips can't show.
+  defp open_day_popup(socket, date) do
+    rows =
+      socket.assigns.events
+      |> Enum.filter(fn e ->
+        Date.compare(e.start, date) != :gt and Date.compare(date, Date.add(e.end, -1)) != :gt
+      end)
+      |> Enum.sort_by(&{&1.start, &1.title})
+      |> Enum.map(fn e ->
+        %{id: e.id, title: e.title, color: e.color, status: Map.get(e.extra || %{}, :status)}
+      end)
+
+    assign(socket, day_popup: %{date: date, rows: rows})
   end
 
   # ── Data loading ────────────────────────────────────────────────
@@ -258,7 +304,10 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
       title: Assignment.label(a, lang) || gettext("(untitled task)"),
       end: end_d,
       all_day: true,
-      color: status_color(a.status)
+      color: status_color(a.status),
+      # For the whole-day popup's status badge (the bar color already encodes
+      # status on the grid, but a popup row spells it out).
+      extra: %{status: a.status}
     )
   end
 
@@ -366,7 +415,16 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
             </:cta>
           </.empty_state>
         <% else %>
-          <div class="border border-base-200 rounded-lg overflow-hidden">
+          <%!-- PkDialogTrigger makes a day-cell / "+N more" click open the
+               whole-day popup in the same frame; event chips have their own
+               phx-click and correctly don't match — they navigate instead. --%>
+          <div
+            id={"project-calendar-day-trigger-#{@project.uuid}"}
+            phx-hook="PkDialogTrigger"
+            data-dialog={"project-day-modal-#{@project.uuid}"}
+            data-trigger=".cal-day-cell, .cal-more-link"
+            class="border border-base-200 rounded-lg overflow-hidden"
+          >
             <.live_component
               module={PhoenixLiveCalendar.CalendarComponent}
               id={"project-calendar-#{@project.uuid}"}
@@ -376,8 +434,12 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
               today={@today}
               fixed_weeks={false}
               expand_cells={true}
+              max_events={3}
+              max_multiday={4}
               info_label={gettext("About this calendar")}
               on_event_click={fn id -> send(self(), {:calendar_event_click, id}) end}
+              on_date_select={fn date -> send(self(), {:calendar_date_click, date}) end}
+              on_more_click={fn date -> send(self(), {:calendar_more_click, date}) end}
             >
               <:info>
                 <p class="mb-1 text-sm font-semibold text-base-content">
@@ -406,6 +468,56 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
               </:info>
             </.live_component>
           </div>
+
+          <%!-- Whole-day popup. Kept in the DOM so PkDialogTrigger can open it
+               in the same frame as the click; the body is a skeleton until the
+               server round-trip fills @day_popup. --%>
+          <.modal
+            keep_in_dom
+            id={"project-day-modal-#{@project.uuid}"}
+            show={@day_popup != nil}
+            on_close="close_day_popup"
+            max_width="md"
+          >
+            <:title>
+              <%= if @day_popup do %>
+                <.icon name="hero-calendar-days" class="w-5 h-5" />
+                {L10n.format_date(@day_popup.date)}
+              <% else %>
+                <span class="inline-block w-28 h-5 bg-base-content/10 rounded animate-pulse">
+                </span>
+              <% end %>
+            </:title>
+
+            <%= if @day_popup do %>
+              <%= if @day_popup.rows == [] do %>
+                <p class="text-sm text-base-content/50 py-4 text-center">
+                  {gettext("Nothing scheduled this day.")}
+                </p>
+              <% else %>
+                <div class="flex flex-col gap-1">
+                  <button
+                    :for={row <- @day_popup.rows}
+                    type="button"
+                    phx-click="day_popup_item_click"
+                    phx-value-uuid={row.id}
+                    class="flex items-center gap-2.5 w-full p-2 rounded-lg hover:bg-base-200 text-left transition"
+                  >
+                    <span class={["w-2.5 h-2.5 rounded-full shrink-0", row.color]}></span>
+                    <span class="flex-1 min-w-0">
+                      <span class="block text-sm font-medium truncate">{row.title}</span>
+                    </span>
+                    <.assignment_status_badge :if={row.status} status={row.status} size="xs" />
+                  </button>
+                </div>
+              <% end %>
+            <% else %>
+              <div class="flex flex-col gap-2 py-1">
+                <div :for={_i <- 1..3} class="h-9 bg-base-content/10 rounded-lg animate-pulse">
+                </div>
+              </div>
+            <% end %>
+          </.modal>
         <% end %>
       <% end %>
     </div>
