@@ -360,7 +360,11 @@ defmodule PhoenixKitProjects.Web.OverviewLiveTest do
       {:ok, _} = Staff.add_team_person(team.uuid, person.uuid)
 
       project = fixture_project(%{"start_mode" => "immediate", "counts_weekends" => true})
-      {:ok, _} = Prj.start_project(project)
+      # 00:05 UTC today, not "now" — near UTC midnight the sequential walk
+      # would otherwise push later tasks into tomorrow, and the day-popup
+      # assertions are scoped to today (same flake class as calendar_fixture).
+      early_today = DateTime.new!(Date.utc_today(), ~T[00:05:00], "Etc/UTC")
+      {:ok, _} = Prj.start_project(project, early_today)
 
       make = fn title, extra ->
         task =
