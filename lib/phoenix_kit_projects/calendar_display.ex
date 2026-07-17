@@ -231,7 +231,11 @@ defmodule PhoenixKitProjects.CalendarDisplay do
   behind both calendars' red rings, `late` badges, and Overdue-only filters
   (a `nil` `now` flags nothing — pure date math only).
   """
-  @spec task_late?(map(), %{:end => NaiveDateTime.t(), optional(atom()) => term()}, NaiveDateTime.t() | nil) ::
+  @spec task_late?(
+          map(),
+          %{:end => NaiveDateTime.t(), optional(atom()) => term()},
+          NaiveDateTime.t() | nil
+        ) ::
           boolean()
   def task_late?(_a, _span, nil), do: false
 

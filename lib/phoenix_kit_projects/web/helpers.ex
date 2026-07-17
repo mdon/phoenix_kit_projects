@@ -979,9 +979,9 @@ defmodule PhoenixKitProjects.Web.Helpers do
 
   # `close: true` signals to PopupHost "this resource is gone — pop the
   # modal frame that was showing it." `close: false` is informational
-  # ("a row in my view was deleted; I'm staying open"). The emitter's
-  # call site decides — see `notify_deleted_or_navigate/4` vs
-  # `notify_deleted/3`.
+  # ("a row in my view was deleted; I'm staying open") — the shape
+  # `notify_deleted/3` emits. `close: true` is currently reserved
+  # vocabulary (own-resource-gone LVs pop via `close_or_navigate/2`).
   defp emit_deleted(socket, kind, uuid, close) do
     payload = %{
       kind: kind,

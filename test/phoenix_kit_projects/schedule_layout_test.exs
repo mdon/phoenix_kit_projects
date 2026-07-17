@@ -114,7 +114,11 @@ defmodule PhoenixKitProjects.ScheduleLayoutTest do
 
   test "assignment_hours/2 prefers the assignment's duration, falling back to the task's" do
     project = %Project{counts_weekends: true}
-    task = %PhoenixKitProjects.Schemas.Task{estimated_duration: 2, estimated_duration_unit: "days"}
+
+    task = %PhoenixKitProjects.Schemas.Task{
+      estimated_duration: 2,
+      estimated_duration_unit: "days"
+    }
 
     own = %Assignment{estimated_duration: 3, estimated_duration_unit: "hours", task: task}
     assert ScheduleLayout.assignment_hours(own, project) == 3.0

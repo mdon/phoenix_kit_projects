@@ -19,9 +19,9 @@ defmodule PhoenixKitProjects.Web.WidgetsResilienceTest do
     DeadlinesWidget,
     MyTasksWidget,
     OngoingTasksWidget,
+    ProjectsBoardWidget,
     ProjectScheduleWidget,
     ProjectStatusWidget,
-    ProjectsBoardWidget,
     WorkloadWidget
   }
 
@@ -29,9 +29,9 @@ defmodule PhoenixKitProjects.Web.WidgetsResilienceTest do
     DeadlinesWidget,
     MyTasksWidget,
     OngoingTasksWidget,
+    ProjectsBoardWidget,
     ProjectScheduleWidget,
     ProjectStatusWidget,
-    ProjectsBoardWidget,
     WorkloadWidget
   ]
 
