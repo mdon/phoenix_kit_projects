@@ -517,6 +517,12 @@ defmodule PhoenixKitProjects.Web.OverviewLiveTest do
       # A malformed limit degrades to the default instead of crashing.
       render_click(view, "assignee_search", %{"q" => "", "limit" => "bogus"})
       assert_push_event(view, "assignee_results", %{results: _})
+
+      # A picked person no longer appears as a suggestion.
+      render_click(view, "assignee_pick", %{"uuid" => fx.person.uuid})
+      render_click(view, "assignee_search", %{"q" => fx.person.name, "limit" => 8})
+      assert_push_event(view, "assignee_results", %{results: excluded})
+      refute Enum.any?(excluded, &(&1.uuid == fx.person.uuid))
     end
 
     test "a viewer without a staff person gets no Me button; the event is a no-op", %{

@@ -576,7 +576,9 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
           8
       end
 
-    {rows, has_more} = Assignees.search_people(q, limit)
+    # Already-picked people don't reappear as suggestions.
+    exclude = Enum.map(socket.assigns.assignee_selected, & &1.uuid)
+    {rows, has_more} = Assignees.search_people(q, limit, exclude: exclude)
 
     {:noreply, push_event(socket, "assignee_results", %{q: q, results: rows, has_more: has_more})}
   end
@@ -610,7 +612,7 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
     {:noreply, remove_person_chip(socket, uuid)}
   end
 
-  # "Direct only" narrows a person scope to personal assignments (team/
+  # "Personal only" narrows a person scope to personal assignments (team/
   # department inheritance off).
   def handle_event("toggle_assignee_direct", _params, socket) do
     {:noreply,
@@ -940,7 +942,7 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                 <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mb-2">
                   <%!-- Assignee + overdue filters (Tasks mode only). Inherited
                        semantics by default: Me / a person includes their teams
-                       and departments; "Direct only" narrows to personal
+                       and departments; "Personal only" narrows to personal
                        assignments. Unassigned is a triage view with a live
                        count over ALL tasks. --%>
                   <div class={["flex flex-wrap items-center gap-2", @calendar_mode != :tasks && "hidden"]}>
@@ -948,13 +950,16 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                       <%!-- One unified union: Everyone = clear-all (lit in the
                            resting state), Me = toggle the viewer's own chip,
                            Unassigned = toggle the no-assignee lens. All compose
-                           — "Me + Alice + Unassigned" is one view. --%>
+                           — "Me + Alice + Unassigned" is one view. daisyUI
+                           tooltips (pseudo-element based, no layout impact)
+                           explain each control on hover. --%>
                       <button
                         type="button"
                         class={[
-                          "btn btn-xs join-item",
+                          "btn btn-xs join-item tooltip",
                           @assignee_selected == [] and not @include_unassigned? && "btn-active"
                         ]}
+                        data-tip={gettext("Show every task — clears the person filters")}
                         phx-click="clear_assignee_filter"
                       >
                         {gettext("Everyone")}
@@ -963,16 +968,18 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                         :if={match?(%{}, @me_scope)}
                         type="button"
                         class={[
-                          "btn btn-xs join-item",
+                          "btn btn-xs join-item tooltip",
                           me_chip_active?(@me_scope, @assignee_selected) && "btn-active"
                         ]}
+                        data-tip={gettext("Your work — assigned to you, your teams, or your departments")}
                         phx-click="toggle_me_chip"
                       >
                         {gettext("Me")}
                       </button>
                       <button
                         type="button"
-                        class={["btn btn-xs join-item", @include_unassigned? && "btn-active"]}
+                        class={["btn btn-xs join-item tooltip", @include_unassigned? && "btn-active"]}
+                        data-tip={gettext("Tasks nobody is assigned to yet — combines with picked people")}
                         phx-click="toggle_unassigned"
                       >
                         {gettext("Unassigned")}
@@ -980,7 +987,10 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                       </button>
                     </div>
 
-                    <label class="label cursor-pointer gap-1.5 text-xs">
+                    <label
+                      class="label cursor-pointer gap-1.5 text-xs tooltip"
+                      data-tip={gettext("Only late tasks — not done and past their scheduled days")}
+                    >
                       <input
                         type="checkbox"
                         class="checkbox checkbox-xs checkbox-error"
@@ -994,7 +1004,8 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                   <div class="join ml-auto">
                     <button
                       type="button"
-                      class={["btn btn-xs join-item", @calendar_mode == :tasks && "btn-active"]}
+                      class={["btn btn-xs join-item tooltip", @calendar_mode == :tasks && "btn-active"]}
+                      data-tip={gettext("Every task on the days it is scheduled to run")}
                       phx-click="set_calendar_mode"
                       phx-value-mode="tasks"
                     >
@@ -1002,7 +1013,11 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                     </button>
                     <button
                       type="button"
-                      class={["btn btn-xs join-item", @calendar_mode == :projects && "btn-active"]}
+                      class={[
+                        "btn btn-xs join-item tooltip tooltip-left",
+                        @calendar_mode == :projects && "btn-active"
+                      ]}
+                      data-tip={gettext("One line per project, with the overdue marker")}
                       phx-click="set_calendar_mode"
                       phx-value-mode="projects"
                     >
@@ -1054,7 +1069,8 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                       type="button"
                       phx-click="remove_assignee_person"
                       phx-value-uuid={p.uuid}
-                      class="shrink-0 cursor-pointer rounded-full p-0.5 -m-0.5 transition-colors hover:bg-error hover:text-error-content"
+                      class="shrink-0 cursor-pointer rounded-full p-0.5 -m-0.5 transition-colors hover:bg-error hover:text-error-content tooltip"
+                      data-tip={gettext("Remove %{name}", name: p.name)}
                       aria-label={gettext("Remove %{name}", name: p.name)}
                     >
                       <.icon name="hero-x-mark" class="w-3 h-3 block" />
@@ -1065,7 +1081,8 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                        to direct assignments (never the Unassigned lens). --%>
                   <label
                     :if={@assignee_selected != []}
-                    class="label cursor-pointer gap-1.5 text-xs"
+                    class="label cursor-pointer gap-1.5 text-xs tooltip"
+                    data-tip={gettext("Only tasks assigned to these people personally — hides work they inherit from teams and departments")}
                   >
                     <input
                       type="checkbox"
@@ -1073,7 +1090,7 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                       checked={@assignee_direct_only?}
                       phx-click="toggle_assignee_direct"
                     />
-                    {gettext("Direct only")}
+                    {gettext("Personal only")}
                   </label>
                 </div>
 

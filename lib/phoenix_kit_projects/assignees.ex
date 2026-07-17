@@ -131,23 +131,26 @@ defmodule PhoenixKitProjects.Assignees do
 
   Returns `{rows, has_more}` where each row is the picker's
   `%{kind:, uuid:, label:, sublabel:, icon:}` shape. `{[], false}` on a
-  failed staff read.
+  failed staff read. `opts[:exclude]` drops the given person uuids at the
+  database (already-picked chips shouldn't reappear as suggestions) without
+  disturbing the page/`has_more` math.
 
   Queries the staff `Person` schema directly (already a hard schema dep via
   the assignment FKs) because the staff context's `list_people/1` has no
   LIMIT — the whole point here is not loading 1000 people per keystroke.
   """
-  @spec search_people(String.t() | nil, pos_integer()) :: {[map()], boolean()}
-  def search_people(query, limit \\ 8) do
+  @spec search_people(String.t() | nil, pos_integer(), keyword()) :: {[map()], boolean()}
+  def search_people(query, limit \\ 8, opts \\ []) do
     import Ecto.Query
 
     limit = limit |> max(1) |> min(50)
     q = query |> to_string() |> String.trim()
+    exclude = Keyword.get(opts, :exclude, [])
 
     base =
       from(p in Person,
         left_join: u in assoc(p, :user),
-        where: p.status != "trashed",
+        where: p.status != "trashed" and p.uuid not in ^exclude,
         order_by: [asc: fragment("coalesce(?, ?)", p.name, u.email)],
         limit: ^(limit + 1),
         select: %{uuid: p.uuid, name: p.name, email: u.email}
