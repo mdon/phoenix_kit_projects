@@ -397,13 +397,28 @@ defmodule PhoenixKitProjects.CalendarDisplay do
           wave_step: float()
         }
   def read_animation do
+    # One batched, uncached query for all six keys instead of a SELECT per key —
+    # this runs on every Overview reload (each `{:projects, …}` broadcast), not
+    # just mount. Direct reads keep the settings page's live demo fresh.
+    values =
+      PhoenixKit.Settings.get_settings_direct([
+        @anim_pattern_key,
+        @anim_mode_key,
+        @anim_speed_key,
+        @anim_bright_min_key,
+        @anim_bright_max_key,
+        @anim_wave_step_key
+      ])
+
     %{
-      pattern: anim_enum(@anim_pattern_key, @anim_patterns, @default_pattern),
-      mode: anim_enum(@anim_mode_key, @anim_modes, @default_mode),
-      speed: anim_float(@anim_speed_key, @default_speed, @speed_range),
-      brightness_min: anim_float(@anim_bright_min_key, @default_bright_min, @bright_min_range),
-      brightness_max: anim_float(@anim_bright_max_key, @default_bright_max, @bright_max_range),
-      wave_step: anim_float(@anim_wave_step_key, @default_wave_step, @wave_step_range)
+      pattern: anim_enum(values, @anim_pattern_key, @anim_patterns, @default_pattern),
+      mode: anim_enum(values, @anim_mode_key, @anim_modes, @default_mode),
+      speed: anim_float(values, @anim_speed_key, @default_speed, @speed_range),
+      brightness_min:
+        anim_float(values, @anim_bright_min_key, @default_bright_min, @bright_min_range),
+      brightness_max:
+        anim_float(values, @anim_bright_max_key, @default_bright_max, @bright_max_range),
+      wave_step: anim_float(values, @anim_wave_step_key, @default_wave_step, @wave_step_range)
     }
   end
 
@@ -589,13 +604,13 @@ defmodule PhoenixKitProjects.CalendarDisplay do
 
   defp opacity(v), do: v |> max(0.0) |> min(1.0)
 
-  defp anim_enum(key, allowed, default) do
-    value = PhoenixKit.Settings.get_setting(key, default)
+  defp anim_enum(values, key, allowed, default) do
+    value = Map.get(values, key, default)
     if value in allowed, do: value, else: default
   end
 
-  defp anim_float(key, default, range) do
-    case Float.parse(PhoenixKit.Settings.get_setting(key, to_string(default))) do
+  defp anim_float(values, key, default, range) do
+    case Float.parse(Map.get(values, key) || to_string(default)) do
       {f, _} -> clamp(f, range)
       :error -> default
     end
