@@ -16,14 +16,16 @@ here: one is now fixed, one is an audit-policy call surfaced to Max.
   previously went through `get_boolean_setting/2` (a **cached** read) — they
   now share the same fresh batch, making the whole map read-consistent.
 
-## Skipped (with rationale)
+## Fixed (Batch 2 — 2026-07-17, AI-panel consensus)
 
-- NITPICK/IMPROVEMENT-MEDIUM: an activity-log row per debounced slider tick
-  (`projects.gantt_display_changed` on every `phx-change`). How to record
-  incremental UI tuning is an audit-policy decision (coalesce? log on
-  settle?) — surfaced to Max in the 2026-07-17 sweep report; unchanged
-  pending his call. The 150 ms debounce bounds the volume, and behavior is
-  consistent with the calendar settings card (PR #27).
+- ~~NITPICK/IMPROVEMENT-MEDIUM: an activity-log row per debounced slider
+  tick~~ — surfaced to the AI panel per Max's call; unanimous (Codex, Kimi,
+  Grok, Vibe): coalesce server-side. `projects_settings_live` now queues the
+  change per `{action, field}` and flushes ONE row with the settled value
+  after ~1s of quiet (timer tokens ignore stale flushes; a reset supersedes
+  queued rows; `terminate/2` best-effort-flushes on navigation). Pinned by
+  the "coalesced slider audit logs" describe block; browser-verified (two
+  live nudges → one row carrying the final value).
 
 ## Files touched
 

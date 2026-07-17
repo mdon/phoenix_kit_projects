@@ -81,7 +81,15 @@ defmodule PhoenixKitProjects.Web.Widgets.WorkloadWidget do
               value={count(@lifecycle, :overdue)}
               tone={if(count(@lifecycle, :overdue) > 0, do: "text-error", else: "text-base-content/70")}
             />
-            <.kpi small label={gettext("Scheduled")} value={count(@lifecycle, :scheduled)} tone="text-info" />
+            <%!-- :scheduled (start planned for later) + :setup (immediate
+                 start, not started yet) fold into one "Not started" tile so
+                 the four tiles always sum to the headline total. --%>
+            <.kpi
+              small
+              label={gettext("Not started")}
+              value={count(@lifecycle, :scheduled) + count(@lifecycle, :setup)}
+              tone="text-info"
+            />
             <.kpi small label={gettext("Completed")} value={count(@lifecycle, :completed)} tone="text-base-content/70" />
           </div>
         </div>

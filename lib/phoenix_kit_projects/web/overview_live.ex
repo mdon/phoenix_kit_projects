@@ -61,6 +61,12 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
       socket
       |> assign(
         user_uuid: Activity.actor_uuid(socket),
+        # Per-instance DOM-id suffix: this LV is embeddable, and its calendar
+        # chrome is wired by CSS-selector JS (PkDialogTrigger's data-dialog,
+        # the SearchPicker's picker_target). Static ids would cross-route two
+        # embeds on one host page to the first match. socket.id is stable
+        # across the dead render and the join, so ids match on hydration.
+        sfx: socket.id,
         page_title: gettext("Projects"),
         wrapper_class: wrapper_class,
         task_count: 0,
@@ -810,9 +816,9 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                      and the Tasks/Projects mode toggle rides toolbar_end of
                      BOTH grids — the calendar chrome is the chrome. --%>
                 <div
-                  id="overview-calendar-day-trigger"
+                  id={"overview-calendar-day-trigger-#{@sfx}"}
                   phx-hook="PkDialogTrigger"
-                  data-dialog="overview-day-modal"
+                  data-dialog={"overview-day-modal-#{@sfx}"}
                   data-trigger=".cal-day-cell, .cal-more-link"
                 >
                   <%!-- In-flight pulse for the LIB-rendered clickables (chips/
@@ -824,7 +830,7 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                   <div class={if(@calendar_mode != :tasks, do: "hidden")}>
                     <.live_component
                       module={PhoenixLiveCalendar.CalendarComponent}
-                      id="overview-tasks-calendar"
+                      id={"overview-tasks-calendar-#{@sfx}"}
                       events={@task_calendar_events}
                       views={[:month, :agenda]}
                       date={@today}
@@ -840,14 +846,14 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                     >
                       <:toolbar_start>
                         <.assignee_filter_panel
-                          id="overview-filter"
+                          id={"overview-filter-#{@sfx}"}
                           assignee_selected={@assignee_selected}
                           include_unassigned?={@include_unassigned?}
                           unassigned_count={@unassigned_count}
                           assignee_direct_only?={@assignee_direct_only?}
                           overdue_only?={@overdue_only?}
                           me_scope={@me_scope}
-                          picker_target="#overview-calendar-day-trigger"
+                          picker_target={"#overview-calendar-day-trigger-#{@sfx}"}
                         />
                       </:toolbar_start>
                       <:toolbar_end>
@@ -879,10 +885,10 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                   <%!-- Projects mode: the original ongoing-line view. --%>
                   <div class={if(@calendar_mode != :projects, do: "hidden")}>
                     {Phoenix.HTML.raw(@overdue_style)}
-                    <div id="overview-calendar-sync" phx-hook="SyncAnimations">
+                    <div id={"overview-calendar-sync-#{@sfx}"} phx-hook="SyncAnimations">
                       <.live_component
                         module={PhoenixLiveCalendar.CalendarComponent}
-                        id="projects-overview-calendar"
+                        id={"projects-overview-calendar-#{@sfx}"}
                         events={@calendar_events}
                         views={[:month]}
                         date={@today}
@@ -913,7 +919,7 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                 </div>
 
                 <.day_popup_modal
-                  id="overview-day-modal"
+                  id={"overview-day-modal-#{@sfx}"}
                   day_popup={@day_popup}
                   row_click="day_popup_open_project"
                 />

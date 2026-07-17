@@ -35,11 +35,13 @@ deliberate, tested pass the reviewer asked for.
     and all seven widgets render (not raise) from a process with no DB
     access at all.
 
-## Skipped (with rationale)
+## Fixed (Batch 2 — 2026-07-17, AI-panel consensus)
 
-- NITPICK: Workload "detailed" omits a `:setup` tile so the four tiles can
-  sum below the total — a layout/design decision (fifth tile changes the
-  grid and min-size); surfaced to Max in the 2026-07-17 sweep report.
+- ~~NITPICK: Workload "detailed" omits `:setup` so the four tiles can sum
+  below the total~~ — unanimous panel pick: fold `:setup` into the
+  Scheduled tile relabeled **"Not started"** (both mean "work hasn't
+  begun"; tiles now always reconcile with the headline count, no layout
+  change). Pinned by `workload_widget_test.exs`.
 
 ## Files touched
 

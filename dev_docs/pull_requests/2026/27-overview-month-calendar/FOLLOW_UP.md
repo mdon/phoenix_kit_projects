@@ -18,12 +18,15 @@ judgment calls.
   reload (each `{:projects, …}` broadcast), so this was 6 queries per
   broadcast per open session.
 
+## Fixed (Batch 2 — 2026-07-17, AI-panel consensus)
+
+- ~~IMPROVEMENT-LOW: activity row per debounced slider tick~~ — coalesced
+  together with PR #26's card per the AI-panel consensus — one
+  settled-value row per drag, both settings cards consistent. See PR #26's
+  FOLLOW_UP for the mechanism.
+
 ## Skipped (with rationale)
 
-- IMPROVEMENT-LOW: activity row per debounced slider tick — same
-  audit-policy question as PR #26's; surfaced to Max in the 2026-07-17
-  sweep report, unchanged pending his call (the two settings cards stay
-  consistent either way).
 - IMPROVEMENT-LOW: calendar data computed eagerly on every reload — the
   reviewer's rationale stands (deferring behind `calendar_seen?` would
   complicate cross-session reactivity; the cost is a list map over

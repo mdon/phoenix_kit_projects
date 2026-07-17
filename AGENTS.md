@@ -410,6 +410,13 @@ Every mutation logs via `PhoenixKitProjects.Activity`. Action strings: `projects
 - `projects.project_status_changed` — workflow current-status change (show page)
 - `projects.gantt_display_changed/reset` — Timeline-chart display settings (settings page; `resource_type: "projects_settings"`)
 - `projects.calendar_display_changed/reset` — Overview-calendar overdue-animation settings (settings page; `resource_type: "projects_settings"`)
+
+The two `_changed` actions are **coalesced per field**: a slider drag emits a
+debounced `phx-change` per step, but only ONE audit row — the settled value —
+flushes after ~1s of quiet (`@display_log_flush_ms`; a reset supersedes any
+still-queued change rows, and `terminate/2` best-effort-flushes on navigation).
+Discrete controls (toggles, resets, selects outside the two display forms) log
+immediately.
 - `projects.status_entity_provisioned` — a default status list generated (per-project form OR global settings; `metadata.scope` = `"shared"` | `"global_default"`)
 - `projects.default_status_entity_set` — global default status list chosen (settings page; `resource_type: "projects_settings"`)
 - `projects.status_translations_toggled` — global translated-titles flag flipped (settings page)
