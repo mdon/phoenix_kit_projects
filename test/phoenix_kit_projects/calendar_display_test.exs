@@ -486,4 +486,61 @@ defmodule PhoenixKitProjects.CalendarDisplayTest do
       assert e.title =~ "untitled"
     end
   end
+
+  describe "shared calendar primitives (both calendars consume these)" do
+    test "events_on/2 keeps only spans covering the date, soonest-starting first" do
+      mk = fn id, s, e -> PhoenixLiveCalendar.event(id, s, end: e, title: id, all_day: true) end
+
+      spanning = mk.("spanning", ~D[2026-06-09], ~D[2026-06-12])
+      same_day = mk.("same-day", ~D[2026-06-10], ~D[2026-06-11])
+      before = mk.("before", ~D[2026-06-08], ~D[2026-06-10])
+      after_ = mk.("after", ~D[2026-06-11], ~D[2026-06-12])
+
+      rows = CalendarDisplay.events_on([after_, same_day, before, spanning], ~D[2026-06-10])
+
+      # `end` is exclusive: "before" ends the 10th so it does NOT cover it.
+      assert Enum.map(rows, & &1.id) == ["spanning", "same-day"]
+    end
+
+    test "task_late?/3 flags not-done past-end, and nothing without a now" do
+      a_todo = struct(Assignment, %{status: "todo"})
+      a_done = struct(Assignment, %{status: "done"})
+      span = %{start: ~N[2026-06-01 08:00:00], end: ~N[2026-06-02 08:00:00]}
+
+      assert CalendarDisplay.task_late?(a_todo, span, ~N[2026-06-03 00:00:00])
+      refute CalendarDisplay.task_late?(a_done, span, ~N[2026-06-03 00:00:00])
+      refute CalendarDisplay.task_late?(a_todo, span, ~N[2026-06-01 12:00:00])
+      refute CalendarDisplay.task_late?(a_todo, span, nil)
+    end
+
+    test "exclusive_end_date/3 in the UTC frame: midnight ends don't occupy the day" do
+      # Ends 17:00 on the 12th -> occupies the 12th -> exclusive end the 13th.
+      assert CalendarDisplay.exclusive_end_date(~D[2026-06-10], ~N[2026-06-12 17:00:00]) ==
+               ~D[2026-06-13]
+
+      # Ends midnight on the 12th -> the 11th is the last occupied day.
+      assert CalendarDisplay.exclusive_end_date(~D[2026-06-10], ~N[2026-06-12 00:00:00]) ==
+               ~D[2026-06-12]
+
+      # Zero-length span still floors to a one-day chip.
+      assert CalendarDisplay.exclusive_end_date(~D[2026-06-10], ~N[2026-06-10 00:00:00]) ==
+               ~D[2026-06-11]
+    end
+
+    test "exclusive_end_date/3 with an offset evaluates midnight in the viewer's frame" do
+      # 21:00 UTC on the 11th is midnight on the 12th in UTC+3 — the local
+      # frame frees the 12th, so the exclusive end is the 12th.
+      assert CalendarDisplay.exclusive_end_date(~D[2026-06-10], ~N[2026-06-11 21:00:00], "+3") ==
+               ~D[2026-06-12]
+
+      # One second later occupies the local 12th.
+      assert CalendarDisplay.exclusive_end_date(~D[2026-06-10], ~N[2026-06-11 21:00:01], "+3") ==
+               ~D[2026-06-13]
+    end
+
+    test "the per-day caps are positive and chips cap tighter than bars" do
+      assert CalendarDisplay.max_events() >= 1
+      assert CalendarDisplay.max_multiday() >= CalendarDisplay.max_events()
+    end
+  end
 end

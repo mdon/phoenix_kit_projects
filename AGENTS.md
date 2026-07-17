@@ -458,6 +458,8 @@ lib/phoenix_kit_projects/
     ├── assignment_form_live.ex
     ├── components.ex                         # `use` aggregator — imports every web/components/*.ex
     ├── components/
+    │   ├── assignee_filter_panel.ex         # `<.assignee_filter_panel>` — the Filters funnel + popup (chips/picker/toggles)
+    │   ├── day_popup_modal.ex               # `<.day_popup_modal>` — the whole-day popup both calendars share
     │   ├── derived_status_badge.ex          # `<.derived_status_badge>` + `<.project_status_badge>`
     │   ├── empty_state.ex                   # `<.empty_state>` — icon + heading + sub + CTA slot
     │   ├── page_header.ex                   # `<.page_header>` — title + description + actions + back_link slots

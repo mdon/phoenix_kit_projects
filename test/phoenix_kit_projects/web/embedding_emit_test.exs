@@ -1050,6 +1050,35 @@ defmodule PhoenixKitProjects.Web.EmbeddingEmitTest do
     end
   end
 
+  describe "ProjectShowLive emit forwarding into nested tabs" do
+    test "an emit-embedded show page's Calendar tab mounts in emit mode too", %{conn: conn} do
+      project = fixture_project(%{"name" => "Emit tab forwarding"})
+      topic = unique_topic()
+
+      {:ok, view, _} =
+        live_isolated(conn, PhoenixKitProjects.Web.ProjectShowLive,
+          session: %{
+            "mode" => "emit",
+            "pubsub_topic" => topic,
+            "id" => project.uuid,
+            "frame_ref" => 0
+          }
+        )
+
+      # Lazy-mounted: the nested live_render only exists after activation.
+      render_click(view, "switch_tab", %{"tab" => "calendar"})
+
+      child = find_live_child(view, "project-calendar-live-#{project.uuid}")
+      assert child, "nested calendar LV did not mount"
+
+      # The forwarded mode reaches the child: its empty-state "Add a task"
+      # smart_link renders as an open_embed button, not a navigate link.
+      # Without the forwarding it silently falls back to :navigate and a
+      # click would push_navigate the host page away.
+      assert render(child) =~ ~s(phx-click="open_embed")
+    end
+  end
+
   # ─────────────────────────────────────────────────────────────────
   # ProjectGanttLive / ProjectCalendarLive — the two read-only tab LVs.
   # Regression that prompted these blocks: both rendered emit-mode
