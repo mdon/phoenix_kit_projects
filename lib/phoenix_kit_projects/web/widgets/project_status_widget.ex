@@ -10,7 +10,7 @@ defmodule PhoenixKitProjects.Web.Widgets.ProjectStatusWidget do
   import PhoenixKitProjects.Web.Components.DerivedStatusBadge
   import PhoenixKitProjects.Web.Widgets.Helpers
 
-  alias PhoenixKitProjects.{Paths, Projects, Statuses}
+  alias PhoenixKitProjects.{Paths, Statuses}
   alias PhoenixKitProjects.Schemas.Project
 
   @impl true
@@ -39,7 +39,7 @@ defmodule PhoenixKitProjects.Web.Widgets.ProjectStatusWidget do
   end
 
   defp assign_project_data(socket, %Project{} = project) do
-    summary = Projects.project_summary(project)
+    summary = safe_project_summary(project)
 
     remaining =
       if summary,
@@ -49,10 +49,7 @@ defmodule PhoenixKitProjects.Web.Widgets.ProjectStatusWidget do
     socket
     |> assign(:summary, summary)
     |> assign(:lifecycle, Project.derived_status(project))
-    |> assign(
-      :wf_status,
-      if(Statuses.available?(), do: Statuses.current_status(project), else: nil)
-    )
+    |> assign(:wf_status, workflow_status(project))
     |> assign(
       :eta,
       if(project.started_at,
@@ -60,6 +57,14 @@ defmodule PhoenixKitProjects.Web.Widgets.ProjectStatusWidget do
         else: nil
       )
     )
+  end
+
+  defp workflow_status(project) do
+    if Statuses.available?(), do: Statuses.current_status(project), else: nil
+  rescue
+    # Never crash the host dashboard: a transient DB error just drops the
+    # workflow badge (the render already tolerates a nil status).
+    _ -> nil
   end
 
   @impl true

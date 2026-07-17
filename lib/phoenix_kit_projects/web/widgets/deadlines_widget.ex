@@ -74,8 +74,13 @@ defmodule PhoenixKitProjects.Web.Widgets.DeadlinesWidget do
 
   defp mine_uuids(nil), do: nil
 
-  defp mine_uuids(user_uuid),
-    do: user_uuid |> Projects.list_assignments_for_user() |> MapSet.new(& &1.project_uuid)
+  defp mine_uuids(user_uuid) do
+    user_uuid |> Projects.list_assignments_for_user() |> MapSet.new(& &1.project_uuid)
+  rescue
+    # Never crash the host dashboard; nil keeps the "no resolvable viewer ⇒
+    # empty, never leak all" semantics of scope_and_limit/4.
+    _ -> nil
+  end
 
   # Started, unfinished projects with a computable planned end, soonest first.
   # No cap here — `scope_and_limit/4` filters to the viewer first, then takes.

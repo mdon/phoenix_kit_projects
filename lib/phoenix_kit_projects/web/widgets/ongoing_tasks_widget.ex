@@ -53,6 +53,10 @@ defmodule PhoenixKitProjects.Web.Widgets.OngoingTasksWidget do
     |> Projects.list_assignments()
     |> Enum.filter(&(&1.status in ["todo", "in_progress"]))
     |> Enum.take(limit)
+  rescue
+    # Never crash the host dashboard: a transient DB error renders the
+    # widget's empty state instead of taking down the host LiveView.
+    _ -> []
   end
 
   @impl true

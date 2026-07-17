@@ -43,6 +43,29 @@ defmodule PhoenixKitProjects.Web.Widgets.Helpers do
     _ -> nil
   end
 
+  @doc """
+  `Projects.list_projects/0` with the widget no-crash guard: a transient DB
+  error (connection loss, mid-migration missing table) degrades to an empty
+  list — a widget must never crash the host dashboard.
+  """
+  @spec safe_list_projects() :: [Project.t()]
+  def safe_list_projects do
+    Projects.list_projects()
+  rescue
+    _ -> []
+  end
+
+  @doc """
+  `Projects.project_summary/1` with the widget no-crash guard — `nil` on a DB
+  error, which every consuming widget already renders as its empty state.
+  """
+  @spec safe_project_summary(Project.t()) :: map() | nil
+  def safe_project_summary(%Project{} = project) do
+    Projects.project_summary(project)
+  rescue
+    _ -> nil
+  end
+
   defp default_project do
     List.first(Projects.list_active_projects()) || List.first(Projects.list_projects())
   end

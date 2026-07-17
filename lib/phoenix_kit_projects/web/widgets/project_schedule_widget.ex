@@ -10,7 +10,7 @@ defmodule PhoenixKitProjects.Web.Widgets.ProjectScheduleWidget do
   import PhoenixKitWeb.Components.Core.Icon
   import PhoenixKitProjects.Web.Widgets.Helpers
 
-  alias PhoenixKitProjects.{Paths, Projects}
+  alias PhoenixKitProjects.Paths
   alias PhoenixKitProjects.Schemas.Project
 
   @impl true
@@ -38,7 +38,7 @@ defmodule PhoenixKitProjects.Web.Widgets.ProjectScheduleWidget do
 
   defp assign_schedule(socket, %Project{} = project) do
     now = DateTime.utc_now()
-    summary = Projects.project_summary(project)
+    summary = safe_project_summary(project)
 
     remaining =
       if summary,

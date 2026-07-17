@@ -17,7 +17,7 @@ defmodule PhoenixKitProjects.Web.Widgets.WorkloadWidget do
     socket = assign(socket, :id, assigns.id)
 
     if available?() do
-      projects = Projects.list_projects()
+      projects = safe_list_projects()
       lifecycle = Enum.frequencies_by(projects, &Project.derived_status/1)
 
       {:ok,

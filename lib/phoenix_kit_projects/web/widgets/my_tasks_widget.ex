@@ -48,8 +48,13 @@ defmodule PhoenixKitProjects.Web.Widgets.MyTasksWidget do
 
   defp my_tasks(nil, _limit), do: []
 
-  defp my_tasks(user_uuid, limit),
-    do: user_uuid |> Projects.list_assignments_for_user() |> Enum.take(limit)
+  defp my_tasks(user_uuid, limit) do
+    user_uuid |> Projects.list_assignments_for_user() |> Enum.take(limit)
+  rescue
+    # Never crash the host dashboard: a transient DB error renders the
+    # widget's empty state instead of taking down the host LiveView.
+    _ -> []
+  end
 
   @impl true
   def render(%{available: false} = assigns) do

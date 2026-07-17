@@ -12,7 +12,7 @@ defmodule PhoenixKitProjects.Web.Widgets.ProjectsBoardWidget do
   import PhoenixKitProjects.Web.Components.DerivedStatusBadge
   import PhoenixKitProjects.Web.Widgets.Helpers
 
-  alias PhoenixKitProjects.{Paths, Projects, Statuses}
+  alias PhoenixKitProjects.{Paths, Statuses}
   alias PhoenixKitProjects.Schemas.Project
 
   # Attention-first tile order: what needs eyes sorts before what's fine.
@@ -23,10 +23,8 @@ defmodule PhoenixKitProjects.Web.Widgets.ProjectsBoardWidget do
     socket = assign(socket, :id, assigns.id)
 
     if available?() do
-      projects = Projects.list_projects()
-
-      status_by =
-        if Statuses.available?(), do: Statuses.statuses_for_projects(projects), else: %{}
+      projects = safe_list_projects()
+      status_by = statuses_by_project(projects)
 
       tiles =
         projects
@@ -44,6 +42,14 @@ defmodule PhoenixKitProjects.Web.Widgets.ProjectsBoardWidget do
     else
       {:ok, assign(socket, :available, false)}
     end
+  end
+
+  defp statuses_by_project(projects) do
+    if Statuses.available?(), do: Statuses.statuses_for_projects(projects), else: %{}
+  rescue
+    # Never crash the host dashboard: a transient DB error just drops the
+    # workflow colours/buckets (tiles fall back to the neutral status).
+    _ -> %{}
   end
 
   # Group projects by their workflow status label (nil → "No status"), keeping a
