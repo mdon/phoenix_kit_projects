@@ -946,52 +946,24 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                        assignments. Unassigned is a triage view with a live
                        count over ALL tasks. --%>
                   <div class={["flex flex-wrap items-center gap-2", @calendar_mode != :tasks && "hidden"]}>
-                    <div class="join">
-                      <%!-- One unified union: Everyone = clear-all (lit in the
-                           resting state), Me = toggle the viewer's own chip,
-                           Unassigned = toggle the no-assignee lens. All compose
-                           — "Me + Alice + Unassigned" is one view. daisyUI
-                           tooltips (pseudo-element based, no layout impact)
-                           explain each control on hover. --%>
-                      <button
-                        type="button"
-                        class={[
-                          "btn btn-xs join-item tooltip",
-                          CalendarDisplay.loading_class(),
-                          @assignee_selected == [] and not @include_unassigned? && "btn-active"
-                        ]}
-                        data-tip={gettext("Show every task — clears the person filters")}
-                        phx-click="clear_assignee_filter"
-                      >
-                        {gettext("Everyone")}
-                      </button>
-                      <button
-                        :if={match?(%{}, @me_scope)}
-                        type="button"
-                        class={[
-                          "btn btn-xs join-item tooltip",
-                          CalendarDisplay.loading_class(),
-                          me_chip_active?(@me_scope, @assignee_selected) && "btn-active"
-                        ]}
-                        data-tip={gettext("Your work — assigned to you, your teams, or your departments")}
-                        phx-click="toggle_me_chip"
-                      >
-                        {gettext("Me")}
-                      </button>
-                      <button
-                        type="button"
-                        class={[
-                          "btn btn-xs join-item tooltip",
-                          CalendarDisplay.loading_class(),
-                          @include_unassigned? && "btn-active"
-                        ]}
-                        data-tip={gettext("Tasks nobody is assigned to yet — combines with picked people")}
-                        phx-click="toggle_unassigned"
-                      >
-                        {gettext("Unassigned")}
-                        <span class="badge badge-xs badge-ghost">{@unassigned_count}</span>
-                      </button>
-                    </div>
+                    <%!-- Everyone = the RESET (a different kind of control from
+                         the chip-adders, so it stands alone): clears the person
+                         filters and reads as the state label when nothing is
+                         filtered (lit). The chip-adders (Me / Unassigned) live
+                         on the person row below, next to the chips they create
+                         — every active filter is visible as a removable chip. --%>
+                    <button
+                      type="button"
+                      class={[
+                        "btn btn-xs tooltip",
+                        CalendarDisplay.loading_class(),
+                        @assignee_selected == [] and not @include_unassigned? && "btn-active"
+                      ]}
+                      data-tip={gettext("Show every task — clears the person filters")}
+                      phx-click="clear_assignee_filter"
+                    >
+                      {gettext("Everyone")}
+                    </button>
 
                     <label
                       class="label cursor-pointer gap-1.5 text-xs tooltip"
@@ -1066,6 +1038,53 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                       data-search-on-focus
                     />
                   </div>
+
+                  <%!-- Quick-adders: one tap inserts the corresponding chip and
+                       the button steps aside — the chip IS the visible state,
+                       removable like any other. --%>
+                  <button
+                    :if={match?(%{}, @me_scope) and not me_chip_active?(@me_scope, @assignee_selected)}
+                    type="button"
+                    class={["btn btn-xs btn-ghost border-base-300 tooltip", CalendarDisplay.loading_class()]}
+                    data-tip={gettext("Your work — assigned to you, your teams, or your departments")}
+                    phx-click="toggle_me_chip"
+                  >
+                    <.icon name="hero-plus" class="w-3 h-3" /> {gettext("Me")}
+                  </button>
+
+                  <button
+                    :if={not @include_unassigned?}
+                    type="button"
+                    class={["btn btn-xs btn-ghost border-base-300 tooltip", CalendarDisplay.loading_class()]}
+                    data-tip={gettext("Tasks nobody is assigned to yet — combines with picked people")}
+                    phx-click="toggle_unassigned"
+                  >
+                    <.icon name="hero-plus" class="w-3 h-3" /> {gettext("Unassigned")}
+                    <span class="badge badge-xs badge-ghost">{@unassigned_count}</span>
+                  </button>
+
+                  <%!-- The Unassigned lens as a first-class, visibly-toggled chip
+                       — dashed to say "no person", removable like the rest. --%>
+                  <span :if={@include_unassigned?} class="badge badge-dash gap-1.5">
+                    <.icon name="hero-user-minus" class="w-3 h-3" />
+                    {gettext("Unassigned")}
+                    <span class="badge badge-xs badge-ghost">{@unassigned_count}</span>
+                    <button
+                      type="button"
+                      phx-click={
+                        Phoenix.LiveView.JS.hide(
+                          to: {:closest, "span.badge"},
+                          transition: {"transition-opacity duration-100", "opacity-100", "opacity-0"}
+                        )
+                        |> Phoenix.LiveView.JS.push("toggle_unassigned")
+                      }
+                      class="shrink-0 cursor-pointer rounded-full p-0.5 -m-0.5 transition-colors hover:bg-error hover:text-error-content tooltip"
+                      data-tip={gettext("Remove %{name}", name: gettext("Unassigned"))}
+                      aria-label={gettext("Remove %{name}", name: gettext("Unassigned"))}
+                    >
+                      <.icon name="hero-x-mark" class="w-3 h-3 block" />
+                    </button>
+                  </span>
 
                   <span
                     :for={p <- @assignee_selected}
