@@ -70,15 +70,13 @@ defmodule PhoenixKitProjects.ScheduleLayout do
     {items, layout}
   end
 
-  @doc """
-  The anchor for the sequential walk: the real start when running, the
-  planned start when scheduled, else "now" so an unstarted project still
-  previews.
-  """
+  # The anchor for the sequential walk: the real start when running, the
+  # planned start when scheduled, else "now" so an unstarted project still
+  # previews.
   @spec schedule_anchor(Project.t()) :: DateTime.t()
-  def schedule_anchor(%Project{started_at: %DateTime{} = at}), do: at
-  def schedule_anchor(%Project{scheduled_start_date: %DateTime{} = at}), do: at
-  def schedule_anchor(_), do: DateTime.utc_now()
+  defp schedule_anchor(%Project{started_at: %DateTime{} = at}), do: at
+  defp schedule_anchor(%Project{scheduled_start_date: %DateTime{} = at}), do: at
+  defp schedule_anchor(_), do: DateTime.utc_now()
 
   @doc """
   Whether an assignment counts weekends — its own override, falling back to
