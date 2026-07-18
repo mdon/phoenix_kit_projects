@@ -855,7 +855,12 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                       on_date_select={fn date -> send(self(), {:calendar_day_click, date}) end}
                       on_more_click={fn date -> send(self(), {:calendar_day_more, date}) end}
                     >
-                      <:toolbar_start>
+                      <%!-- No Filters funnel while there is no scheduled work
+                           at all (fresh install / everything deleted) — with
+                           zero raw items every filter yields the same empty
+                           month. Keyed on the UNFILTERED walk, so a filter
+                           that empties the month keeps the panel reachable. --%>
+                      <:toolbar_start :if={@task_calendar_items != []}>
                         <.assignee_filter_panel
                           id={"overview-filter-#{@sfx}"}
                           assignee_selected={@assignee_selected}

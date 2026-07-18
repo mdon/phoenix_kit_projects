@@ -284,6 +284,46 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLiveTest do
       %{person: person, team: team}
     end
 
+    test "the person picker offers only this project tree's people", %{conn: conn} do
+      %{person: person} = person_fixture()
+      %{person: outsider} = person_fixture()
+
+      project = fixture_project(%{"start_mode" => "immediate"})
+      {:ok, _} = Projects.start_project(project)
+      project = Projects.get_project!(project.uuid)
+
+      other_project = fixture_project(%{"start_mode" => "immediate"})
+      {:ok, _} = Projects.start_project(other_project)
+
+      mine = fixture_task(%{"title" => "ScopedTask-#{System.unique_integer([:positive])}"})
+      theirs = fixture_task(%{"title" => "OutsideTask-#{System.unique_integer([:positive])}"})
+
+      {:ok, _} =
+        Projects.create_assignment(%{
+          "project_uuid" => project.uuid,
+          "task_uuid" => mine.uuid,
+          "assigned_person_uuid" => person.uuid
+        })
+
+      {:ok, _} =
+        Projects.create_assignment(%{
+          "project_uuid" => other_project.uuid,
+          "task_uuid" => theirs.uuid,
+          "assigned_person_uuid" => outsider.uuid
+        })
+
+      {:ok, view, _html} =
+        live_isolated(conn, ProjectCalendarLive, session: %{"id" => project.uuid})
+
+      render(view)
+      render_click(view, "assignee_search", %{"q" => ""})
+
+      assert_push_event(view, "assignee_results", %{results: rows})
+      offered = Enum.map(rows, & &1.uuid)
+      assert person.uuid in offered
+      refute outsider.uuid in offered
+    end
+
     test "filters bars by picked person; the panel renders", %{conn: conn} do
       %{person: person} = person_fixture()
 

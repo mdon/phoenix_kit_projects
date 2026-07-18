@@ -309,6 +309,10 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
       click_targets: click_targets,
       today: Date.utc_today(),
       calendar_loading: false,
+      # The person picker offers only people relevant to THIS project tree's
+      # assignments (sub-projects included) — anyone else would only ever
+      # filter this calendar to an empty month.
+      assignee_search_scope: project_uuids,
       # "Nobody holds this" — a bar counts as unassigned only when its own
       # assignment AND (for a sub-project) every descendant is unassigned.
       unassigned_count:

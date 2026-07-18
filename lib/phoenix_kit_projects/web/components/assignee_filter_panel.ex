@@ -121,8 +121,12 @@ defmodule PhoenixKitProjects.Web.Components.AssigneeFilterPanel do
               <.icon name="hero-plus" class="w-3 h-3" /> {gettext("Me")}
             </button>
 
+            <%!-- Hidden while nothing is unassigned (same idea as Me hiding
+                 without a staff person): "Unassigned 0" would only ever
+                 filter to an empty month. An already-active lens keeps its
+                 chip below even at 0, so it stays removable. --%>
             <button
-              :if={not @include_unassigned?}
+              :if={not @include_unassigned? and @unassigned_count > 0}
               type="button"
               class={["btn btn-xs btn-ghost border-base-300 tooltip", CalendarDisplay.loading_class()]}
               data-tip={gettext("Tasks nobody is assigned to yet — combines with picked people")}

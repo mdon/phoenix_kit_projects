@@ -411,6 +411,57 @@ defmodule PhoenixKitProjects.Web.OverviewLiveTest do
       view
     end
 
+    test "the Filters funnel is absent while no scheduled work exists", %{conn: conn} do
+      view = mount_with_user(conn, reg_user())
+
+      # Fresh install: no projects/tasks — nothing any filter could narrow,
+      # so the funnel (and its panel) doesn't render at all.
+      refute render(view) =~ "hero-funnel"
+
+      # The moment real work exists, a reload brings the funnel back.
+      _fx = filter_fixture(reg_user())
+      send(view.pid, {:projects, :assignment_created, %{}})
+      assert render(view) =~ "hero-funnel"
+    end
+
+    test "the Unassigned quick-adder hides while nothing is unassigned", %{conn: conn} do
+      user = reg_user()
+      n = System.unique_integer([:positive])
+
+      {:ok, person} =
+        Staff.create_person(%{
+          "user_uuid" => user.uuid,
+          "name" => "OnlyAssigned #{n}",
+          "employment_type" => "full_time"
+        })
+
+      project = fixture_project(%{"start_mode" => "immediate"})
+      {:ok, _} = Prj.start_project(project)
+      task = fixture_task(%{"title" => "Held-#{n}"})
+
+      {:ok, _} =
+        Prj.create_assignment(%{
+          "project_uuid" => project.uuid,
+          "task_uuid" => task.uuid,
+          "assigned_person_uuid" => person.uuid
+        })
+
+      view = mount_with_user(conn, user)
+
+      # Everything is assigned: "Unassigned 0" would only filter to an empty
+      # month, so the quick-adder doesn't render (same as Me without a
+      # staff person).
+      refute render(view) =~ "toggle_unassigned"
+
+      loose = fixture_task(%{"title" => "Loose-#{n}"})
+
+      {:ok, _} =
+        Prj.create_assignment(%{"project_uuid" => project.uuid, "task_uuid" => loose.uuid})
+
+      send(view.pid, {:projects, :assignment_created, %{}})
+      assert render(view) =~ "toggle_unassigned"
+    end
+
     test "Me filter (inherited) keeps direct + team tasks, drops unassigned", %{conn: conn} do
       user = reg_user()
       fx = filter_fixture(user)
