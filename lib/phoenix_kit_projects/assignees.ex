@@ -250,10 +250,13 @@ defmodule PhoenixKitProjects.Assignees do
     )
   end
 
-  # Scoped: only the given projects' assignments count (the per-project
-  # Calendar tab passes its rendered tree, sub-projects included). Unscoped:
-  # any non-template project's — template defaults aren't schedulable work,
-  # so they alone don't make a person filterable.
+  # Scoped: the given projects' assignments count VERBATIM — no template
+  # exclusion, deliberately: the per-project Calendar tab passes exactly its
+  # rendered tree (sub-projects included), and when that tree IS a template
+  # (direct `/calendar` URL or a host embed) its default assignees are
+  # precisely the people on screen. Unscoped: any non-template project's —
+  # template defaults alone don't make a person globally filterable on the
+  # Overview.
   defp relevant_assignments(nil) do
     from(a in Assignment,
       join: pr in Project,

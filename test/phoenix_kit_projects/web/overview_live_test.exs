@@ -422,6 +422,27 @@ defmodule PhoenixKitProjects.Web.OverviewLiveTest do
       _fx = filter_fixture(reg_user())
       send(view.pid, {:projects, :assignment_created, %{}})
       assert render(view) =~ "hero-funnel"
+
+      # A FILTER that empties the month must NOT hide the funnel — the guard
+      # is keyed on the raw walk, and the panel is the only way back out.
+      # (Picking is scope-based, not relevance-gated, so a task-less person
+      # can be picked and matches nothing.)
+      {:ok, bare_user} =
+        Auth.register_user(%{
+          "email" => "bare-#{System.unique_integer([:positive])}@example.com",
+          "password" => "ActorPass123!"
+        })
+
+      {:ok, bare} =
+        Staff.create_person(%{
+          "user_uuid" => bare_user.uuid,
+          "name" => "No Tasks Person",
+          "employment_type" => "full_time"
+        })
+
+      html = render_click(view, "assignee_pick", %{"uuid" => bare.uuid})
+      assert html =~ "hero-funnel"
+      assert html =~ "clear_assignee_filter"
     end
 
     test "the Unassigned quick-adder hides while nothing is unassigned", %{conn: conn} do
@@ -455,11 +476,29 @@ defmodule PhoenixKitProjects.Web.OverviewLiveTest do
 
       loose = fixture_task(%{"title" => "Loose-#{n}"})
 
-      {:ok, _} =
+      {:ok, loose_a} =
         Prj.create_assignment(%{"project_uuid" => project.uuid, "task_uuid" => loose.uuid})
 
       send(view.pid, {:projects, :assignment_created, %{}})
       assert render(view) =~ "toggle_unassigned"
+
+      # An ACTIVE lens must keep its removable chip even when the count later
+      # drops to 0 — otherwise the lens would be stranded invisibly ON (the
+      # quick-adder is hidden while active AND while the count is 0).
+      html = render_click(view, "toggle_unassigned", %{})
+      assert html =~ "hero-user-minus"
+
+      {:ok, _} = Prj.update_assignment_form(loose_a, %{"assigned_person_uuid" => person.uuid})
+      send(view.pid, {:projects, :assignment_updated, %{}})
+      html = render(view)
+      assert html =~ "hero-user-minus"
+      assert html =~ "toggle_unassigned"
+
+      # ...and toggling it off from the chip removes the lens entirely: with
+      # the count at 0, no Unassigned control remains.
+      html = render_click(view, "toggle_unassigned", %{})
+      refute html =~ "hero-user-minus"
+      refute html =~ "toggle_unassigned"
     end
 
     test "Me filter (inherited) keeps direct + team tasks, drops unassigned", %{conn: conn} do

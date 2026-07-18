@@ -291,5 +291,28 @@ defmodule PhoenixKitProjects.AssigneesTest do
       assert MapSet.member?(offered, a.person.uuid)
       refute MapSet.member?(offered, b.person.uuid)
     end
+
+    test "a scope that IS a template offers its default assignees verbatim" do
+      # Deliberate asymmetry with the unscoped template exclusion: scoped
+      # relevance mirrors exactly what the scoped calendar renders, and a
+      # template's own calendar (direct URL / host embed) shows its tasks —
+      # so its default assignees are offerable there, and only there.
+      %{person: person} = staff_fixture()
+      template = fixture_template()
+      task = fixture_task()
+
+      {:ok, _} =
+        PhoenixKitProjects.Projects.create_assignment(%{
+          "project_uuid" => template.uuid,
+          "task_uuid" => task.uuid,
+          "assigned_person_uuid" => person.uuid
+        })
+
+      {scoped, _} = Assignees.search_people("", 50, project_uuids: [template.uuid])
+      assert MapSet.member?(uuids(scoped), person.uuid)
+
+      {global, _} = Assignees.search_people("", 50)
+      refute MapSet.member?(uuids(global), person.uuid)
+    end
   end
 end
