@@ -231,6 +231,98 @@ defmodule PhoenixKitProjects.Web.OverviewLiveTest do
       assert html =~ "overview-tasks-calendar"
     end
 
+    # A started project whose 1-hour task began `days_ago` days ago — its
+    # planned end is long past, so the running tier is :late. `counts_weekends`
+    # keeps the ETA math day-of-week independent.
+    defp late_project_fixture(days_ago) do
+      project =
+        fixture_project(%{
+          "name" => "LateProj-#{System.unique_integer([:positive])}",
+          "start_mode" => "immediate",
+          "counts_weekends" => true
+        })
+
+      started = DateTime.add(DateTime.utc_now(), -days_ago * 86_400, :second)
+      {:ok, _} = Projects.start_project(project, started)
+      project = Projects.get_project!(project.uuid)
+
+      task =
+        fixture_task(%{
+          "title" => "LateTask-#{System.unique_integer([:positive])}",
+          "estimated_duration" => 1,
+          "estimated_duration_unit" => "hours"
+        })
+
+      {:ok, a} =
+        Projects.create_assignment(%{"project_uuid" => project.uuid, "task_uuid" => task.uuid})
+
+      {project, a}
+    end
+
+    test "Projects mode: the Late-only lens filters bars; hidden while nothing is late",
+         %{conn: conn} do
+      # An on-track project (10-day task started just now).
+      ontrack =
+        fixture_project(%{
+          "name" => "OnTrackProj-#{System.unique_integer([:positive])}",
+          "start_mode" => "immediate",
+          "counts_weekends" => true
+        })
+
+      {:ok, _} = Projects.start_project(ontrack)
+
+      task =
+        fixture_task(%{
+          "title" => "LongTask-#{System.unique_integer([:positive])}",
+          "estimated_duration" => 10,
+          "estimated_duration_unit" => "days"
+        })
+
+      {:ok, _} =
+        Projects.create_assignment(%{"project_uuid" => ontrack.uuid, "task_uuid" => task.uuid})
+
+      {:ok, view, _html} = live(conn, "/en/admin/projects")
+      open_calendar_tab(view)
+      html = render_click(view, "set_calendar_mode", %{"mode" => "projects"})
+
+      # Nothing late — no lens (the graceful-empty rule).
+      refute html =~ "toggle_projects_late_only"
+
+      {late_p, late_a} = late_project_fixture(30)
+      send(view.pid, {:projects, :project_started, %{}})
+      html = render(view)
+      assert html =~ "toggle_projects_late_only"
+
+      grid = "[id^=projects-overview-calendar]"
+      assert has_element?(view, grid, late_p.name)
+      assert has_element?(view, grid, ontrack.name)
+
+      # Lens ON: only the late project's bar remains.
+      render_click(view, "toggle_projects_late_only", %{})
+      assert has_element?(view, grid, late_p.name)
+      refute has_element?(view, grid, ontrack.name)
+
+      # The whole-day popup follows the lens (rows come from the derived
+      # events): today is covered by BOTH bars, but only the late one lists.
+      send(view.pid, {:calendar_day_click, Date.utc_today()})
+      modal = "[id^=overview-day-modal]"
+      assert has_element?(view, modal, late_p.name)
+      refute has_element?(view, modal, ontrack.name)
+
+      # An ACTIVE lens stays reachable when the late count drops to 0
+      # (completing the late project removes it from the running set)...
+      {:ok, _} = Projects.update_assignment_status(late_a, %{"status" => "done"})
+      {:completed, _} = Projects.recompute_project_completion(late_p.uuid)
+      send(view.pid, {:projects, :project_completed, %{}})
+      html = render(view)
+      assert html =~ "toggle_projects_late_only"
+
+      # ...and toggling it off then removes the lens entirely.
+      html = render_click(view, "toggle_projects_late_only", %{})
+      refute html =~ "toggle_projects_late_only"
+      assert has_element?(view, grid, ontrack.name)
+    end
+
     test "a day with more tasks than the cap shows the +N more link", %{conn: conn} do
       {_project, _assignments} = calendar_fixture(8)
 

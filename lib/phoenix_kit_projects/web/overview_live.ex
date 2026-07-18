@@ -84,6 +84,12 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
         today: Date.utc_today(),
         tz_offset: "0",
         calendar_events: [],
+        # Projects-mode "Late only" filter: the raw event list is cached and
+        # the visible `calendar_events` derive from it in memory (same shape
+        # as the Tasks-mode filters — a toggle never re-queries).
+        all_project_events: [],
+        late_project_uuids: MapSet.new(),
+        projects_late_only?: false,
         # Which VIEW of the running projects is shown: :list (vertical list,
         # default) or :calendar (the month view), toggled by tabs. The calendar is
         # lazy-mounted on first switch, then kept (hidden) so its paged month
@@ -193,7 +199,11 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
         status_counts: Projects.assignment_status_counts(),
         today: today,
         tz_offset: offset,
-        calendar_events: calendar_events,
+        all_project_events: calendar_events,
+        late_project_uuids:
+          all_summaries
+          |> Enum.filter(& &1.late)
+          |> MapSet.new(& &1.project.uuid),
         # The overdue-animation <style>, generated from the settings on
         # /admin/settings/projects (mode/speed/brightness), plus the pattern so
         # the calendar's info popover can describe it accurately. Read once here
@@ -201,6 +211,10 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
         overdue_style: CalendarDisplay.animation_style(overdue_anim),
         overdue_pattern: overdue_anim.pattern
       )
+
+    # Derive the visible Projects-mode events BEFORE the popup refresh below —
+    # its rows read `calendar_events`.
+    socket = apply_projects_filter(socket)
 
     # An open whole-day popup caches its rows at open time; a broadcast-driven
     # reload just rebuilt the events/meta those rows come from, so refresh it
@@ -241,6 +255,21 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
         Enum.count(items_with_spans, fn {it, _} -> Assignees.unassigned?(it.assignment) end)
     )
     |> apply_task_filter()
+  end
+
+  # Projects mode: the visible bars from the cached raw list + the "Late
+  # only" flag. Late = the tier the Running cards show (`summary.late`), so
+  # the calendar and the cards can't disagree; completed/scheduled markers
+  # are never late, so the lens drops them too.
+  defp apply_projects_filter(socket) do
+    %{
+      all_project_events: all,
+      late_project_uuids: late,
+      projects_late_only?: late_only?
+    } = socket.assigns
+
+    events = if late_only?, do: Enum.filter(all, &MapSet.member?(late, &1.id)), else: all
+    assign(socket, calendar_events: events)
   end
 
   # Derives the visible events/meta from the cached walk + the current
@@ -512,6 +541,14 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
       %{^mode => new_mode} -> {:noreply, assign(socket, calendar_mode: new_mode)}
       _ -> {:noreply, socket}
     end
+  end
+
+  # Projects-mode "Late only" lens — in-memory re-derivation, no re-query.
+  def handle_event("toggle_projects_late_only", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(projects_late_only?: not socket.assigns.projects_late_only?)
+     |> apply_projects_filter()}
   end
 
   # Every assignee/overdue-filter event routes through the shared glue; a
@@ -916,6 +953,32 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                         on_date_select={fn date -> send(self(), {:calendar_day_click, date}) end}
                         on_more_click={fn date -> send(self(), {:calendar_day_more, date}) end}
                       >
+                        <%!-- "Late only" lens. Hidden while no project is late
+                             (nothing to filter — fresh installs included) but
+                             kept while ACTIVE even at 0, so the lens can
+                             always be toggled back off. --%>
+                        <:toolbar_start :if={MapSet.size(@late_project_uuids) > 0 or @projects_late_only?}>
+                          <button
+                            type="button"
+                            class={[
+                              "btn btn-xs gap-1.5 tooltip",
+                              CalendarDisplay.loading_class(),
+                              if(@projects_late_only?,
+                                do: "btn-error",
+                                else: "btn-ghost border-base-300"
+                              )
+                            ]}
+                            data-tip={gettext("Only projects running past their planned end")}
+                            aria-pressed={to_string(@projects_late_only?)}
+                            phx-click="toggle_projects_late_only"
+                          >
+                            <.icon name="hero-exclamation-triangle" class="w-3.5 h-3.5" />
+                            {gettext("Late only")}
+                            <span class="badge badge-xs badge-ghost">
+                              {MapSet.size(@late_project_uuids)}
+                            </span>
+                          </button>
+                        </:toolbar_start>
                         <:toolbar_end>
                           {mode_toggle(%{calendar_mode: @calendar_mode})}
                         </:toolbar_end>
