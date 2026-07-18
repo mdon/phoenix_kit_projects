@@ -150,7 +150,7 @@ msgstr "(parent décoché)"
 msgid "(this task)"
 msgstr "(cette tâche)"
 
-#: lib/phoenix_kit_projects/web/overview_live.ex:1073
+#: lib/phoenix_kit_projects/web/overview_live.ex:1077
 #, elixir-autogen, elixir-format
 msgid "+%{count} more"
 msgstr "+%{count} de plus"
@@ -254,7 +254,7 @@ msgstr "Attribution introuvable."
 msgid "Assignment updated."
 msgstr "Attribution mise à jour."
 
-#: lib/phoenix_kit_projects/web/overview_live.ex:1211
+#: lib/phoenix_kit_projects/web/overview_live.ex:1215
 #, elixir-autogen, elixir-format
 msgid "Blueprint from scratch"
 msgstr "Modèle de zéro"
@@ -646,7 +646,7 @@ msgstr "Immédiatement (configurez d'abord les tâches)"
 msgid "In progress"
 msgstr "En cours"
 
-#: lib/phoenix_kit_projects/web/overview_live.ex:1118
+#: lib/phoenix_kit_projects/web/overview_live.ex:1122
 #, elixir-autogen, elixir-format
 msgid "In setup"
 msgstr "En configuration"
@@ -678,7 +678,7 @@ msgstr "Minutes"
 msgid "Months"
 msgstr "Mois"
 
-#: lib/phoenix_kit_projects/web/overview_live.ex:1048
+#: lib/phoenix_kit_projects/web/overview_live.ex:1052
 #: lib/phoenix_kit_projects/web/widgets/my_tasks_widget.ex:69
 #: lib/phoenix_kit_projects/web/widgets/my_tasks_widget.ex:77
 #, elixir-autogen, elixir-format
@@ -709,7 +709,7 @@ msgstr "Nouveau projet"
 msgid "New task"
 msgstr "Nouvelle tâche"
 
-#: lib/phoenix_kit_projects/web/overview_live.ex:1209
+#: lib/phoenix_kit_projects/web/overview_live.ex:1213
 #: lib/phoenix_kit_projects/web/template_form_live.ex:88
 #: lib/phoenix_kit_projects/web/templates_live.ex:133
 #, elixir-autogen, elixir-format
@@ -772,7 +772,7 @@ msgstr "Pas encore commencé"
 msgid "Not started — set up tasks, then start"
 msgstr "Non commencé — configurez les tâches, puis démarrez"
 
-#: lib/phoenix_kit_projects/web/overview_live.ex:1053
+#: lib/phoenix_kit_projects/web/overview_live.ex:1057
 #: lib/phoenix_kit_projects/web/widgets/my_tasks_widget.ex:81
 #, elixir-autogen, elixir-format
 msgid "Nothing assigned to you right now."
@@ -892,7 +892,7 @@ msgstr "Projet mis à jour."
 #: lib/phoenix_kit_projects/web/overview_live.ex:70
 #: lib/phoenix_kit_projects/web/overview_live.ex:428
 #: lib/phoenix_kit_projects/web/overview_live.ex:739
-#: lib/phoenix_kit_projects/web/overview_live.ex:1167
+#: lib/phoenix_kit_projects/web/overview_live.ex:1171
 #: lib/phoenix_kit_projects/web/project_form_live.ex:566
 #: lib/phoenix_kit_projects/web/project_show_live.ex:1739
 #: lib/phoenix_kit_projects/web/projects_live.ex:44
@@ -902,7 +902,7 @@ msgstr "Projet mis à jour."
 msgid "Projects"
 msgstr "Projets"
 
-#: lib/phoenix_kit_projects/web/overview_live.ex:1086
+#: lib/phoenix_kit_projects/web/overview_live.ex:1090
 #, elixir-autogen, elixir-format
 msgid "Recently completed"
 msgstr "Récemment terminés"
@@ -983,7 +983,7 @@ msgstr "Enregistrer comme modèle réutilisable dans la bibliothèque"
 msgid "Saving…"
 msgstr "Enregistrement…"
 
-#: lib/phoenix_kit_projects/web/overview_live.ex:1132
+#: lib/phoenix_kit_projects/web/overview_live.ex:1136
 #, elixir-autogen, elixir-format
 msgid "Scheduled"
 msgstr "Planifié"
@@ -1118,7 +1118,7 @@ msgstr "Statut"
 msgid "Task"
 msgstr "Tâche"
 
-#: lib/phoenix_kit_projects/web/overview_live.ex:1181
+#: lib/phoenix_kit_projects/web/overview_live.ex:1185
 #: lib/phoenix_kit_projects/web/task_form_live.ex:424
 #: lib/phoenix_kit_projects/web/tasks_live.ex:47
 #: lib/phoenix_kit_projects/web/tasks_live.ex:372
@@ -1276,7 +1276,7 @@ msgid "Template updated."
 msgstr "Modèle mis à jour."
 
 #: lib/phoenix_kit_projects/web/gettext_manifest.ex:34
-#: lib/phoenix_kit_projects/web/overview_live.ex:1195
+#: lib/phoenix_kit_projects/web/overview_live.ex:1199
 #: lib/phoenix_kit_projects/web/project_show_live.ex:1739
 #: lib/phoenix_kit_projects/web/template_form_live.ex:294
 #, elixir-autogen, elixir-format
@@ -1359,7 +1359,7 @@ msgstr "Unité"
 msgid "Untick any you don't want for this project. Tasks already in this project (✓) won't be re-added."
 msgstr "Décochez celles que vous ne voulez pas pour ce projet. Les tâches déjà présentes (✓) ne seront pas réajoutées."
 
-#: lib/phoenix_kit_projects/web/overview_live.ex:1114
+#: lib/phoenix_kit_projects/web/overview_live.ex:1118
 #, elixir-autogen, elixir-format
 msgid "Upcoming"
 msgstr "À venir"
@@ -1757,7 +1757,7 @@ msgid "A → Z by title"
 msgstr ""
 
 #: lib/phoenix_kit_projects/web/overview_live.ex:922
-#: lib/phoenix_kit_projects/web/overview_live.ex:983
+#: lib/phoenix_kit_projects/web/overview_live.ex:987
 #: lib/phoenix_kit_projects/web/project_calendar_live.ex:593
 #, elixir-autogen, elixir-format
 msgid "About this calendar"
@@ -1998,7 +1998,7 @@ msgstr ""
 msgid "ETA"
 msgstr ""
 
-#: lib/phoenix_kit_projects/web/overview_live.ex:1021
+#: lib/phoenix_kit_projects/web/overview_live.ex:1025
 #, elixir-autogen, elixir-format
 msgid "Each project is an ongoing line across the month."
 msgstr ""
@@ -2118,7 +2118,7 @@ msgstr ""
 msgid "Last updated"
 msgstr ""
 
-#: lib/phoenix_kit_projects/web/overview_live.ex:1024
+#: lib/phoenix_kit_projects/web/overview_live.ex:1028
 #, elixir-autogen, elixir-format
 msgid "Late projects are grouped at the top."
 msgstr ""
@@ -2400,7 +2400,7 @@ msgid "Projects workload"
 msgstr ""
 
 #: lib/phoenix_kit_projects/web/overview_live.ex:950
-#: lib/phoenix_kit_projects/web/overview_live.ex:1019
+#: lib/phoenix_kit_projects/web/overview_live.ex:1023
 #: lib/phoenix_kit_projects/web/project_calendar_live.ex:620
 #, elixir-autogen, elixir-format
 msgid "Reading the calendar"
@@ -2789,7 +2789,7 @@ msgstr ""
 msgid "tasks"
 msgstr ""
 
-#: lib/phoenix_kit_projects/web/overview_live.ex:962
+#: lib/phoenix_kit_projects/web/overview_live.ex:966
 #, elixir-autogen, elixir-format
 msgid "Busy days cap the list — click the day or its +N more link to see everything scheduled that day."
 msgstr "Les jours chargés tronquent la liste — cliquez sur le jour ou sur son lien +N autres pour voir tout ce qui est prévu ce jour-là."
@@ -2809,7 +2809,7 @@ msgstr "Rien de prévu ce jour-là."
 msgid "Tasks share their project's color. Click a task to open its project."
 msgstr "Les tâches portent la couleur de leur projet. Cliquez sur une tâche pour ouvrir son projet."
 
-#: lib/phoenix_kit_projects/web/overview_live.ex:959
+#: lib/phoenix_kit_projects/web/overview_live.ex:962
 #, elixir-autogen, elixir-format
 msgid "A red ring marks a late task — not done, but past its scheduled days."
 msgstr "Un anneau rouge signale une tâche en retard — non terminée, mais au-delà de ses jours planifiés."
@@ -2824,7 +2824,7 @@ msgstr "Moi"
 msgid "Overdue only"
 msgstr "En retard uniquement"
 
-#: lib/phoenix_kit_projects/web/overview_live.ex:965
+#: lib/phoenix_kit_projects/web/overview_live.ex:969
 #, elixir-autogen, elixir-format
 msgid "Placement is computed from each project's task order and durations — it moves as tasks are edited, reordered, or completed."
 msgstr "Le placement est calculé à partir de l'ordre et des durées des tâches de chaque projet — il évolue quand les tâches sont modifiées, réordonnées ou terminées."
@@ -2921,7 +2921,7 @@ msgstr "Effacer"
 msgid "Filters"
 msgstr "Filtres"
 
-#: lib/phoenix_kit_projects/web/overview_live.ex:1008
+#: lib/phoenix_kit_projects/web/overview_live.ex:1012
 #, elixir-autogen, elixir-format
 msgid "Late only"
 msgstr "En retard uniquement"
@@ -2931,7 +2931,7 @@ msgstr "En retard uniquement"
 msgid "Not started"
 msgstr "Non commencé"
 
-#: lib/phoenix_kit_projects/web/overview_live.ex:1003
+#: lib/phoenix_kit_projects/web/overview_live.ex:1007
 #, elixir-autogen, elixir-format
 msgid "Only projects running past their planned end"
 msgstr "Uniquement les projets ayant dépassé leur fin prévue"
@@ -2991,3 +2991,8 @@ msgstr "Opacité des rayures"
 #, elixir-autogen, elixir-format
 msgid "Wave — stripes slide across the bar (solid: a band travels)"
 msgstr "Vague — les rayures glissent sur la barre (uni : une bande se déplace)"
+
+#: lib/phoenix_kit_projects/web/overview_live.ex:960
+#, elixir-autogen, elixir-format
+msgid "The overdue pattern marks a late task — not done, but past its scheduled days."
+msgstr "Le motif de retard marque une tâche en retard — non terminée, mais au-delà de ses jours planifiés."

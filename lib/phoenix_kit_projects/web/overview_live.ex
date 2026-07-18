@@ -956,7 +956,11 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                           {gettext("Tasks share their project's color. Click a task to open its project.")}
                         </p>
                         <p class="mt-1.5">
-                          {gettext("A red ring marks a late task — not done, but past its scheduled days.")}
+                          <%= if @overdue_anim && @overdue_anim.late_marker == "pattern" do %>
+                            {gettext("The overdue pattern marks a late task — not done, but past its scheduled days.")}
+                          <% else %>
+                            {gettext("A red ring marks a late task — not done, but past its scheduled days.")}
+                          <% end %>
                         </p>
                         <p class="mt-1.5 text-base-content/50">
                           {gettext("Busy days cap the list — click the day or its +N more link to see everything scheduled that day.")}

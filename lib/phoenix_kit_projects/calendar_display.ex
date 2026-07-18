@@ -663,7 +663,10 @@ defmodule PhoenixKitProjects.CalendarDisplay do
 
   # wave → each overdue day is phase-shifted by its absolute date (--pk-hl-day),
   # so one band travels across every project in sync. flash → same keyframe with
-  # no delay, so all overdue days pulse together.
+  # no delay, so all overdue days pulse together. Late TASK chips carrying
+  # pk-overdue (marker = pattern) have no per-day slices, so under solid+wave
+  # they fall back to delay 0 and pulse in unison — deliberate: a chip is one
+  # atomic unit, only day-sliced highlight stretches phase per day.
   defp solid_css(cfg) do
     delay =
       if cfg.mode == "wave",
@@ -699,7 +702,7 @@ defmodule PhoenixKitProjects.CalendarDisplay do
   defp base_stripes(cfg) do
     """
     .pk-overdue { position: relative; }
-    .pk-overdue > span { position: relative; z-index: 1; }
+    .pk-overdue > span, .pk-overdue > .cal-event-content { position: relative; z-index: 1; }
     .pk-overdue::after {
       content: "";
       position: absolute;
