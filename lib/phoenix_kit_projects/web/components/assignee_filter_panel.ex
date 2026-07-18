@@ -64,9 +64,13 @@ defmodule PhoenixKitProjects.Web.Components.AssigneeFilterPanel do
         </span>
       </button>
 
+      <%!-- On phones the button-anchored w-80 panel can poke past the screen
+           edge (the button sits mid-toolbar), so max-sm pins the panel to the
+           viewport's x-edges instead: fixed + inset-x, top:auto keeps the
+           flow position just below the button. --%>
       <div
         id={"#{@id}-panel"}
-        class="hidden absolute left-0 top-full mt-2 z-30 w-80 max-w-[90vw] card bg-base-100 border border-base-200 shadow-lg"
+        class="hidden absolute left-0 top-full mt-2 z-30 w-80 max-w-[90vw] max-sm:fixed max-sm:inset-x-3 max-sm:top-auto max-sm:w-auto max-sm:max-w-none card bg-base-100 border border-base-200 shadow-lg"
       >
         <div class="card-body p-4 gap-3">
           <div class="flex items-center justify-between">
@@ -140,8 +144,11 @@ defmodule PhoenixKitProjects.Web.Components.AssigneeFilterPanel do
               />
             </span>
 
+            <%!-- min-w-0 on the name: without it the flex item refuses to
+                 shrink and a long name pokes past the badge's max-w-56
+                 instead of ellipsizing. --%>
             <span :for={p <- @assignee_selected} class="badge badge-outline gap-1.5 max-w-56">
-              <span class="truncate">{p.name}</span>
+              <span class="truncate min-w-0">{p.name}</span>
               <.chip_remove
                 click={JS.push("remove_assignee_person", value: %{uuid: p.uuid})}
                 name={p.name}

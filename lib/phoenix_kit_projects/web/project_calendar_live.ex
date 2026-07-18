@@ -536,12 +536,15 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
           <%!-- PkDialogTrigger makes a day-cell / "+N more" click open the
                whole-day popup in the same frame; event chips have their own
                phx-click and correctly don't match — they navigate instead. --%>
+          <%!-- No overflow clip here: the toolbar's tooltip bubbles (the
+               Filters button in toolbar_start) must escape the calendar's
+               top edge; the calendar clips its own grid. --%>
           <div
             id={"project-calendar-day-trigger-#{@project.uuid}"}
             phx-hook="PkDialogTrigger"
             data-dialog={"project-day-modal-#{@project.uuid}"}
             data-trigger=".cal-day-cell, .cal-more-link"
-            class="border border-base-200 rounded-lg overflow-hidden"
+            class="border border-base-200 rounded-lg"
           >
             <%!-- In-flight pulse for the lib-rendered clickables (chips/bars/
                  cells/more-links) — their classes aren't ours to extend. --%>
