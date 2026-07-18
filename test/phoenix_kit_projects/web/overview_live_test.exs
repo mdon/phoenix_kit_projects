@@ -226,9 +226,34 @@ defmodule PhoenixKitProjects.Web.OverviewLiveTest do
       assert html =~ "projects-overview-calendar"
       assert html =~ "overview-tasks-calendar"
 
+      # The toggle indicates the ACTIVE mode (btn-primary moves with it).
+      assert has_element?(view, ~s(button[phx-value-mode="projects"].btn-primary))
+      refute has_element?(view, ~s(button[phx-value-mode="tasks"].btn-primary))
+      render_click(view, "set_calendar_mode", %{"mode" => "tasks"})
+      assert has_element?(view, ~s(button[phx-value-mode="tasks"].btn-primary))
+
       # An unknown mode is ignored.
       html = render_click(view, "set_calendar_mode", %{"mode" => "evil"})
       assert html =~ "overview-tasks-calendar"
+    end
+
+    test "the pattern late-marker replaces the ring on late task chips", %{conn: conn} do
+      PhoenixKitProjects.CalendarDisplay.put_animation("late_marker", "pattern")
+
+      on_exit(fn ->
+        PhoenixKitProjects.CalendarDisplay.put_animation("late_marker", "ring")
+      end)
+
+      # A late chip that lands on TODAY's cell (a month-old span wouldn't be
+      # in the rendered month): 10-minute task anchored at 00:05 UTC today —
+      # same convention as calendar_fixture, late whenever now > 00:15.
+      {_project, _} = calendar_fixture(1)
+
+      {:ok, view, _html} = live(conn, "/en/admin/projects")
+      open_calendar_tab(view)
+
+      assert has_element?(view, "[id^=overview-tasks-calendar] .pk-overdue")
+      refute has_element?(view, "[id^=overview-tasks-calendar] .ring-error")
     end
 
     # A started project whose 1-hour task began `days_ago` days ago — its

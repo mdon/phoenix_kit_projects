@@ -84,6 +84,9 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
         today: Date.utc_today(),
         tz_offset: "0",
         calendar_events: [],
+        # The overdue-animation/late-marker config map (read_animation/0) —
+        # reload/1 refreshes it; the Tasks-mode late marker derives from it.
+        overdue_anim: nil,
         # Projects-mode "Late only" filter: the raw event list is cached and
         # the visible `calendar_events` derive from it in memory (same shape
         # as the Tasks-mode filters — a toggle never re-queries).
@@ -156,7 +159,10 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
 
     {top_summaries, total_active} = prioritize_running(all_summaries, today, now)
 
+    # Read + assign the animation/marker config BEFORE the Tasks-mode build
+    # below — apply_task_filter derives the late-marker class from it.
     overdue_anim = CalendarDisplay.read_animation()
+    socket = assign(socket, overdue_anim: overdue_anim)
 
     calendar_events =
       CalendarDisplay.events(
@@ -294,8 +300,16 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
 
     {kept, provenance} = filter_items(items, scopes, include_unassigned?, direct_only?)
 
+    late_class =
+      CalendarDisplay.late_marker_class(
+        socket.assigns[:overdue_anim] || CalendarDisplay.read_animation()
+      )
+
     {events, meta} =
-      CalendarDisplay.task_events(kept, L10n.current_content_lang(), offset, now: now)
+      CalendarDisplay.task_events(kept, L10n.current_content_lang(), offset,
+        now: now,
+        late_class: late_class
+      )
 
     # Provenance ("via <team>") rides the meta so popup rows can show WHY a
     # task is in a person's view without implying personal ownership.
@@ -390,9 +404,10 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
         class={[
           "btn btn-xs join-item tooltip",
           CalendarDisplay.loading_class(),
-          @calendar_mode == :tasks && "btn-active"
+          if(@calendar_mode == :tasks, do: "btn-active btn-primary", else: "btn-ghost")
         ]}
         data-tip={gettext("Every task on the days it is scheduled to run")}
+        aria-pressed={to_string(@calendar_mode == :tasks)}
         phx-click="set_calendar_mode"
         phx-value-mode="tasks"
       >
@@ -403,9 +418,10 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
         class={[
           "btn btn-xs join-item tooltip tooltip-left",
           CalendarDisplay.loading_class(),
-          @calendar_mode == :projects && "btn-active"
+          if(@calendar_mode == :projects, do: "btn-active btn-primary", else: "btn-ghost")
         ]}
         data-tip={gettext("One line per project, with the overdue marker")}
+        aria-pressed={to_string(@calendar_mode == :projects)}
         phx-click="set_calendar_mode"
         phx-value-mode="projects"
       >
@@ -879,9 +895,19 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                        bars/cells/more-links) — their classes aren't ours to
                        extend, so a tiny static style covers them. --%>
                   {Phoenix.HTML.raw(CalendarDisplay.loading_style())}
+                  <%!-- The overdue/late-marker <style> serves BOTH grids: the
+                       Projects-mode overdue stretch always, and Tasks-mode
+                       late chips when the marker is set to the pattern. The
+                       SyncAnimations wrapper keeps stripes aligned + in phase
+                       across cells. --%>
+                  {Phoenix.HTML.raw(@overdue_style)}
                   <%!-- Tasks mode (default): capped day cells — at most 4 bars +
                        3 chips per day, the rest behind "+N more". --%>
-                  <div class={if(@calendar_mode != :tasks, do: "hidden")}>
+                  <div
+                    id={"overview-tasks-sync-#{@sfx}"}
+                    phx-hook="SyncAnimations"
+                    class={if(@calendar_mode != :tasks, do: "hidden")}
+                  >
                     <.live_component
                       module={PhoenixLiveCalendar.CalendarComponent}
                       id={"overview-tasks-calendar-#{@sfx}"}
@@ -944,7 +970,6 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
 
                   <%!-- Projects mode: the original ongoing-line view. --%>
                   <div class={if(@calendar_mode != :projects, do: "hidden")}>
-                    {Phoenix.HTML.raw(@overdue_style)}
                     <div id={"overview-calendar-sync-#{@sfx}"} phx-hook="SyncAnimations">
                       <.live_component
                         module={PhoenixLiveCalendar.CalendarComponent}

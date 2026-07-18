@@ -138,6 +138,9 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
       # Per-project PubSub topics already subscribed (the whole rendered tree;
       # grows as sub-projects appear). Avoids double-subscribing on reload.
       subscribed_projects: MapSet.new(),
+      # The overdue-animation/late-marker config (read_animation/0), read on
+      # every load_calendar so the marker follows the settings page.
+      overdue_anim: nil,
       # True between the connected mount and the `:load_calendar` message —
       # drives the loading skeleton so the first paint isn't blocked on the
       # per-project queries (and doesn't flash the empty state).
@@ -306,6 +309,7 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
     socket
     |> AssigneeFilter.resolve_me()
     |> subscribe_tree(project_uuids)
+    |> assign(overdue_anim: CalendarDisplay.read_animation())
     |> assign(
       calendar_items: {items, layout},
       click_targets: click_targets,
@@ -343,6 +347,11 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
     direct_only? = socket.assigns.assignee_direct_only?
     now = DateTime.utc_now() |> DateTime.to_naive()
 
+    late_class =
+      CalendarDisplay.late_marker_class(
+        socket.assigns[:overdue_anim] || CalendarDisplay.read_animation()
+      )
+
     top_items = Enum.filter(items, &is_nil(&1.parent_uuid))
 
     events =
@@ -359,7 +368,7 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
             if socket.assigns.overdue_only? and not late? do
               []
             else
-              [to_event(it, span.start, span.end, lang, late?, via)]
+              [to_event(it, span.start, span.end, lang, late? && late_class, via)]
             end
         end
       end)
@@ -437,7 +446,9 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
   # hour-precise detail lives one tab over. `phoenix_live_calendar` ends are
   # exclusive (`[start, end)`). Late bars get the shared red inset ring;
   # `via` carries the filter provenance for the day popup.
-  defp to_event(it, %NaiveDateTime{} = s, %NaiveDateTime{} = e, lang, late?, via) do
+  # `late_or_class` is falsy for an on-time bar, else the marker class to
+  # apply (ring or pk-overdue, per the settings).
+  defp to_event(it, %NaiveDateTime{} = s, %NaiveDateTime{} = e, lang, late_or_class, via) do
     a = it.assignment
     start_d = NaiveDateTime.to_date(s)
     # UTC frame (nil offset) — Timeline-tab parity, unlike the Overview's
@@ -449,8 +460,8 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
       end: end_d,
       all_day: true,
       color: status_color(a.status),
-      class: if(late?, do: CalendarDisplay.late_class()),
-      extra: %{status: a.status, late: late?, via: via}
+      class: if(late_or_class, do: late_or_class),
+      extra: %{status: a.status, late: !!late_or_class, via: via}
     )
   end
 
@@ -560,6 +571,14 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
             <%!-- In-flight pulse for the lib-rendered clickables (chips/bars/
                  cells/more-links) — their classes aren't ours to extend. --%>
             {Phoenix.HTML.raw(CalendarDisplay.loading_style())}
+            <%!-- The overdue/late-marker <style> + stripe alignment, for when
+                 the late marker is set to the pattern. Inert with the ring.
+                 (@overdue_anim is always set once load_calendar has run, and
+                 this branch only renders after it has.) --%>
+            {Phoenix.HTML.raw(
+              if(@overdue_anim, do: CalendarDisplay.animation_style(@overdue_anim), else: "")
+            )}
+            <div id={"project-calendar-sync-#{@project.uuid}"} phx-hook="SyncAnimations">
             <.live_component
               module={PhoenixLiveCalendar.CalendarComponent}
               id={"project-calendar-#{@project.uuid}"}
@@ -622,6 +641,7 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
                 </p>
               </:info>
             </.live_component>
+            </div>
           </div>
 
           <.day_popup_modal

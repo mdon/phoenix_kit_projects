@@ -416,9 +416,16 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
 
   defp calendar_mode_options do
     [
-      {gettext("Wave — one band travels across"), "wave"},
+      {gettext("Wave — stripes slide across the bar (solid: a band travels)"), "wave"},
       {gettext("Flash — all pulse together"), "flash"},
       {gettext("Off — static, no motion"), "off"}
+    ]
+  end
+
+  defp late_marker_options do
+    [
+      {gettext("Red ring around the task"), "ring"},
+      {gettext("Overdue pattern — same look as late projects"), "pattern"}
     ]
   end
 
@@ -719,7 +726,7 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
       <div class="card bg-base-100 shadow">
         <div class="card-body gap-5">
           <div class="flex items-start justify-between gap-4">
-            <h2 class="card-title text-base">{gettext("Calendar overdue animation")}</h2>
+            <h2 class="card-title text-base">{gettext("Calendar overdue & late markers")}</h2>
             <button
               type="button"
               class="btn btn-ghost btn-xs"
@@ -732,7 +739,7 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
           </div>
           <p class="text-xs text-base-content/60">
             {gettext(
-              "How the overdue part of a late project's bar animates on the Overview calendar. It always shows in the inverse of the bar's own color; these control the motion. The preview below updates as you change them."
+              "How the overdue part of a late project's bar looks on the Overview calendar, and how late tasks are marked on the task calendars. The pattern always shows in the inverse of the bar's own color; these control the motion and strength. The previews below update as you change them."
             )}
           </p>
 
@@ -786,6 +793,27 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
                 class="range range-sm"
               />
             </label>
+            <.select
+              name="late_marker"
+              label={gettext("Late task marker")}
+              value={@calendar_anim.late_marker}
+              options={late_marker_options()}
+            />
+            <label :if={@calendar_anim.pattern == "stripes"} class="flex flex-col gap-1">
+              <span class="text-sm font-medium">
+                {gettext("Stripe opacity")}: {@calendar_anim.opacity}
+              </span>
+              <input
+                type="range"
+                name="opacity"
+                min={anim_min("opacity")}
+                max={anim_max("opacity")}
+                step="0.05"
+                value={@calendar_anim.opacity}
+                phx-debounce="150"
+                class="range range-sm"
+              />
+            </label>
             <label class="flex flex-col gap-1">
               <span class="text-sm font-medium">
                 {gettext("Dim (min brightness)")}: {@calendar_anim.brightness_min}
@@ -826,7 +854,7 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
                built only from validated/clamped numbers + enums. --%>
           {Phoenix.HTML.raw("<style>" <> CalendarDisplay.animation_css(@calendar_anim) <> "</style>")}
           <div class="flex flex-col gap-1">
-            <span class="text-xs text-base-content/60">{gettext("Preview")}</span>
+            <span class="text-xs text-base-content/60">{gettext("Late project (overdue stretch)")}</span>
             <div id="calendar-anim-preview" phx-hook="SyncAnimations" class="flex gap-0.5">
               <div
                 :for={i <- 0..15}
@@ -834,6 +862,30 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
                 style={if i >= 5, do: "--pk-hl-day: #{i}"}
               >
               </div>
+            </div>
+          </div>
+
+          <%!-- The late-TASK marker, exactly as the task calendars apply it:
+               identity-colored chips, the late ones carrying the configured
+               marker class (ring or the pk-overdue pattern). --%>
+          <div class="flex flex-col gap-1">
+            <span class="text-xs text-base-content/60">{gettext("Late tasks")}</span>
+            <div id="calendar-late-preview" phx-hook="SyncAnimations" class="flex flex-wrap gap-1.5">
+              <span class="h-7 px-3 inline-flex items-center rounded-sm bg-emerald-600 text-white text-xs">
+                {gettext("On time")}
+              </span>
+              <span class={[
+                "h-7 px-3 inline-flex items-center rounded-sm bg-blue-600 text-white text-xs",
+                CalendarDisplay.late_marker_class(@calendar_anim)
+              ]}>
+                <span>{gettext("Late")}</span>
+              </span>
+              <span class={[
+                "h-7 px-3 inline-flex items-center rounded-sm bg-fuchsia-600 text-white text-xs",
+                CalendarDisplay.late_marker_class(@calendar_anim)
+              ]}>
+                <span>{gettext("Late")}</span>
+              </span>
             </div>
           </div>
         </div>

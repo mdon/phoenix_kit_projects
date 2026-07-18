@@ -426,6 +426,32 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLiveTest do
       refute html =~ "SubMatch-"
     end
 
+    test "the pattern late-marker replaces the ring on late bars", %{conn: conn} do
+      PhoenixKitProjects.CalendarDisplay.put_animation("late_marker", "pattern")
+      on_exit(fn -> PhoenixKitProjects.CalendarDisplay.put_animation("late_marker", "ring") end)
+
+      project = fixture_project(%{"start_mode" => "immediate", "counts_weekends" => true})
+      {:ok, _} = Projects.start_project(project, DateTime.add(DateTime.utc_now(), -5 * 24 * 3600))
+      project = Projects.get_project!(project.uuid)
+
+      late =
+        fixture_task(%{
+          "title" => "PatternLate-#{System.unique_integer([:positive])}",
+          "estimated_duration" => 1,
+          "estimated_duration_unit" => "days"
+        })
+
+      {:ok, _} =
+        Projects.create_assignment(%{"project_uuid" => project.uuid, "task_uuid" => late.uuid})
+
+      {:ok, view, _html} =
+        live_isolated(conn, ProjectCalendarLive, session: %{"id" => project.uuid})
+
+      render(view)
+      assert has_element?(view, "[id^=project-calendar-sync] .pk-overdue")
+      refute has_element?(view, "[id^=project-calendar-sync] .ring-error")
+    end
+
     test "the Overdue-only toggle hides while no bar is late", %{conn: conn} do
       project = fixture_project(%{"start_mode" => "immediate", "counts_weekends" => true})
       {:ok, _} = Projects.start_project(project)

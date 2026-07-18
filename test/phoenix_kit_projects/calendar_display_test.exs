@@ -294,6 +294,26 @@ defmodule PhoenixKitProjects.CalendarDisplayTest do
       refute css =~ "10.0s"
     end
 
+    test "the configured stripe opacity drives the overlay (default 1)" do
+      # Maps without :opacity (older configs) fall back to fully opaque.
+      assert CalendarDisplay.animation_css(@wave) =~ "opacity: 1;"
+
+      css = CalendarDisplay.animation_css(Map.put(@wave, :opacity, 0.4))
+      assert css =~ "opacity: 0.4;"
+
+      # Flash scales its brightness pulse around the configured opacity —
+      # low = 0.5 × 0.78, peak = 0.5 × 1.18 — rounded to valid CSS floats.
+      flash = CalendarDisplay.animation_css(%{@wave | mode: "flash"} |> Map.put(:opacity, 0.5))
+      assert flash =~ "opacity: 0.39;"
+      assert flash =~ "opacity: 0.59;"
+    end
+
+    test "late_marker_class/1 maps ring/pattern (ring on anything else)" do
+      assert CalendarDisplay.late_marker_class(%{late_marker: "ring"}) =~ "ring-error"
+      assert CalendarDisplay.late_marker_class(%{late_marker: "pattern"}) == "pk-overdue"
+      assert CalendarDisplay.late_marker_class(%{}) =~ "ring-error"
+    end
+
     test "solid pattern fills with the inverse colour (filter: invert), no stripes" do
       css = CalendarDisplay.animation_css(%{@wave | pattern: "solid"})
 
@@ -455,6 +475,18 @@ defmodule PhoenixKitProjects.CalendarDisplayTest do
 
       refute done_e.class
       refute meta[done_e.id].late
+    end
+
+    test "the :late_class opt swaps the late marker (settings-driven pattern)" do
+      p = project(%{name: "P"})
+      todo = task_item(p, %{status: "todo"})
+      s = span(~N[2026-06-10 08:00:00], ~N[2026-06-10 10:00:00])
+      now = ~N[2026-06-12 09:00:00]
+
+      {[e], _meta} =
+        CalendarDisplay.task_events([{todo, s}], nil, "0", now: now, late_class: "pk-overdue")
+
+      assert e.class == "pk-overdue"
     end
 
     test "a task still inside its span is not late" do

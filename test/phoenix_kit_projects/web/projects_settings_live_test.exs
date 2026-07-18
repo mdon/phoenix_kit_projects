@@ -244,6 +244,41 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLiveTest do
     end
   end
 
+  describe "late-task marker + stripe opacity" do
+    test "both previews render; marker + opacity persist (clamped/validated)", %{conn: conn} do
+      {:ok, view, html} = live(conn, "/en/admin/settings/projects")
+
+      # Two demo strips: the overdue stretch + the late-task chips.
+      assert html =~ "calendar-anim-preview"
+      assert html =~ "calendar-late-preview"
+      # Default marker: the late chips carry the ring, not the pattern.
+      assert has_element?(view, "#calendar-late-preview .ring-error")
+
+      render_change(view, "set_calendar_anim", %{
+        "_target" => ["late_marker"],
+        "late_marker" => "pattern"
+      })
+
+      assert PhoenixKitProjects.CalendarDisplay.read_animation().late_marker == "pattern"
+      assert has_element?(view, "#calendar-late-preview .pk-overdue")
+
+      # An unknown marker value is ignored, not persisted.
+      render_change(view, "set_calendar_anim", %{
+        "_target" => ["late_marker"],
+        "late_marker" => "sparkles"
+      })
+
+      assert PhoenixKitProjects.CalendarDisplay.read_animation().late_marker == "pattern"
+
+      # Opacity persists and clamps into its range.
+      render_change(view, "set_calendar_anim", %{"_target" => ["opacity"], "opacity" => "0.3"})
+      assert PhoenixKitProjects.CalendarDisplay.read_animation().opacity == 0.3
+
+      render_change(view, "set_calendar_anim", %{"_target" => ["opacity"], "opacity" => "9"})
+      assert PhoenixKitProjects.CalendarDisplay.read_animation().opacity == 1.0
+    end
+  end
+
   describe "coalesced slider audit logs" do
     test "a slider burst settles into ONE row carrying the final value", %{
       conn: conn,
