@@ -87,10 +87,44 @@ defmodule PhoenixKitProjects.Projects do
     limit_n = Keyword.get(opts, :limit)
 
     Task
+    |> maybe_search_task(Keyword.get(opts, :search))
     |> task_order_by(sort_by, sort_dir)
     |> maybe_limit(limit_n)
     |> preload(^@task_preloads)
     |> repo().all()
+  end
+
+  # Task-flavored twin of `maybe_search_name_description/2`: title +
+  # description + every language's translated values, escaped ilike.
+  defp maybe_search_task(query, search) when is_binary(search) do
+    case String.trim(search) do
+      "" ->
+        query
+
+      q ->
+        pattern = "%" <> escape_like(q) <> "%"
+
+        where(
+          query,
+          [t],
+          ilike(t.title, ^pattern) or ilike(t.description, ^pattern) or
+            fragment(
+              "EXISTS (SELECT 1 FROM jsonb_each(?) AS tr WHERE tr.value->>'title' ILIKE ? OR tr.value->>'description' ILIKE ?)",
+              t.translations,
+              ^pattern,
+              ^pattern
+            )
+        )
+    end
+  end
+
+  defp maybe_search_task(query, _), do: query
+
+  defp escape_like(q) do
+    q
+    |> String.replace("\\", "\\\\")
+    |> String.replace("%", "\\%")
+    |> String.replace("_", "\\_")
   end
 
   # Defensive: only positive integers actually narrow the query.
@@ -116,6 +150,12 @@ defmodule PhoenixKitProjects.Projects do
 
   defp task_order_by(query, :inserted_at, _asc),
     do: order_by(query, [t], asc: t.inserted_at, asc: t.uuid)
+
+  defp task_order_by(query, :updated_at, :desc),
+    do: order_by(query, [t], desc: t.updated_at, asc: t.uuid)
+
+  defp task_order_by(query, :updated_at, _asc),
+    do: order_by(query, [t], asc: t.updated_at, asc: t.uuid)
 
   defp task_order_by(query, :estimated_duration, :desc),
     do: order_by(query, [t], desc: t.estimated_duration, asc: t.title, asc: t.uuid)
@@ -210,8 +250,12 @@ defmodule PhoenixKitProjects.Projects do
   end
 
   @doc "Total number of tasks in the library."
-  @spec count_tasks() :: non_neg_integer()
-  def count_tasks, do: repo().aggregate(Task, :count, :uuid)
+  @spec count_tasks(keyword()) :: non_neg_integer()
+  def count_tasks(opts \\ []) do
+    Task
+    |> maybe_search_task(Keyword.get(opts, :search))
+    |> repo().aggregate(:count, :uuid)
+  end
 
   @doc """
   Returns `%{assignment_uuid => published_comment_count}` for the
@@ -775,6 +819,7 @@ defmodule PhoenixKitProjects.Projects do
     |> exclude_subprojects()
     |> maybe_filter_archived(archived)
     |> maybe_filter_status(status_slug)
+    |> maybe_search_name_description(Keyword.get(opts, :search))
     |> project_order_by(sort_by, sort_dir)
     |> maybe_limit(limit_n)
     |> repo().all()
@@ -1193,6 +1238,7 @@ defmodule PhoenixKitProjects.Projects do
     |> exclude_subprojects()
     |> maybe_filter_archived(archived)
     |> maybe_filter_status(status_slug)
+    |> maybe_search_name_description(Keyword.get(opts, :search))
     |> repo().aggregate(:count, :uuid)
   end
 
@@ -1260,43 +1306,72 @@ defmodule PhoenixKitProjects.Projects do
   end
 
   @doc """
-  Creator display names for templates, resolved from the activity log's
-  `projects.template_created` entries (earliest entry per template wins;
-  full name, email fallback). Best-effort by design: templates created
-  outside the admin form, or whose creation entry has been pruned past
-  the activity retention window, are simply absent from the map — the
-  column renders a dash for them. One entries query + one users query.
+  Creator display names for templates — see `creation_actors/2`.
   """
   @spec template_creators([uuid()]) :: %{uuid() => String.t()}
-  def template_creators([]), do: %{}
+  def template_creators(template_uuids),
+    do: creation_actors(template_uuids, ["projects.template_created"])
 
-  def template_creators(template_uuids) when is_list(template_uuids) do
-    earliest_actor_by_template =
+  @doc """
+  Creator display names for arbitrary resources, resolved from the
+  activity log's creation entries for the given `actions` (earliest
+  entry per resource wins; full name, email fallback). Best-effort by
+  design: rows created outside the admin forms, or whose creation entry
+  has been pruned past the activity retention window, are simply absent
+  from the map — the column renders a dash for them. One entries query
+  + one users query.
+  """
+  @spec creation_actors([uuid()], [String.t()]) :: %{uuid() => String.t()}
+  def creation_actors([], _actions), do: %{}
+
+  def creation_actors(resource_uuids, actions)
+      when is_list(resource_uuids) and is_list(actions) do
+    earliest_actor_by_resource =
       from(e in ActivityEntry,
-        where: e.action == "projects.template_created" and e.resource_uuid in ^template_uuids,
+        where: e.action in ^actions and e.resource_uuid in ^resource_uuids,
         where: not is_nil(e.actor_uuid),
         select: {e.resource_uuid, e.actor_uuid, e.inserted_at}
       )
       |> repo().all()
       |> Enum.group_by(&elem(&1, 0))
-      |> Map.new(fn {template_uuid, entries} ->
-        {_t, actor_uuid, _at} = Enum.min_by(entries, &elem(&1, 2), DateTime)
-        {template_uuid, actor_uuid}
+      |> Map.new(fn {resource_uuid, entries} ->
+        {_r, actor_uuid, _at} = Enum.min_by(entries, &elem(&1, 2), DateTime)
+        {resource_uuid, actor_uuid}
       end)
 
     names_by_user =
-      earliest_actor_by_template
+      earliest_actor_by_resource
       |> Map.values()
       |> Enum.uniq()
       |> UsersAuth.get_users_by_uuids()
       |> Map.new(&{&1.uuid, creator_display_name(&1)})
 
-    for {template_uuid, actor_uuid} <- earliest_actor_by_template,
+    for {resource_uuid, actor_uuid} <- earliest_actor_by_resource,
         name = Map.get(names_by_user, actor_uuid),
         is_binary(name),
         into: %{} do
-      {template_uuid, name}
+      {resource_uuid, name}
     end
+  end
+
+  @doc """
+  Batched usage stats for library tasks — how many assignments
+  reference each task and when the most recent one was created.
+  Tasks never used are absent from the map.
+  """
+  @spec task_usage([uuid()]) :: %{uuid() => %{count: non_neg_integer(), last_used: DateTime.t()}}
+  def task_usage([]), do: %{}
+
+  def task_usage(task_uuids) when is_list(task_uuids) do
+    from(a in Assignment,
+      where: a.task_uuid in ^task_uuids,
+      group_by: a.task_uuid,
+      select: {a.task_uuid, count(a.uuid), max(a.inserted_at)}
+    )
+    |> repo().all()
+    |> Map.new(fn {task_uuid, count, last_used} ->
+      {task_uuid, %{count: count, last_used: last_used}}
+    end)
   end
 
   defp creator_display_name(user) do
@@ -1348,13 +1423,7 @@ defmodule PhoenixKitProjects.Projects do
         query
 
       q ->
-        escaped =
-          q
-          |> String.replace("\\", "\\\\")
-          |> String.replace("%", "\\%")
-          |> String.replace("_", "\\_")
-
-        pattern = "%#{escaped}%"
+        pattern = "%" <> escape_like(q) <> "%"
 
         where(
           query,

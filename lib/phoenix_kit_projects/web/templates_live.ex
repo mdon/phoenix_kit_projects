@@ -9,6 +9,7 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Schemas.Project
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
+  alias PhoenixKitProjects.Web.ListUi
 
   require Logger
 
@@ -52,7 +53,6 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
   @optional_columns ~w(weekends tasks uses last_used created updated created_by external_id)
   @default_columns ~w(weekends)
   @columns_key "projects_templates_columns"
-  @settings_module "projects"
 
   @impl true
   def mount(_params, session, socket) do
@@ -100,7 +100,8 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
         # action button is clicked (BulkSelectScope hook).
         captured_uuids: [],
         show_reorder_modal: false,
-        visible_columns: read_visible_columns(),
+        visible_columns:
+          ListUi.read_visible_columns(@columns_key, @optional_columns, @default_columns),
         # Batched per-row lookup maps for the tasks / uses / created_by
         # columns — filled by load_templates only while visible.
         task_counts: %{},
@@ -164,21 +165,6 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
         ),
       creators: if("created_by" in visible, do: Projects.template_creators(uuids), else: %{})
     )
-  end
-
-  # Stored as a comma-joined list so one settings row carries the whole
-  # set. `nil` (never saved) falls back to the defaults; an empty string
-  # is a deliberate "all optional columns hidden". Unknown names are
-  # dropped and order is normalized to @optional_columns.
-  defp read_visible_columns do
-    case PhoenixKit.Settings.get_settings_direct([@columns_key])[@columns_key] do
-      nil ->
-        @default_columns
-
-      stored when is_binary(stored) ->
-        chosen = stored |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
-        Enum.filter(@optional_columns, &(&1 in chosen))
-    end
   end
 
   defp sort_options do
@@ -267,31 +253,20 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
   # coerced to "" — the query side would shrug them off, but rendering
   # a map back into the input's `value` would crash the LV.
   def handle_event("search", params, socket) do
-    search =
-      case params["search"] do
-        s when is_binary(s) -> s
-        _ -> ""
-      end
-
     {:noreply,
      socket
-     |> assign(search: search, loaded_count: @per_batch)
+     |> assign(search: ListUi.coerce_search(params), loaded_count: @per_batch)
      |> load_templates()}
   end
 
   def handle_event("toggle_column", %{"col" => col}, socket) when col in @optional_columns do
-    visible = socket.assigns.visible_columns
-
     new_visible =
-      if col in visible,
-        do: List.delete(visible, col),
-        else: Enum.filter(@optional_columns, &(&1 in [col | visible]))
-
-    PhoenixKit.Settings.update_setting_with_module(
-      @columns_key,
-      Enum.join(new_visible, ","),
-      @settings_module
-    )
+      ListUi.toggle_visible_column(
+        @columns_key,
+        @optional_columns,
+        socket.assigns.visible_columns,
+        col
+      )
 
     # Reload so a newly-shown tasks / created_by column gets its
     # batched lookup map (hidden columns skip those queries).
@@ -435,25 +410,6 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
 
   defp sanitize_uuids(_), do: []
 
-  # Lowercased match target for the TableLocalSearch hook — the same
-  # fields the server-side `maybe_search_name_description/2` covers
-  # (primary name/description + every language's translated values), so
-  # the instant client filter and the authoritative server result agree.
-  defp search_haystack(t) do
-    translated =
-      for {_lang, fields} <- t.translations || %{},
-          is_map(fields),
-          key <- ["name", "description"],
-          val = fields[key],
-          is_binary(val),
-          do: val
-
-    [t.name, t.description | translated]
-    |> Enum.filter(&is_binary/1)
-    |> Enum.join(" ")
-    |> String.downcase()
-  end
-
   @impl true
   def render(assigns) do
     ~H"""
@@ -514,6 +470,7 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
               <.search_toolbar
                 value={@search}
                 on_submit="search"
+                loading_indicator={not @local_search?}
                 placeholder={gettext("Search templates...")}
                 class="w-48"
               />
@@ -654,7 +611,7 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
         </.table_default_row>
       </.table_default_header>
       <.sortable_tbody id="templates-list-body" enabled={@draggable?} event="reorder_templates">
-        <.sortable_row :for={t <- @templates} item_id={t.uuid} data-search={search_haystack(t)}>
+        <.sortable_row :for={t <- @templates} item_id={t.uuid} data-search={ListUi.search_haystack(t, ["name", "description"])}>
           <.drag_handle_cell :if={@draggable?} />
           <.bulk_select_cell value={t.uuid} />
           <.table_default_cell class="font-medium">
