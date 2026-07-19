@@ -741,7 +741,13 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                    title they must cost no extra height — no icons, no pill
                    chrome, the active view marked by a primary underline +
                    weight instead of a filled tab. --%>
-              <div role="tablist" class="flex items-center gap-4 text-sm">
+              <%!-- On phones the tab row takes its own full-width second line
+                   (order-last) so the title and View-all share the first —
+                   free wrapping scattered the three into three rows. --%>
+              <div
+                role="tablist"
+                class="flex items-center gap-4 text-sm max-sm:order-last max-sm:w-full"
+              >
                 <button
                   :for={
                     {id, label} <- [
