@@ -755,46 +755,10 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
   def render(assigns) do
     ~H"""
     <div class={@wrapper_class}>
-      <.page_header
-        title={gettext("Projects")}
-        description={gettext("Overview of active work, upcoming projects, and your assignments.")}
-      >
-        <:actions>
-          <.smart_link
-            navigate={Paths.new_project()}
-            emit={{PhoenixKitProjects.Web.ProjectFormLive, %{"live_action" => "new"}}}
-            embed_mode={@embed_mode}
-            class="btn btn-primary btn-sm"
-          >
-            <.icon name="hero-plus" class="w-4 h-4" /> {gettext("New project")}
-          </.smart_link>
-          <.smart_link
-            navigate={Paths.new_task()}
-            emit={{PhoenixKitProjects.Web.TaskFormLive, %{"live_action" => "new"}}}
-            embed_mode={@embed_mode}
-            class="btn btn-ghost btn-sm"
-          >
-            <.icon name="hero-plus" class="w-4 h-4" /> {gettext("New task")}
-          </.smart_link>
-        </:actions>
-      </.page_header>
-
-      <%!-- Stats row --%>
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <.stat_tile label={gettext("Running")} value={@active_count} />
-        <.stat_tile
-          label={gettext("Tasks in progress")}
-          value={Map.get(@status_counts, "in_progress", 0)}
-          value_class="text-warning"
-        />
-        <.stat_tile label={gettext("Tasks todo")} value={Map.get(@status_counts, "todo", 0)} />
-        <.stat_tile
-          label={gettext("Tasks done")}
-          value={Map.get(@status_counts, "done", 0)}
-          value_class="text-success"
-        />
-      </div>
-
+      <%!-- No page header: the client screens are short, the sidebar already
+           says where you are, and creation lives on the list pages + the
+           empty-state CTAs — the dashboard starts with the data. The stat
+           tiles moved into the bottom row for the same reason. --%>
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <%!-- Left: Active projects (span 2) --%>
         <div class="lg:col-span-2 card bg-base-100 shadow">
@@ -1193,8 +1157,9 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
         </div>
       </div>
 
-      <%!-- Bottom navigation row --%>
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <%!-- Bottom row: the three nav cards + the stat tiles, one compact
+           strip under the content that matters (short client screens). --%>
+      <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
         <.smart_link
           navigate={Paths.projects()}
           emit={{PhoenixKitProjects.Web.ProjectsLive, %{}}}
@@ -1237,20 +1202,18 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
             <div class="text-xl font-bold">{@template_count}</div>
           </div>
         </.smart_link>
-        <.smart_link
-          navigate={Paths.new_template()}
-          emit={{PhoenixKitProjects.Web.TemplateFormLive, %{"live_action" => "new"}}}
-          embed_mode={@embed_mode}
-          class="card bg-base-100 shadow-sm hover:shadow-md transition border border-base-200"
-        >
-          <div class="card-body p-4">
-            <div class="flex items-center gap-2 text-base-content/70">
-              <.icon name="hero-plus" class="w-5 h-5" />
-              <span class="text-sm font-medium">{gettext("New template")}</span>
-            </div>
-            <div class="text-xs text-base-content/50">{gettext("Blueprint from scratch")}</div>
-          </div>
-        </.smart_link>
+        <.stat_tile label={gettext("Running")} value={@active_count} />
+        <.stat_tile
+          label={gettext("Tasks in progress")}
+          value={Map.get(@status_counts, "in_progress", 0)}
+          value_class="text-warning"
+        />
+        <.stat_tile label={gettext("Tasks todo")} value={Map.get(@status_counts, "todo", 0)} />
+        <.stat_tile
+          label={gettext("Tasks done")}
+          value={Map.get(@status_counts, "done", 0)}
+          value_class="text-success"
+        />
       </div>
     </div>
     """
