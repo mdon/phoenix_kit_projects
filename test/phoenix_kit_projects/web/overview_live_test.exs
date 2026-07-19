@@ -224,9 +224,9 @@ defmodule PhoenixKitProjects.Web.OverviewLiveTest do
       assert html =~ "overview-tasks-calendar"
 
       # The active tab follows the mode.
-      assert has_element?(view, ~s([role="tab"].tab-active), "Projects calendar")
+      assert has_element?(view, ~s([role="tab"][aria-selected="true"]), "Projects calendar")
       render_click(view, "switch_overview_tab", %{"tab" => "tasks_calendar"})
-      assert has_element?(view, ~s([role="tab"].tab-active), "Tasks calendar")
+      assert has_element?(view, ~s([role="tab"][aria-selected="true"]), "Tasks calendar")
 
       # An unknown tab falls back to the list view.
       html = render_click(view, "switch_overview_tab", %{"tab" => "evil"})

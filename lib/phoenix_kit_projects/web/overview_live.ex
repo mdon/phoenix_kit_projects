@@ -737,23 +737,36 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
               <h2 class="card-title text-lg shrink-0">
                 <.icon name="hero-play" class="w-5 h-5 text-success" /> {gettext("Running")}
               </h2>
-              <.nav_tabs
-                active_tab={active_overview_tab(@overview_tab, @calendar_mode)}
-                on_change="switch_overview_tab"
-                tabs={[
-                  %{id: "list", label: gettext("List"), icon: "hero-list-bullet"},
-                  %{
-                    id: "tasks_calendar",
-                    label: gettext("Tasks calendar"),
-                    icon: "hero-calendar-days"
-                  },
-                  %{
-                    id: "projects_calendar",
-                    label: gettext("Projects calendar"),
-                    icon: "hero-calendar"
+              <%!-- Compact text tabs (not the boxed nav_tabs): inline with the
+                   title they must cost no extra height — no icons, no pill
+                   chrome, the active view marked by a primary underline +
+                   weight instead of a filled tab. --%>
+              <div role="tablist" class="flex items-center gap-4 text-sm">
+                <button
+                  :for={
+                    {id, label} <- [
+                      {"list", gettext("List")},
+                      {"tasks_calendar", gettext("Tasks calendar")},
+                      {"projects_calendar", gettext("Projects calendar")}
+                    ]
                   }
-                ]}
-              />
+                  type="button"
+                  role="tab"
+                  aria-selected={to_string(active_overview_tab(@overview_tab, @calendar_mode) == id)}
+                  phx-click="switch_overview_tab"
+                  phx-value-tab={id}
+                  class={[
+                    "pb-0.5 border-b-2 transition-colors cursor-pointer",
+                    CalendarDisplay.loading_class(),
+                    if(active_overview_tab(@overview_tab, @calendar_mode) == id,
+                      do: "border-primary font-semibold text-base-content",
+                      else: "border-transparent text-base-content/60 hover:text-base-content"
+                    )
+                  ]}
+                >
+                  {label}
+                </button>
+              </div>
               <.smart_link
                 navigate={Paths.projects()}
                 emit={{PhoenixKitProjects.Web.ProjectsLive, %{}}}
