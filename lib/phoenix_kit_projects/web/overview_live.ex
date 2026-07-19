@@ -404,7 +404,11 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
          the DATA-mode choice reads differently from the lib's Month/Agenda
          VIEW switcher sitting beside it — as plain buttons the two groups
          blended into one row of pills. --%>
-    <div class="tabs tabs-boxed bg-base-200 p-0.5" role="group" aria-label={gettext("Calendar mode")}>
+    <div
+      class="tabs tabs-boxed tabs-sm bg-base-200 p-0.5 flex-nowrap shrink-0"
+      role="group"
+      aria-label={gettext("Calendar mode")}
+    >
       <button
         type="button"
         class={[
@@ -422,7 +426,7 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
       <button
         type="button"
         class={[
-          "tab tooltip tooltip-left",
+          "tab tooltip",
           CalendarDisplay.loading_class(),
           @calendar_mode == :projects && "tab-active"
         ]}
@@ -918,8 +922,13 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                            zero raw items every filter yields the same empty
                            month. Keyed on the UNFILTERED walk, so a filter
                            that empties the month keeps the panel reachable. --%>
-                      <:toolbar_start :if={@task_calendar_items != []}>
+                      <%!-- The DATA-mode choice outranks the view switcher, so
+                           it leads the LEFT wing — on narrow containers the
+                           right wing wraps, not this. --%>
+                      <:toolbar_start>
+                        {mode_toggle(%{calendar_mode: @calendar_mode})}
                         <.assignee_filter_panel
+                          :if={@task_calendar_items != []}
                           id={"overview-filter-#{@sfx}"}
                           assignee_selected={@assignee_selected}
                           include_unassigned?={@include_unassigned?}
@@ -931,9 +940,6 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                           picker_target={"#overview-calendar-day-trigger-#{@sfx}"}
                         />
                       </:toolbar_start>
-                      <:toolbar_end>
-                        {mode_toggle(%{calendar_mode: @calendar_mode})}
-                      </:toolbar_end>
                       <:info>
                         <p class="mb-1 text-sm font-semibold text-base-content">
                           {gettext("Reading the calendar")}
@@ -1012,9 +1018,9 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                             </span>
                           </button>
                         </:toolbar_start>
-                        <:toolbar_end>
+                        <:toolbar_start>
                           {mode_toggle(%{calendar_mode: @calendar_mode})}
-                        </:toolbar_end>
+                        </:toolbar_start>
                         <:info>
                           <p class="mb-1 text-sm font-semibold text-base-content">
                             {gettext("Reading the calendar")}
