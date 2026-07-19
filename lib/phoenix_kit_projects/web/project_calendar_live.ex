@@ -309,7 +309,7 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
     socket
     |> AssigneeFilter.resolve_me()
     |> subscribe_tree(project_uuids)
-    |> assign(overdue_anim: CalendarDisplay.read_animation())
+    |> assign(overdue_anim: CalendarDisplay.read())
     |> assign(
       calendar_items: {items, layout},
       click_targets: click_targets,
@@ -348,9 +348,7 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
     now = DateTime.utc_now() |> DateTime.to_naive()
 
     late_class =
-      CalendarDisplay.late_marker_class(
-        socket.assigns[:overdue_anim] || CalendarDisplay.read_animation()
-      )
+      CalendarDisplay.late_marker_class(socket.assigns[:overdue_anim] || CalendarDisplay.read())
 
     top_items = Enum.filter(items, &is_nil(&1.parent_uuid))
 
@@ -586,10 +584,13 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
               views={[:month]}
               date={@anchor_date}
               today={@today}
-              fixed_weeks={false}
+              week_start={@overdue_anim.week_start}
+              show_weekends={@overdue_anim.show_weekends}
+              show_week_numbers={@overdue_anim.show_week_numbers}
+              fixed_weeks={@overdue_anim.fixed_weeks}
               expand_cells={true}
-              max_events={CalendarDisplay.max_events()}
-              max_multiday={CalendarDisplay.max_multiday()}
+              max_events={@overdue_anim.max_events}
+              max_multiday={@overdue_anim.max_multiday}
               info_label={gettext("About this calendar")}
               on_event_click={fn id -> send(self(), {:calendar_event_click, id}) end}
               on_date_select={fn date -> send(self(), {:calendar_date_click, date}) end}

@@ -262,12 +262,18 @@ defmodule PhoenixKitProjects.CalendarDisplayTest do
       end
     end
 
-    test "wave mode slides the stripes" do
+    test "wave mode slides the stripes horizontally — visibly, with valid fallbacks" do
       css = CalendarDisplay.animation_css(@wave)
 
       assert css =~ "@keyframes pk-overdue-stripe-slide"
       assert css =~ "animation: pk-overdue-stripe-slide 7s linear infinite"
-      assert css =~ "calc(var(--pk-bg-x, 0) + 56.57px)"
+      # Four whole 56.57px periods per cycle — one period per cycle crawled
+      # imperceptibly at the default speed.
+      assert css =~ "calc(var(--pk-bg-x, 0px) + 226.28px)"
+      # Unitless 0 inside calc() is invalid CSS and killed the keyframe
+      # wherever the alignment hook hadn't set the vars.
+      refute css =~ "var(--pk-bg-x, 0)"
+      refute css =~ "var(--pk-bg-y, 0)"
     end
 
     test "flash mode pulses the striped overlay" do

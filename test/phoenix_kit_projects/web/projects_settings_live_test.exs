@@ -244,24 +244,29 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLiveTest do
     end
   end
 
-  describe "late-task marker + stripe opacity" do
-    test "both previews render; marker + opacity persist (clamped/validated)", %{conn: conn} do
+  describe "calendar customizer" do
+    alias PhoenixKitProjects.CalendarDisplay
+
+    test "the live demo grid renders; marker + opacity persist (clamped/validated)", %{
+      conn: conn
+    } do
       {:ok, view, html} = live(conn, "/en/admin/settings/projects")
 
-      # Two demo strips: the overdue stretch + the late-task chips.
-      assert html =~ "calendar-anim-preview"
-      assert html =~ "calendar-late-preview"
-      # Default marker: the late chips carry the overdue pattern — synced
+      # One real month-grid demo (the same component the calendars render),
+      # with the late project bar's overdue tail and a late task chip.
+      assert html =~ "calendar-settings-demo"
+      assert has_element?(view, "#calendar-settings-demo .cal-month-grid")
+      # Default marker: the late chip carries the overdue pattern — synced
       # with the Projects-mode look out of the box.
-      assert has_element?(view, "#calendar-late-preview .pk-overdue")
+      assert has_element?(view, "#calendar-settings-demo .cal-event.pk-overdue")
 
       render_change(view, "set_calendar_anim", %{
         "_target" => ["late_marker"],
         "late_marker" => "ring"
       })
 
-      assert PhoenixKitProjects.CalendarDisplay.read_animation().late_marker == "ring"
-      assert has_element?(view, "#calendar-late-preview .ring-error")
+      assert CalendarDisplay.read().late_marker == "ring"
+      assert has_element?(view, "#calendar-settings-demo .ring-error")
 
       # An unknown marker value is ignored, not persisted.
       render_change(view, "set_calendar_anim", %{
@@ -269,14 +274,50 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLiveTest do
         "late_marker" => "sparkles"
       })
 
-      assert PhoenixKitProjects.CalendarDisplay.read_animation().late_marker == "ring"
+      assert CalendarDisplay.read().late_marker == "ring"
 
       # Opacity persists and clamps into its range.
       render_change(view, "set_calendar_anim", %{"_target" => ["opacity"], "opacity" => "0.3"})
-      assert PhoenixKitProjects.CalendarDisplay.read_animation().opacity == 0.3
+      assert CalendarDisplay.read().opacity == 0.3
 
       render_change(view, "set_calendar_anim", %{"_target" => ["opacity"], "opacity" => "9"})
-      assert PhoenixKitProjects.CalendarDisplay.read_animation().opacity == 1.0
+      assert CalendarDisplay.read().opacity == 1.0
+    end
+
+    test "grid flags + per-day caps persist and reach the demo grid", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/en/admin/settings/projects")
+
+      # Week numbers off by default; the flag toggle flips it + the demo shows.
+      refute has_element?(view, "#calendar-settings-demo .cal-week-number")
+
+      view
+      |> element(~s(input[phx-click=toggle_calendar_flag][phx-value-field=show_week_numbers]))
+      |> render_click()
+
+      assert CalendarDisplay.read().show_week_numbers == true
+      assert has_element?(view, "#calendar-settings-demo .cal-week-number")
+
+      # Caps clamp into range.
+      render_change(view, "set_calendar_anim", %{"_target" => ["max_events"], "max_events" => "9"})
+
+      assert CalendarDisplay.read().max_events == 6
+
+      render_change(view, "set_calendar_anim", %{
+        "_target" => ["max_multiday"],
+        "max_multiday" => "0"
+      })
+
+      assert CalendarDisplay.read().max_multiday == 1
+    end
+
+    test "the calendars honor core's site-wide week_start_day", %{conn: conn} do
+      PhoenixKit.Settings.update_setting("week_start_day", "7")
+      assert CalendarDisplay.read().week_start == 7
+
+      # An out-of-range core value falls back to Monday.
+      PhoenixKit.Settings.update_setting("week_start_day", "banana")
+      assert CalendarDisplay.read().week_start == 1
+      _ = conn
     end
   end
 

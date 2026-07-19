@@ -450,7 +450,7 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLiveTest do
       refute has_element?(view, "[id^=project-calendar-sync] .ring-error")
 
       # Opting into the ring swaps the marker.
-      PhoenixKitProjects.CalendarDisplay.put_animation("late_marker", "ring")
+      PhoenixKitProjects.CalendarDisplay.put("late_marker", "ring")
       send(view.pid, {:projects, :assignment_updated, %{}})
       render(view)
       assert has_element?(view, "[id^=project-calendar-sync] .ring-error")

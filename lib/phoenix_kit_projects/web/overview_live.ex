@@ -161,7 +161,7 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
 
     # Read + assign the animation/marker config BEFORE the Tasks-mode build
     # below — apply_task_filter derives the late-marker class from it.
-    overdue_anim = CalendarDisplay.read_animation()
+    overdue_anim = CalendarDisplay.read()
     socket = assign(socket, overdue_anim: overdue_anim)
 
     calendar_events =
@@ -301,9 +301,7 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
     {kept, provenance} = filter_items(items, scopes, include_unassigned?, direct_only?)
 
     late_class =
-      CalendarDisplay.late_marker_class(
-        socket.assigns[:overdue_anim] || CalendarDisplay.read_animation()
-      )
+      CalendarDisplay.late_marker_class(socket.assigns[:overdue_anim] || CalendarDisplay.read())
 
     {events, meta} =
       CalendarDisplay.task_events(kept, L10n.current_content_lang(), offset,
@@ -915,10 +913,13 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                       views={[:month, :agenda]}
                       date={@today}
                       today={@today}
-                      fixed_weeks={false}
+                      week_start={@overdue_anim.week_start}
+                      show_weekends={@overdue_anim.show_weekends}
+                      show_week_numbers={@overdue_anim.show_week_numbers}
+                      fixed_weeks={@overdue_anim.fixed_weeks}
                       expand_cells={true}
-                      max_events={CalendarDisplay.max_events()}
-                      max_multiday={CalendarDisplay.max_multiday()}
+                      max_events={@overdue_anim.max_events}
+                      max_multiday={@overdue_anim.max_multiday}
                       info_label={gettext("About this calendar")}
                       on_event_click={fn id -> send(self(), {:calendar_open_task, id}) end}
                       on_date_select={fn date -> send(self(), {:calendar_day_click, date}) end}
@@ -982,8 +983,13 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                         views={[:month]}
                         date={@today}
                         today={@today}
-                        fixed_weeks={false}
+                        week_start={@overdue_anim.week_start}
+                        show_weekends={@overdue_anim.show_weekends}
+                        show_week_numbers={@overdue_anim.show_week_numbers}
+                        fixed_weeks={@overdue_anim.fixed_weeks}
                         expand_cells={true}
+                        max_events={@overdue_anim.max_events}
+                        max_multiday={@overdue_anim.max_multiday}
                         info_label={gettext("About this calendar")}
                         on_event_click={fn id -> send(self(), {:calendar_open_project, id}) end}
                         on_date_select={fn date -> send(self(), {:calendar_day_click, date}) end}

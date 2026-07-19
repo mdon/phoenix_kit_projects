@@ -50,7 +50,10 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
        default_status_entity_uuid: Statuses.global_default_status_entity_uuid(),
        use_status_translations: Statuses.global_use_status_translations?(),
        gantt_display: GanttDisplay.read(),
-       calendar_anim: CalendarDisplay.read_animation(),
+       calendar_anim: CalendarDisplay.read(),
+       # Anchor for the calendar demo grid (real current month, unlike the
+       # gantt demo's fixed range — the month grid reads best around today).
+       demo_calendar_today: Date.utc_today(),
        # Coalesced audit rows for slider drags: %{{action, field} => %{ref:, opts:}}.
        # Each new tick replaces the pending entry (and its timer token), so
        # only the settled value flushes — see queue_display_log/4.
@@ -184,10 +187,24 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
      |> assign(gantt_display: GanttDisplay.read())}
   end
 
-  # One overdue-animation control changed (mode / speed / brightness / wave step).
-  # `_target` names the field, matching CalendarDisplay.put_animation/2.
+  # One calendar boolean flag flipped (weekends / week numbers / fixed weeks).
+  def handle_event("toggle_calendar_flag", %{"field" => field}, socket) do
+    new_value = not calendar_flag(socket.assigns.calendar_anim, field)
+    CalendarDisplay.put_flag(field, new_value)
+
+    Activity.log("projects.calendar_display_changed",
+      actor_uuid: Activity.actor_uuid(socket),
+      resource_type: "projects_settings",
+      metadata: %{"field" => field, "value" => new_value}
+    )
+
+    {:noreply, assign(socket, calendar_anim: CalendarDisplay.read())}
+  end
+
+  # One calendar-display control changed (marker / motion / caps sliders).
+  # `_target` names the field, matching CalendarDisplay.put/2.
   def handle_event("set_calendar_anim", %{"_target" => [field]} = params, socket) do
-    CalendarDisplay.put_animation(field, params[field])
+    CalendarDisplay.put(field, params[field])
 
     socket =
       queue_display_log(socket, "projects.calendar_display_changed", field,
@@ -196,14 +213,14 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
         metadata: %{"field" => field}
       )
 
-    {:noreply, assign(socket, calendar_anim: CalendarDisplay.read_animation())}
+    {:noreply, assign(socket, calendar_anim: CalendarDisplay.read())}
   end
 
   def handle_event("set_calendar_anim", _params, socket), do: {:noreply, socket}
 
   # Restore every overdue-animation setting to its default.
   def handle_event("reset_calendar_anim", _params, socket) do
-    CalendarDisplay.reset_animation()
+    CalendarDisplay.reset()
 
     Activity.log("projects.calendar_display_reset",
       actor_uuid: Activity.actor_uuid(socket),
@@ -213,7 +230,7 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
     {:noreply,
      socket
      |> drop_pending_display_logs("projects.calendar_display_changed")
-     |> assign(calendar_anim: CalendarDisplay.read_animation())}
+     |> assign(calendar_anim: CalendarDisplay.read())}
   end
 
   # Expand/collapse the demo sub-project (preview only — not a persisted setting).
@@ -270,6 +287,11 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
 
     :ok
   end
+
+  defp calendar_flag(cfg, "show_weekends"), do: cfg.show_weekends
+  defp calendar_flag(cfg, "show_week_numbers"), do: cfg.show_week_numbers
+  defp calendar_flag(cfg, "fixed_weeks"), do: cfg.fixed_weeks
+  defp calendar_flag(_cfg, _field), do: false
 
   defp current_flag(display, "show_progress"), do: display.show_progress
   defp current_flag(display, "show_connectors"), do: display.show_connectors
@@ -364,6 +386,53 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
 
   defp demo_range, do: Date.range(~D[2026-01-03], ~D[2026-01-28])
 
+  # Fixture events for the calendar demo: an on-time project bar, a late one
+  # with its overdue tail highlighted (exactly the shape CalendarDisplay.events
+  # builds), one late task chip carrying the configured marker, and a burst of
+  # same-day chips so the per-day caps + "+N more" are visible.
+  defp calendar_demo_events(today, cfg) do
+    marker = CalendarDisplay.late_marker_class(cfg)
+
+    [
+      PhoenixLiveCalendar.event("demo-ontime", Date.add(today, -9),
+        title: gettext("Website relaunch"),
+        end: Date.add(today, 6),
+        all_day: true,
+        color: "bg-blue-600",
+        text_color: "text-white",
+        extra: %{slot_priority: 1}
+      ),
+      PhoenixLiveCalendar.event("demo-late-project", Date.add(today, -12),
+        title: gettext("Brand refresh"),
+        end: Date.add(today, 1),
+        all_day: true,
+        color: "bg-emerald-600",
+        text_color: "text-white",
+        extra: %{
+          slot_priority: 0,
+          highlight: %{from: Date.add(today, -4), to: Date.add(today, 1), class: "pk-overdue"}
+        }
+      ),
+      PhoenixLiveCalendar.event("demo-late-task", Date.add(today, -1),
+        title: gettext("Late task"),
+        end: today,
+        all_day: true,
+        color: "bg-fuchsia-600",
+        text_color: "text-white",
+        class: marker
+      )
+      | for i <- 1..5 do
+          PhoenixLiveCalendar.event("demo-chip-#{i}", today,
+            title: gettext("Task %{n}", n: i),
+            end: Date.add(today, 1),
+            all_day: true,
+            color: "bg-amber-400",
+            text_color: "text-neutral-900"
+          )
+        end
+    ]
+  end
+
   # ── Form option lists ───────────────────────────────────────────
   defp position_options do
     [
@@ -438,6 +507,7 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
   attr(:field, :string, required: true)
   attr(:label, :string, required: true)
   attr(:on, :boolean, required: true)
+  attr(:event, :string, default: "toggle_gantt_flag")
 
   defp gantt_toggle(assigns) do
     ~H"""
@@ -446,7 +516,7 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
         type="checkbox"
         class="checkbox checkbox-sm"
         checked={@on}
-        phx-click="toggle_gantt_flag"
+        phx-click={@event}
         phx-value-field={@field}
       />
       <span class="text-sm">{@label}</span>
@@ -726,7 +796,7 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
       <div class="card bg-base-100 shadow">
         <div class="card-body gap-5">
           <div class="flex items-start justify-between gap-4">
-            <h2 class="card-title text-base">{gettext("Calendar overdue & late markers")}</h2>
+            <h2 class="card-title text-base">{gettext("Calendar")}</h2>
             <button
               type="button"
               class="btn btn-ghost btn-xs"
@@ -739,15 +809,68 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
           </div>
           <p class="text-xs text-base-content/60">
             {gettext(
-              "How the overdue part of a late project's bar looks on the Overview calendar, and how late tasks are marked on the task calendars. The pattern always shows in the inverse of the bar's own color; these control the motion and strength. The previews below update as you change them."
+              "How the project calendars look across the module — the month grid itself, and how overdue projects and late tasks are marked. The live preview below updates as you change these. The first day of the week follows the site-wide setting."
             )}
           </p>
+
+          <%!-- ── Grid appearance ── --%>
+          <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
+            <.gantt_toggle
+              field="show_weekends"
+              label={gettext("Show weekends")}
+              on={@calendar_anim.show_weekends}
+              event="toggle_calendar_flag"
+            />
+            <.gantt_toggle
+              field="show_week_numbers"
+              label={gettext("Week numbers")}
+              on={@calendar_anim.show_week_numbers}
+              event="toggle_calendar_flag"
+            />
+            <.gantt_toggle
+              field="fixed_weeks"
+              label={gettext("Always six weeks (fixed height)")}
+              on={@calendar_anim.fixed_weeks}
+              event="toggle_calendar_flag"
+            />
+          </div>
 
           <form
             id="calendar-anim-form"
             phx-change="set_calendar_anim"
             class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
           >
+            <label class="flex flex-col gap-1">
+              <span class="text-sm font-medium">
+                {gettext("Single-day tasks per day")}: {@calendar_anim.max_events}
+              </span>
+              <input
+                type="range"
+                name="max_events"
+                min={anim_min("max_events")}
+                max={anim_max("max_events")}
+                step="1"
+                value={@calendar_anim.max_events}
+                phx-debounce="150"
+                class="range range-sm"
+              />
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-sm font-medium">
+                {gettext("Multi-day bars per day")}: {@calendar_anim.max_multiday}
+              </span>
+              <input
+                type="range"
+                name="max_multiday"
+                min={anim_min("max_multiday")}
+                max={anim_max("max_multiday")}
+                step="1"
+                value={@calendar_anim.max_multiday}
+                phx-debounce="150"
+                class="range range-sm"
+              />
+            </label>
+            <div class="hidden lg:block"></div>
             <.select
               name="pattern"
               label={gettext("Marker")}
@@ -846,46 +969,37 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
             </label>
           </form>
 
-          <%!-- Live preview: a single project bar. The blue cells are the on-time
-               stretch; the rest is the "overdue" tail, rendered exactly as on the
-               Overview (the generated CSS + chosen marker/motion). The
-               SyncAnimations hook aligns the stripes + syncs the animation across
-               the cells, same as the real calendar. raw/1 is safe — the CSS is
-               built only from validated/clamped numbers + enums. --%>
+          <%!-- Live preview: a REAL month grid (the same component the
+               calendars render) fed by fixture events — an on-time and a late
+               project bar (the late one carries its overdue tail), plus a
+               burst of task chips (one late) that exercises the per-day caps.
+               The SyncAnimations hook aligns/syncs the stripes exactly as on
+               the real calendars. raw/1 is safe — the CSS is built only from
+               validated/clamped numbers + enums. --%>
           {Phoenix.HTML.raw("<style>" <> CalendarDisplay.animation_css(@calendar_anim) <> "</style>")}
           <div class="flex flex-col gap-1">
-            <span class="text-xs text-base-content/60">{gettext("Late project (overdue stretch)")}</span>
-            <div id="calendar-anim-preview" phx-hook="SyncAnimations" class="flex gap-0.5">
-              <div
-                :for={i <- 0..15}
-                class={["h-7 flex-1 rounded-sm bg-blue-600", i >= 5 && "pk-overdue"]}
-                style={if i >= 5, do: "--pk-hl-day: #{i}"}
-              >
-              </div>
-            </div>
-          </div>
-
-          <%!-- The late-TASK marker, exactly as the task calendars apply it:
-               identity-colored chips, the late ones carrying the configured
-               marker class (ring or the pk-overdue pattern). --%>
-          <div class="flex flex-col gap-1">
-            <span class="text-xs text-base-content/60">{gettext("Late tasks")}</span>
-            <div id="calendar-late-preview" phx-hook="SyncAnimations" class="flex flex-wrap gap-1.5">
-              <span class="h-7 px-3 inline-flex items-center rounded-sm bg-emerald-600 text-white text-xs">
-                {gettext("On time")}
-              </span>
-              <span class={[
-                "h-7 px-3 inline-flex items-center rounded-sm bg-blue-600 text-white text-xs",
-                CalendarDisplay.late_marker_class(@calendar_anim)
-              ]}>
-                <span>{gettext("Late")}</span>
-              </span>
-              <span class={[
-                "h-7 px-3 inline-flex items-center rounded-sm bg-fuchsia-600 text-white text-xs",
-                CalendarDisplay.late_marker_class(@calendar_anim)
-              ]}>
-                <span>{gettext("Late")}</span>
-              </span>
+            <span class="text-xs text-base-content/60">{gettext("Preview")}</span>
+            <div
+              id="calendar-settings-demo"
+              phx-hook="SyncAnimations"
+              class="border border-base-200 rounded-lg"
+            >
+              <.live_component
+                module={PhoenixLiveCalendar.CalendarComponent}
+                id="calendar-settings-demo-grid"
+                events={calendar_demo_events(@demo_calendar_today, @calendar_anim)}
+                views={[:month]}
+                date={@demo_calendar_today}
+                today={@demo_calendar_today}
+                week_start={@calendar_anim.week_start}
+                show_weekends={@calendar_anim.show_weekends}
+                show_week_numbers={@calendar_anim.show_week_numbers}
+                fixed_weeks={@calendar_anim.fixed_weeks}
+                expand_cells={true}
+                max_events={@calendar_anim.max_events}
+                max_multiday={@calendar_anim.max_multiday}
+                show_header={false}
+              />
             </div>
           </div>
         </div>

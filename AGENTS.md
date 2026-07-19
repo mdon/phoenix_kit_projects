@@ -438,6 +438,8 @@ Guarded with `Code.ensure_loaded?/1` + rescue — logging never crashes mutation
 ## Settings keys
 
 - `projects_enabled` — boolean, read by `PhoenixKitProjects.enabled?/0`, toggled via **Admin > Modules**. `enabled?` rescues all errors and returns `false` so missing settings tables don't crash module discovery.
+- `projects_cal_*` — the calendar customizer (`/admin/settings/projects`, all through `CalendarDisplay.read/0` + `put/2` + `put_flag/2`, validated/clamped on both ends): grid appearance (`show_weekends`, `show_week_numbers`, `fixed_weeks`, `max_events` 1–6, `max_multiday` 1–8) and the overdue/late markers (`overdue_pattern` stripes|solid, `overdue_mode` wave|flash|off, `overdue_speed`, `overdue_bright_min`/`_max`, `overdue_wave_step`, `overdue_opacity`, `late_marker` pattern|ring — pattern is the default so late tasks match late projects). The first weekday is NOT here — the calendars honor core's site-wide `week_start_day`.
+- `projects_gantt_*` — the Timeline-chart customizer (`GanttDisplay`), same page.
 
 ## File layout
 
