@@ -765,9 +765,13 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
            says where you are, and creation lives on the list pages + the
            empty-state CTAs — the dashboard starts with the data. The stat
            tiles moved into the bottom row for the same reason. --%>
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <%!-- The Running list/calendar IS the page: it keeps the full width
+           except on genuinely wide screens (2xl+), where the side panels
+           return to a third column. Below that the panels flow as a compact
+           row underneath — they're secondary. --%>
+      <div class="grid grid-cols-1 2xl:grid-cols-3 gap-4">
         <%!-- Left: Active projects (span 2) --%>
-        <div class="lg:col-span-2 card bg-base-100 shadow">
+        <div class="2xl:col-span-2 card bg-base-100 shadow">
           <%!-- Tighter body padding on phones so the 7-column calendar isn't squeezed. --%>
           <div class="card-body max-sm:p-3">
             <div class="flex items-start justify-between gap-3">
@@ -1050,8 +1054,9 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
           </div>
         </div>
 
-        <%!-- Right: My tasks + upcoming + recently completed --%>
-        <div class="flex flex-col gap-4">
+        <%!-- My tasks + recently completed + upcoming: a side column on wide
+             screens, a three-across row under the main card otherwise. --%>
+        <div class="grid gap-4 md:grid-cols-3 2xl:grid-cols-1 2xl:content-start">
           <%!-- My assignments --%>
           <div class="card bg-base-100 shadow">
             <div class="card-body">
