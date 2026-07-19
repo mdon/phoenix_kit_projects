@@ -658,19 +658,21 @@ defmodule PhoenixKitProjects.Web.ListLVsHandlersTest do
   end
 
   describe "TemplatesLive — search" do
-    test "filters by name, clears back to the full list", %{conn: conn} do
+    test "local mode: the server keeps EVERY row during a search", %{conn: conn} do
       fixture_template(%{"name" => "Alpha kit"})
       fixture_template(%{"name" => "Beta kit"})
 
       {:ok, view, _html} = live(conn, "/en/admin/projects/templates")
 
+      # Under the threshold filtering is the client hook's job — the
+      # server must NOT drop non-matching rows from the payload, or the
+      # client couldn't re-show them instantly when the query changes.
       html = render_change(view, "search", %{"search" => "alpha"})
       assert html =~ "Alpha kit"
-      refute html =~ "Beta kit"
-
-      html = render_change(view, "search", %{"search" => ""})
-      assert html =~ "Alpha kit"
       assert html =~ "Beta kit"
+
+      # The search string still updates server state (DnD gate etc.).
+      assert has_element?(view, "input[name=search][value=alpha]")
     end
 
     test "no-match search keeps the toolbar (not the empty state)", %{conn: conn} do
@@ -685,15 +687,14 @@ defmodule PhoenixKitProjects.Web.ListLVsHandlersTest do
       refute html =~ "No templates yet."
     end
 
-    test "ilike wildcards in the query match literally", %{conn: conn} do
-      fixture_template(%{"name" => "100% done"})
-      fixture_template(%{"name" => "Plain"})
+    test "server mode past the threshold: search filters in SQL", %{conn: conn} do
+      for n <- 1..101, do: fixture_template(%{"name" => "V#{String.pad_leading("#{n}", 3, "0")}"})
 
       {:ok, view, _html} = live(conn, "/en/admin/projects/templates")
-      html = render_change(view, "search", %{"search" => "%"})
 
-      assert html =~ "100% done"
-      refute html =~ "Plain"
+      html = render_change(view, "search", %{"search" => "v101"})
+      assert html =~ "V101"
+      refute html =~ "V050"
     end
 
     test "an active search disables DnD (sparse-subset position rewrite guard)", %{conn: conn} do
@@ -746,21 +747,6 @@ defmodule PhoenixKitProjects.Web.ListLVsHandlersTest do
       assert html =~ "50"
       assert html =~ "101"
       assert length(String.split(html, "data-search=")) - 1 == 50
-    end
-
-    test "matches translated names", %{conn: conn} do
-      t = fixture_template(%{"name" => "Launch plan"})
-      fixture_template(%{"name" => "Other"})
-
-      t
-      |> Ecto.Changeset.change(translations: %{"et" => %{"name" => "Stardiplaan"}})
-      |> PhoenixKit.RepoHelper.repo().update!()
-
-      {:ok, view, _html} = live(conn, "/en/admin/projects/templates")
-      html = render_change(view, "search", %{"search" => "stardi"})
-
-      assert html =~ "Launch plan"
-      refute html =~ "Other"
     end
   end
 end

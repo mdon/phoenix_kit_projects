@@ -112,6 +112,51 @@ defmodule PhoenixKitProjects.ProjectsContextTest do
     end
   end
 
+  describe "list_templates/1 :search" do
+    test "matches primary name and description, case-insensitively" do
+      fixture_template(%{"name" => "Alpha kit", "description" => "Yearly audit pack"})
+      fixture_template(%{"name" => "Beta kit"})
+
+      assert ["Alpha kit"] = names(Projects.list_templates(search: "ALPHA"))
+      assert ["Alpha kit"] = names(Projects.list_templates(search: "audit pack"))
+      assert length(Projects.list_templates(search: "kit")) == 2
+    end
+
+    test "matches translated values, never JSON keys" do
+      t = fixture_template(%{"name" => "Launch plan"})
+      fixture_template(%{"name" => "Other"})
+
+      t
+      |> Ecto.Changeset.change(translations: %{"et" => %{"name" => "Stardiplaan"}})
+      |> PhoenixKit.RepoHelper.repo().update!()
+
+      assert ["Launch plan"] = names(Projects.list_templates(search: "stardi"))
+      # A query matching only the JSON key "name" must not match every row.
+      assert Projects.list_templates(search: "name") == []
+    end
+
+    test "ilike wildcards in the query match literally" do
+      fixture_template(%{"name" => "100% done"})
+      fixture_template(%{"name" => "Plain"})
+
+      assert ["100% done"] = names(Projects.list_templates(search: "%"))
+      # Unescaped `_` would wildcard-match the space in "% d"; escaped it
+      # must be literal and match nothing.
+      assert Projects.list_templates(search: "0%_d") == []
+    end
+
+    test "blank or non-binary search is a no-op filter" do
+      fixture_template(%{"name" => "Solo"})
+
+      assert length(Projects.list_templates(search: "   ")) == 1
+      assert length(Projects.list_templates(search: nil)) == 1
+      assert Projects.count_templates(search: "solo") == 1
+      assert Projects.count_templates(search: "zzz") == 0
+    end
+
+    defp names(templates), do: Enum.map(templates, & &1.name)
+  end
+
   describe "project_summary + project_summaries" do
     test "project_summaries/1 returns [] for an empty input" do
       assert Projects.project_summaries([]) == []

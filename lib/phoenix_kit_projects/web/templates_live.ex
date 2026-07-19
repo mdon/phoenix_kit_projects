@@ -115,14 +115,24 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
 
     base_opts = [
       sort_by: socket.assigns.sort_by,
-      sort_dir: socket.assigns.sort_dir,
-      search: search
+      sort_dir: socket.assigns.sort_dir
     ]
 
+    # Local mode keeps the ENTIRE (<= threshold) set rendered — the SQL
+    # search is deliberately NOT applied, so the client hook can re-show
+    # any in-memory row the moment the query changes, with no server
+    # round-trip. Past the threshold, search + pagination are all SQL.
     list_opts =
-      if not local_search? and socket.assigns.pagination == "load_more",
-        do: Keyword.put(base_opts, :limit, socket.assigns.loaded_count),
-        else: base_opts
+      if local_search?,
+        do: base_opts,
+        else:
+          base_opts
+          |> Keyword.put(:search, search)
+          |> then(fn opts ->
+            if socket.assigns.pagination == "load_more",
+              do: Keyword.put(opts, :limit, socket.assigns.loaded_count),
+              else: opts
+          end)
 
     templates = Projects.list_templates(list_opts)
     uuids = Enum.map(templates, & &1.uuid)
@@ -132,7 +142,10 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
       templates: templates,
       total_count: total,
       local_search?: local_search?,
-      filtered_count: Projects.count_templates(search: search),
+      # Only meaningful in server mode (drives the load-more footer);
+      # local mode shows the full set, so the count is just the total.
+      filtered_count:
+        if(local_search?, do: total, else: Projects.count_templates(search: search)),
       task_counts:
         if("tasks" in visible, do: Projects.assignment_counts_for_projects(uuids), else: %{}),
       usage:
@@ -724,8 +737,10 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
       </.sortable_tbody>
     </.table_default>
 
+    <%!-- Hidden in local mode: everything is on screen, and a
+         "Showing N of N" line would contradict a client-filtered view. --%>
     <.load_more
-      :if={@pagination == "load_more"}
+      :if={@pagination == "load_more" and not @local_search?}
       loaded={length(@templates)}
       total={@filtered_count}
       noun_plural={gettext("templates")}
