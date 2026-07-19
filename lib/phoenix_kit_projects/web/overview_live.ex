@@ -682,6 +682,8 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
   end
 
   defp day_rows(socket, date) do
+    late = socket.assigns.late_project_uuids
+
     socket.assigns.calendar_events
     |> CalendarDisplay.events_on(date)
     |> Enum.map(fn e ->
@@ -691,7 +693,9 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
         color: e.color,
         subtitle: project_span_label(e),
         status: nil,
-        late: false
+        # Same tier the cards/lens/marker use — the popup row of a late
+        # project carries the late badge too.
+        late: MapSet.member?(late, e.id)
       }
     end)
   end
