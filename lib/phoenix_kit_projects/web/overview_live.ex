@@ -996,8 +996,10 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                              (nothing to filter — fresh installs included) but
                              kept while ACTIVE even at 0, so the lens can
                              always be toggled back off. --%>
-                        <:toolbar_start :if={MapSet.size(@late_project_uuids) > 0 or @projects_late_only?}>
+                        <:toolbar_start>
+                          {mode_toggle(%{calendar_mode: @calendar_mode})}
                           <button
+                            :if={MapSet.size(@late_project_uuids) > 0 or @projects_late_only?}
                             type="button"
                             class={[
                               "btn btn-xs gap-1.5 tooltip",
@@ -1017,9 +1019,6 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                               {MapSet.size(@late_project_uuids)}
                             </span>
                           </button>
-                        </:toolbar_start>
-                        <:toolbar_start>
-                          {mode_toggle(%{calendar_mode: @calendar_mode})}
                         </:toolbar_start>
                         <:info>
                           <p class="mb-1 text-sm font-semibold text-base-content">
