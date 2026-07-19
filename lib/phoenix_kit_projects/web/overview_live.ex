@@ -398,13 +398,17 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
   # at a time). tooltip-left on the edge button so it doesn't clip.
   defp mode_toggle(assigns) do
     ~H"""
-    <div class="join">
+    <%!-- Boxed segmented control (same look as the List/Calendar nav_tabs) so
+         the DATA-mode choice reads differently from the lib's Month/Agenda
+         VIEW switcher sitting beside it — as plain buttons the two groups
+         blended into one row of pills. --%>
+    <div class="tabs tabs-boxed bg-base-200 p-0.5" role="group" aria-label={gettext("Calendar mode")}>
       <button
         type="button"
         class={[
-          "btn btn-xs join-item tooltip",
+          "tab tooltip",
           CalendarDisplay.loading_class(),
-          if(@calendar_mode == :tasks, do: "btn-active btn-primary", else: "btn-ghost")
+          @calendar_mode == :tasks && "tab-active"
         ]}
         data-tip={gettext("Every task on the days it is scheduled to run")}
         aria-pressed={to_string(@calendar_mode == :tasks)}
@@ -416,9 +420,9 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
       <button
         type="button"
         class={[
-          "btn btn-xs join-item tooltip tooltip-left",
+          "tab tooltip tooltip-left",
           CalendarDisplay.loading_class(),
-          if(@calendar_mode == :projects, do: "btn-active btn-primary", else: "btn-ghost")
+          @calendar_mode == :projects && "tab-active"
         ]}
         data-tip={gettext("One line per project, with the overdue marker")}
         aria-pressed={to_string(@calendar_mode == :projects)}

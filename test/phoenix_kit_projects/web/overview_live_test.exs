@@ -226,11 +226,12 @@ defmodule PhoenixKitProjects.Web.OverviewLiveTest do
       assert html =~ "projects-overview-calendar"
       assert html =~ "overview-tasks-calendar"
 
-      # The toggle indicates the ACTIVE mode (btn-primary moves with it).
-      assert has_element?(view, ~s(button[phx-value-mode="projects"].btn-primary))
-      refute has_element?(view, ~s(button[phx-value-mode="tasks"].btn-primary))
+      # The toggle indicates the ACTIVE mode (tab-active moves with it; boxed
+      # tabs so the mode group reads differently from the view switcher).
+      assert has_element?(view, ~s(button[phx-value-mode="projects"].tab-active))
+      refute has_element?(view, ~s(button[phx-value-mode="tasks"].tab-active))
       render_click(view, "set_calendar_mode", %{"mode" => "tasks"})
-      assert has_element?(view, ~s(button[phx-value-mode="tasks"].btn-primary))
+      assert has_element?(view, ~s(button[phx-value-mode="tasks"].tab-active))
 
       # An unknown mode is ignored.
       html = render_click(view, "set_calendar_mode", %{"mode" => "evil"})
