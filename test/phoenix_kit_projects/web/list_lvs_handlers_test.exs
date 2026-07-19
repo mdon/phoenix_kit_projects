@@ -438,18 +438,54 @@ defmodule PhoenixKitProjects.Web.ListLVsHandlersTest do
   end
 
   describe "TemplatesLive — sort + load_more" do
-    test "sort_form switches field; leaving manual sort disables DnD", %{conn: conn} do
+    test "default sort is last-edited, newest first; DnD off until Manual", %{conn: conn} do
+      import Ecto.Query, only: [from: 2]
+      repo = PhoenixKit.RepoHelper.repo()
+
+      older = fixture_template(%{"name" => "TOlder"})
+      newer = fixture_template(%{"name" => "TNewer"})
+
+      # Same-second inserts tie on updated_at — pin distinct edit times
+      # via update_all (plain update would re-stamp the timestamp).
+      set_edited = fn t, dt ->
+        from(p in PhoenixKitProjects.Schemas.Project, where: p.uuid == ^t.uuid)
+        |> repo.update_all(set: [updated_at: dt])
+      end
+
+      set_edited.(older, ~U[2026-01-01 10:00:00Z])
+      set_edited.(newer, ~U[2026-01-02 10:00:00Z])
+
+      {:ok, _view, html} = live(conn, "/en/admin/projects/templates")
+      # Recency default: the most recently edited template leads, and
+      # dragging is off (the rendered order isn't the position order).
+      assert html =~ ~r/TNewer[\s\S]*?TOlder/
+      refute html =~ ~s(data-sortable="true")
+
+      # Editing the older one bumps it to the top.
+      set_edited.(older, ~U[2026-01-03 10:00:00Z])
+      {:ok, _view2, html2} = live(conn, "/en/admin/projects/templates")
+      assert html2 =~ ~r/TOlder[\s\S]*?TNewer/
+    end
+
+    test "sort_form switches to Manual for DnD, other fields disable it", %{conn: conn} do
       fixture_template(%{"name" => "TB"})
       fixture_template(%{"name" => "TA"})
 
-      {:ok, view, html} = live(conn, "/en/admin/projects/templates")
-      # Manual (position) sort: the tbody is a SortableGrid target.
+      {:ok, view, _html} = live(conn, "/en/admin/projects/templates")
+
+      # Manual (position) sort: the tbody becomes a SortableGrid target.
+      html = render_change(view, "sort_form", %{"sort_by" => "position"})
       assert html =~ ~s(data-sortable="true")
 
+      # A field switch inherits the current direction (desc, from the
+      # recency default) — TB leads until the direction is flipped.
       html = render_change(view, "sort_form", %{"sort_by" => "name"})
-      assert html =~ ~r/TA[\s\S]*?TB/
+      assert html =~ ~r/TB[\s\S]*?TA/
       # Name sort is a *view* — dragging would be lossy, so DnD is off.
       refute html =~ ~s(data-sortable="true")
+
+      html = render_change(view, "sort_form", %{"sort_dir" => "asc"})
+      assert html =~ ~r/TA[\s\S]*?TB/
     end
 
     test "toggle_sort on the active field flips direction", %{conn: conn} do
@@ -457,9 +493,11 @@ defmodule PhoenixKitProjects.Web.ListLVsHandlersTest do
       fixture_template(%{"name" => "TA"})
 
       {:ok, view, _html} = live(conn, "/en/admin/projects/templates")
+      # Field switch inherits desc (recency default); header click flips
+      # the active column back to asc.
       render_change(view, "sort_form", %{"sort_by" => "name"})
       html = render_click(view, "toggle_sort", %{"by" => "name"})
-      assert html =~ ~r/TB[\s\S]*?TA/
+      assert html =~ ~r/TA[\s\S]*?TB/
     end
 
     test "toggle_sort ignores unknown field strings", %{conn: conn} do
@@ -469,13 +507,27 @@ defmodule PhoenixKitProjects.Web.ListLVsHandlersTest do
     end
 
     test "load_more increases the loaded cap and shows the new row", %{conn: conn} do
-      for n <- 1..51, do: fixture_template(%{"name" => "T#{String.pad_leading("#{n}", 3, "0")}"})
+      import Ecto.Query, only: [from: 2]
+      repo = PhoenixKit.RepoHelper.repo()
 
+      # Pin distinct edit times (update_all skips the auto re-stamp) —
+      # same-second inserts would otherwise make the recency order
+      # depend on whether creation straddled a clock second.
+      for n <- 1..51 do
+        t = fixture_template(%{"name" => "T#{String.pad_leading("#{n}", 3, "0")}"})
+        dt = DateTime.add(~U[2026-01-01 00:00:00Z], n * 60, :second)
+
+        from(p in PhoenixKitProjects.Schemas.Project, where: p.uuid == ^t.uuid)
+        |> repo.update_all(set: [updated_at: dt])
+      end
+
+      # Last-edited desc → T051..T002 visible, T001 beyond the cap.
       {:ok, view, html} = live(conn, "/en/admin/projects/templates")
-      refute html =~ "T051"
+      assert html =~ "T051"
+      refute html =~ "T001"
 
       html_after = render_click(view, "load_more", %{})
-      assert html_after =~ "T051"
+      assert html_after =~ "T001"
     end
   end
 
@@ -647,7 +699,8 @@ defmodule PhoenixKitProjects.Web.ListLVsHandlersTest do
       fixture_template(%{"name" => "Alpha kit"})
       fixture_template(%{"name" => "Alpha kit two"})
 
-      {:ok, view, html} = live(conn, "/en/admin/projects/templates")
+      {:ok, view, _html} = live(conn, "/en/admin/projects/templates")
+      html = render_change(view, "sort_form", %{"sort_by" => "position"})
       assert html =~ ~s(data-sortable="true")
 
       # Dragging a filtered subset would renumber it 1..N and collide

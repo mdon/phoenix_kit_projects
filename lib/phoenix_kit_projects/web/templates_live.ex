@@ -41,7 +41,7 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
   # settings — same custody as the calendar/gantt display config.
   # `tasks` and `created_by` need batched lookup maps; load_templates
   # only runs those queries while the column is visible.
-  @optional_columns ~w(weekends tasks created updated created_by external_id)
+  @optional_columns ~w(weekends tasks uses last_used created updated created_by external_id)
   @default_columns ~w(weekends)
   @columns_key "projects_templates_columns"
   @settings_module "projects"
@@ -61,8 +61,11 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
         page_title: gettext("Project Templates"),
         wrapper_class: wrapper_class,
         pagination: pagination,
-        sort_by: :position,
-        sort_dir: :asc,
+        # Default to recency ("Last edited", newest first) so the most
+        # relevant templates surface at the top. Manual position order
+        # (and with it drag-reorder) is one selector switch away.
+        sort_by: :updated_at,
+        sort_dir: :desc,
         # Load-more pagination state (same shape as ProjectsLive):
         # `loaded_count` caps visible rows, `total_count` is the DB
         # total. Reset to @per_batch on sort change, NOT on DnD drop.
@@ -80,9 +83,10 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
         captured_uuids: [],
         show_reorder_modal: false,
         visible_columns: read_visible_columns(),
-        # Batched per-row lookup maps for the tasks / created_by
+        # Batched per-row lookup maps for the tasks / uses / created_by
         # columns — filled by load_templates only while visible.
         task_counts: %{},
+        usage: %{},
         creators: %{}
       )
       |> WebHelpers.assign_embed_state(session)
@@ -120,6 +124,11 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
       filtered_count: Projects.count_templates(search: search),
       task_counts:
         if("tasks" in visible, do: Projects.assignment_counts_for_projects(uuids), else: %{}),
+      usage:
+        if("uses" in visible or "last_used" in visible,
+          do: Projects.template_usage(uuids),
+          else: %{}
+        ),
       creators: if("created_by" in visible, do: Projects.template_creators(uuids), else: %{})
     )
   end
@@ -144,7 +153,7 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
       {:position, gettext("Manual")},
       {:name, gettext("Name")},
       {:inserted_at, gettext("Date created")},
-      {:updated_at, gettext("Last updated")}
+      {:updated_at, gettext("Last edited")}
     ]
   end
 
@@ -152,6 +161,8 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
     [
       {"weekends", gettext("Weekends")},
       {"tasks", gettext("Tasks")},
+      {"uses", gettext("Uses")},
+      {"last_used", gettext("Last used")},
       {"created", gettext("Created")},
       {"updated", gettext("Last edited")},
       {"created_by", gettext("Created by")},
@@ -549,6 +560,12 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
           <.table_default_header_cell :if={"tasks" in @visible_columns} class="text-right">
             {gettext("Tasks")}
           </.table_default_header_cell>
+          <.table_default_header_cell :if={"uses" in @visible_columns} class="text-right">
+            {gettext("Uses")}
+          </.table_default_header_cell>
+          <.table_default_header_cell :if={"last_used" in @visible_columns}>
+            {gettext("Last used")}
+          </.table_default_header_cell>
           <.sort_header_cell
             :if={"created" in @visible_columns}
             field={:inserted_at}
@@ -600,6 +617,21 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
             class="text-right tabular-nums text-base-content/70"
           >
             {Map.get(@task_counts, t.uuid, 0)}
+          </.table_default_cell>
+          <.table_default_cell
+            :if={"uses" in @visible_columns}
+            class="text-right tabular-nums text-base-content/70"
+          >
+            {get_in(@usage, [t.uuid, :count]) || 0}
+          </.table_default_cell>
+          <.table_default_cell
+            :if={"last_used" in @visible_columns}
+            class="whitespace-nowrap text-base-content/70"
+          >
+            {case get_in(@usage, [t.uuid, :last_used]) do
+              nil -> "—"
+              at -> L10n.format_date(at)
+            end}
           </.table_default_cell>
           <.table_default_cell
             :if={"created" in @visible_columns}

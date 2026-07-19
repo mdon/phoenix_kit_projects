@@ -1306,6 +1306,35 @@ defmodule PhoenixKitProjects.Projects do
     end
   end
 
+  @doc """
+  Batched usage stats for templates — how many projects were cloned
+  from each and when the most recent clone happened. Counts rows in
+  the projects table via the `created_from_template_uuid` back-link
+  each clone carries in `settings` (durable, unlike the activity log),
+  so deleting a cloned project does remove it from the count, and
+  clones made before the back-link existed are invisible. Templates
+  never used are absent from the map.
+  """
+  @spec template_usage([uuid()]) :: %{
+          uuid() => %{count: non_neg_integer(), last_used: DateTime.t()}
+        }
+  def template_usage([]), do: %{}
+
+  def template_usage(template_uuids) when is_list(template_uuids) do
+    from(p in Project,
+      where: p.is_template == false,
+      where: fragment("? ->> 'created_from_template_uuid'", p.settings) in ^template_uuids,
+      group_by: fragment("? ->> 'created_from_template_uuid'", p.settings),
+      select:
+        {fragment("? ->> 'created_from_template_uuid'", p.settings), count(p.uuid),
+         max(p.inserted_at)}
+    )
+    |> repo().all()
+    |> Map.new(fn {template_uuid, count, last_used} ->
+      {template_uuid, %{count: count, last_used: last_used}}
+    end)
+  end
+
   # Case-insensitive substring filter over a project's primary
   # name/description AND every language's translated name/description
   # (a template renamed in the viewer's content language must stay
@@ -1744,10 +1773,19 @@ defmodule PhoenixKitProjects.Projects do
   end
 
   defp clone_template(template, project_attrs) do
+    # The caller's settings (if any) are preserved; the back-link key is
+    # forced. It makes the clone countable by `template_usage/1` long
+    # after the activity log's retention window has pruned the event.
+    settings =
+      project_attrs
+      |> Map.get("settings", %{})
+      |> Map.put("created_from_template_uuid", template.uuid)
+
     attrs =
       Map.merge(project_attrs, %{
         "is_template" => "false",
         "counts_weekends" => to_string(template.counts_weekends),
+        "settings" => settings,
         # Inherit the template's chosen status catalog (nil = shared). The
         # cloned project reads it live until it starts, then cements.
         "status_entity_uuid" => template.status_entity_uuid
