@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.19.0 - 2026-07-20
+
+**Admin UI overhaul: shared list architecture, breadcrumb chrome, hybrid search.** Every list page (Projects / Tasks / Templates) now runs on one shared architecture (`Web.ListUi`): no in-content header row (create actions live in the admin breadcrumb + a list-foot add-row), optional-column dropdowns with batched lookups (Created by / Uses / Last used), recency-default sort, and a hybrid client/server search — the full set loads and filters client-side up to 100 rows, SQL `ilike` + pagination past that. The show page moved its identity into the site breadcrumb ("Admin Panel / Templates / ‹name›"), every title in the module is now a link, and the Tasks Groups view gained a responsive card grid with an icon-only List/Groups switcher in the toolbar. Rides several core additions not yet released to Hex (`BeamLabEU/phoenix_kit#650`) — the search-loading spinner and the Groups/List toggle silently no-op until that core version ships; see the review doc for detail. Closed out with a quality sweep (activity-logging error branches, dead-code removal, doc sync) and this release's own review (`dev_docs/pull_requests/2026/31-admin-ui-overhaul-list-architecture/CLAUDE_REVIEW.md`), which found and fixed three more issues on top.
+
+### Added
+
+- **Shared list architecture (`PhoenixKitProjects.Web.ListUi`).** Column visibility persistence, search-param coercion, and the Columns dropdown component, used by `ProjectsLive`, `TasksLive`, `TemplatesLive` in place of three bespoke implementations.
+- **Hybrid search.** ≤100 rows: the full set loads and the core `TableLocalSearch` hook filters client-side with no round trip. >100 rows: escaped SQL `ilike` over primary + translated values, with load-more pagination and the core search spinner.
+- **New list columns**: Created by (activity-log resolution, batched per page), template Uses/Last used (via a durable `settings["created_from_template_uuid"]` back-link stamped atomically on clone), task Uses/Last used (via assignment references).
+- **Show page breadcrumb identity.** The standalone admin show page drops its back-link + h1 row — the breadcrumb section now carries both; embeds keep the full header.
+- **Clickable titles everywhere** — list titles, assignment rows, sub-project names — with emit-mode wiring for embedded hosts.
+- **Tasks Groups view**: a responsive card grid plus a columnar Standalone list; the List/Groups switcher is an icon-only join in the toolbar's trailing slot.
+
+### Fixed
+
+- **DnD reorder gating didn't account for load-more pagination truncation** (`ProjectsLive`/`TasksLive`/`TemplatesLive`). With manual sort, no search/filter, and >100 total rows, dragging within the first loaded page silently renumbered only the visible rows to `1..N`, corrupting the untouched rows' relative order. DnD now also waits for the full set to be loaded.
+- **`DashboardWidgets.project_options/0` rescued every exception**, not just DB errors — a genuine programming error would have degraded silently instead of surfacing. Narrowed to the module's declared DB-error set.
+- **A test assertion always passed regardless of the rendered HTML** (`refute html =~ "..." and false`, an operator-precedence bug) — would have silently missed a regression in the "Last used" column. Fixed to check the real condition.
+- Six mutation handlers (`detach_subproject`, `link_subproject`, sub-project create/edit saves, `generate_default_statuses`, inline `create_task`) now log on their error branches, not just on success. `ProjectsSettingsLive` gained the module-standard debug-logged `handle_info` catch-all it was missing.
+
 ## 0.18.0 - 2026-07-17
 
 **Calendar everywhere + quality sweep.** Every project now has a **Calendar tab** alongside List/Timeline, rendering the exact same schedule as the Timeline (shared `ScheduleLayout` walk) as all-day bars on a month grid. The Overview dashboard's calendar is reworked **task-first**: every task from every project on the day it runs, Google Calendar-style, with a whole-day popup on a busy day or its "+N more" link. Both calendars share a new **assignee/overdue filter** — person chips (inherited through team/department by default, with a "Direct only" narrow), an Unassigned lens, and an Overdue-only toggle — living in a Filters popup. Floors `phoenix_live_calendar ~> 0.3`, whose new toolbar slots host the filter inside the calendar chrome itself. A quality sweep (PR-review catch-up on #25–#28, a delta audit, and an AI-panel triage) rode the same branch; this release's own review (see `dev_docs/pull_requests/2026/30-calendar-everywhere-assignee-filters/CLAUDE_REVIEW.md`) found and fixed three more issues on top.
