@@ -175,7 +175,7 @@ defmodule PhoenixKitProjects.Web.EmbeddingEmitTest do
       # Match by phx-value-lv to disambiguate from the "New task" action.
       view
       |> element(
-        ~s(button[phx-click=open_embed][phx-value-lv="Elixir.PhoenixKitProjects.Web.TaskFormLive"][phx-value-session*="#{task.uuid}"])
+        ~s(button[role=menuitem][phx-click=open_embed][phx-value-lv="Elixir.PhoenixKitProjects.Web.TaskFormLive"][phx-value-session*="#{task.uuid}"])
       )
       |> render_click()
 

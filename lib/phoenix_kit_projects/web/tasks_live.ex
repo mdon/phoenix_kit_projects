@@ -839,7 +839,14 @@ defmodule PhoenixKitProjects.Web.TasksLive do
           <.drag_handle_cell :if={@draggable?} />
           <.bulk_select_cell :if={@bulk_enabled?} value={task.uuid} />
           <.table_default_cell class="font-medium">
-            {TaskSchema.localized_title(task, @lang)}
+            <.smart_link
+              navigate={Paths.edit_task(task.uuid)}
+              emit={{PhoenixKitProjects.Web.TaskFormLive, %{"live_action" => "edit", "id" => task.uuid}}}
+              embed_mode={@embed_mode}
+              class="link link-hover"
+            >
+              {TaskSchema.localized_title(task, @lang)}
+            </.smart_link>
             <% desc = TaskSchema.localized_description(task, @lang) %>
             <div :if={desc} class="text-xs text-base-content/60 truncate max-w-md font-normal">{desc}</div>
             <% deps = Map.get(@deps_by_task, task.uuid, []) %>

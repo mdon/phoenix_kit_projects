@@ -623,7 +623,19 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                 <.icon name="hero-bars-3" class="w-4 h-4" />
               </span>
               <.assignment_status_badge :if={not @is_template} status={@a.status} />
-              <span class="font-medium truncate">{TaskSchema.localized_title(@a.task, L10n.current_content_lang())}</span>
+              <%!-- Title links to the same edit form as the row menu's
+                   Edit — clicking a name anywhere should go somewhere. --%>
+              <.smart_link
+                navigate={Paths.edit_assignment(@a.project_uuid, @a.uuid)}
+                emit={
+                  {PhoenixKitProjects.Web.AssignmentFormLive,
+                   %{"live_action" => "edit", "project_id" => @a.project_uuid, "id" => @a.uuid}}
+                }
+                embed_mode={@embed_mode}
+                class="font-medium truncate min-w-0 link link-hover"
+              >
+                {TaskSchema.localized_title(@a.task, L10n.current_content_lang())}
+              </.smart_link>
             </div>
 
             <div class="flex items-center gap-1 shrink-0">
@@ -2110,7 +2122,16 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                             <.icon name="hero-folder" class="w-3 h-3" /> {gettext("Sub-project")}
                           </span>
                           <.assignment_status_badge :if={not @is_template} status={a.status} />
-                          <span class="font-medium truncate">{Project.localized_name(child, sp_lang)}</span>
+                          <%!-- Name opens the child project, same as the
+                               row's Open action. --%>
+                          <.smart_link
+                            navigate={Paths.project(child.uuid)}
+                            emit={{PhoenixKitProjects.Web.ProjectShowLive, %{"id" => child.uuid}}}
+                            embed_mode={@embed_mode}
+                            class="font-medium truncate min-w-0 link link-hover"
+                          >
+                            {Project.localized_name(child, sp_lang)}
+                          </.smart_link>
                         </div>
 
                         <div class="flex items-center gap-1 shrink-0">
