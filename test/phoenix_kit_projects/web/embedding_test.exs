@@ -560,8 +560,10 @@ defmodule PhoenixKitProjects.Web.EmbeddingTest do
       # order in rendered HTML is not stable (`phx-click` / `phx-value-*`
       # / `role` / `class` interleave by Phoenix.Component iteration
       # order); scope each assertion to a unique sibling marker.
-      assert html =~ ~r/phx-value-view="groups"[^>]*tab-active/s
-      refute html =~ ~r/phx-value-view="list"[^>]*tab-active/s
+      # Icon-only join buttons now: active state = btn-active +
+      # aria-selected on the button carrying the phx-value-view.
+      assert html =~ ~r/phx-value-view="groups"[^>]*aria-selected="true"/s
+      refute html =~ ~r/phx-value-view="list"[^>]*aria-selected="true"/s
     end
   end
 

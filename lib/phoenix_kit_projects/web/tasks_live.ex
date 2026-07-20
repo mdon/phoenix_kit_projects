@@ -451,36 +451,10 @@ defmodule PhoenixKitProjects.Web.TasksLive do
   def render(assigns) do
     ~H"""
     <div class={@wrapper_class}>
-      <%!-- View toggle. UI state (not URL-driven) so the LV stays
-           embeddable via `live_render`. The "list" view is the source
-           of truth — flat, alphabetical, with per-row dep badges. The
-           "groups" view re-renders the same tasks as rooted dep trees;
-           tasks shared across multiple roots show in EACH group
-           (intentional duplication, not a bug — that's how the view
-           answers "where is this task reused?"). --%>
-      <div role="tablist" class="tabs tabs-boxed self-start">
-        <button
-          type="button"
-          phx-click="set_view"
-          phx-value-view="list"
-          role="tab"
-          class={["tab gap-2", @view == "list" && "tab-active"]}
-        >
-          <.icon name="hero-list-bullet" class="w-4 h-4" /> {gettext("List")}
-        </button>
-        <button
-          type="button"
-          phx-click="set_view"
-          phx-value-view="groups"
-          role="tab"
-          class={["tab gap-2", @view == "groups" && "tab-active"]}
-        >
-          <.icon name="hero-rectangle-group" class="w-4 h-4" /> {gettext("Groups")}
-        </button>
-      </div>
-
       <%= if @view == "groups" do %>
         <% lang = L10n.current_content_lang() %>
+
+        <div class="self-start">{view_switcher(assigns)}</div>
 
         <%= if @groups == [] and @standalone == [] do %>
           <.empty_state icon="hero-rectangle-stack" title={gettext("No tasks yet.")}>
@@ -626,6 +600,7 @@ defmodule PhoenixKitProjects.Web.TasksLive do
                 reorder_gate={if @sort_by == :position, do: :always, else: :multi}
               >
                 <:leading>
+                  {view_switcher(assigns)}
                   <.sort_selector
                     sort_by={@sort_by}
                     sort_dir={@sort_dir}
@@ -698,6 +673,43 @@ defmodule PhoenixKitProjects.Web.TasksLive do
         noun_singular={gettext("task")}
         noun_plural={gettext("tasks")}
       />
+    </div>
+    """
+  end
+
+  # List/Groups switcher — icon-only join buttons, same visual language
+  # as core table_default's card/table view toggle. Lives in the list
+  # toolbar (leading slot) and atop the Groups view. The "list" view is
+  # the source of truth — flat, with per-row dep badges; "groups"
+  # re-renders the same tasks as rooted dep trees (tasks shared across
+  # roots intentionally appear in each group).
+  defp view_switcher(assigns) do
+    ~H"""
+    <div class="join" role="tablist">
+      <button
+        type="button"
+        role="tab"
+        phx-click="set_view"
+        phx-value-view="list"
+        title={gettext("List")}
+        aria-label={gettext("List")}
+        aria-selected={to_string(@view == "list")}
+        class={["btn btn-sm join-item", @view == "list" && "btn-active"]}
+      >
+        <.icon name="hero-list-bullet" class="w-4 h-4" />
+      </button>
+      <button
+        type="button"
+        role="tab"
+        phx-click="set_view"
+        phx-value-view="groups"
+        title={gettext("Groups")}
+        aria-label={gettext("Groups")}
+        aria-selected={to_string(@view == "groups")}
+        class={["btn btn-sm join-item", @view == "groups" && "btn-active"]}
+      >
+        <.icon name="hero-rectangle-group" class="w-4 h-4" />
+      </button>
     </div>
     """
   end
