@@ -37,11 +37,15 @@ defmodule PhoenixKitProjects.Web.ProjectShowLiveTest do
   end
 
   describe "mount" do
-    test "renders project name + timeline empty state", %{conn: conn} do
+    test "router mount: no in-content h1 (breadcrumb owns the name) + empty state", %{
+      conn: conn
+    } do
       project = fixture_project()
 
       {:ok, _view, html} = live(conn, "/en/admin/projects/list/#{project.uuid}")
-      assert html =~ project.name
+      # The standalone admin page pushes the name into the site
+      # breadcrumb (page_title) — the body renders no h1/name row.
+      refute html =~ "<h1"
       assert html =~ "No tasks in this project yet."
     end
 
@@ -96,7 +100,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLiveTest do
           session: %{"id" => project.uuid}
         )
 
-      assert html =~ "flex flex-col w-full px-4 py-6 gap-4"
+      assert html =~ "flex flex-col w-full px-4 pt-2 pb-4 gap-4"
     end
 
     test "wrapper_class override from session replaces the default", %{conn: conn} do
