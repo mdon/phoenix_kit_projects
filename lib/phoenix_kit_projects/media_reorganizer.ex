@@ -54,9 +54,11 @@ defmodule PhoenixKitProjects.MediaReorganizer do
      after its legacy deterministic name (`project-<uuid>`, resolved
      without calling any hook — one batched query for the whole plan). A
      project with nothing named after it is left alone: nothing exists to
-     move, and the host's hooks are never called for it. Candidate rows
-     are light-selected (R9) — only the columns the plan and the hooks
-     need, never the whole jsonb-bearing row.
+     move, and the host's hooks are never called for it. Candidate
+     *detection* is light-selected (only folder names, one query), but
+     the record reaching a host hook is always the FULL `Project` row —
+     loaded for candidates only, in one batched `where uuid in
+     ^candidate_uuids` query (R9 amended).
   2. Only for candidates, the parent hook runs once, called directly
      (guarded against raising/exiting/returning anything but `{:ok, uuid}`
      or an explicit `nil` — R2): a hook FAILURE skips the project (no move
@@ -129,7 +131,7 @@ defmodule PhoenixKitProjects.MediaReorganizer do
 
   defp resource_plan(actor_uuid) do
     if hook_configured?() do
-      build_resource_plan(light_projects(), actor_uuid)
+      build_resource_plan(actor_uuid)
     else
       {[], [], claimed_folder_uuids([], [], [], [])}
     end
@@ -151,9 +153,9 @@ defmodule PhoenixKitProjects.MediaReorganizer do
   # plan). Only candidates go on to have the host's parent/name hooks
   # resolved — a project with nothing pointing at it never triggers a
   # (possibly writing) host hook. See moduledoc "Move planning".
-  defp build_resource_plan(projects, actor_uuid) do
+  defp build_resource_plan(actor_uuid) do
     candidate_uuids = candidate_project_uuids()
-    candidates = Enum.filter(projects, &MapSet.member?(candidate_uuids, &1.uuid))
+    candidates = full_candidate_projects(candidate_uuids)
 
     {mod, fun} = Application.get_env(:phoenix_kit_projects, :attachments_parent_folder)
 
@@ -718,30 +720,24 @@ defmodule PhoenixKitProjects.MediaReorganizer do
     end)
   end
 
-  # R9/R10: only the columns the plan and the host's hooks need — never
-  # the whole row (`description`/`translations`/`settings` are unbounded
-  # text/jsonb this module never reads) — ordered by `inserted_at`/`uuid`
-  # for a deterministic report order.
-  defp light_projects do
-    Project
-    |> order_by([p], asc: p.inserted_at, asc: p.uuid)
-    |> select(
-      [p],
-      struct(p, [
-        :uuid,
-        :name,
-        :is_template,
-        :archived_at,
-        :status_entity_uuid,
-        :current_status_slug,
-        :external_id,
-        :assigned_team_uuid,
-        :assigned_department_uuid,
-        :assigned_person_uuid,
-        :inserted_at
-      ])
-    )
-    |> repo().all()
+  # R9 (amended): light selects are for candidate detection only — the
+  # record reaching ANY host hook (parent, name) must be the FULL row, a
+  # host hook is opaque and may read anything off it (Andi's project hook
+  # reads assignment/sub-order fields the same way catalogue's reads
+  # `parent_uuid`). One batched `where uuid in ^candidate_uuids` query for
+  # the whole plan, never a query per project — ordered by
+  # `inserted_at`/`uuid` for a deterministic report order (R10).
+  defp full_candidate_projects(candidate_uuids) do
+    case MapSet.to_list(candidate_uuids) do
+      [] ->
+        []
+
+      uuids ->
+        Project
+        |> where([p], p.uuid in ^uuids)
+        |> order_by([p], asc: p.inserted_at, asc: p.uuid)
+        |> repo().all()
+    end
   end
 
   defp repo, do: PhoenixKit.RepoHelper.repo()

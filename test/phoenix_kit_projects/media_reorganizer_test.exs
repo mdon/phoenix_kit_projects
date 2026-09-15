@@ -47,6 +47,19 @@ defmodule PhoenixKitProjects.MediaReorganizerTest do
     def parent(:project, _actor, _resource), do: nil
   end
 
+  defmodule FullStructHook do
+    @moduledoc false
+    # Raises when handed a struct that dropped `description` — a light
+    # select (`struct(p, [...])`) leaves it `nil`; only the full row
+    # carries the seeded value. Proves the record reaching the hook is
+    # the complete `Project` row (R9 amended).
+    def parent(:project, _actor, %Project{description: description} = resource) do
+      if is_nil(description), do: raise("missing struct field: description")
+      Process.put(:last_parent_resource, resource)
+      {:ok, Process.get(:target_folder)}
+    end
+  end
+
   setup do
     on_exit(fn ->
       Application.delete_env(:phoenix_kit_projects, :attachments_parent_folder)
@@ -612,19 +625,26 @@ defmodule PhoenixKitProjects.MediaReorganizerTest do
     assert action.reason =~ "actor"
   end
 
-  test "candidate projects are light-selected — the hook's resource excludes heavy fields (R9)" do
-    project = project!(%{"description" => "a very long description that should not be selected"})
+  test "candidate's full Project row reaches the parent hook, not a light struct (R9 amended)" do
+    project = project!(%{"description" => "a very long description that must not be dropped"})
     {:ok, target} = Storage.create_folder(%{name: "Projects"})
     {:ok, _folder} = Storage.create_folder(%{name: "project-#{project.uuid}"})
 
-    configure_parent_hook(target.uuid)
+    Process.put(:target_folder, target.uuid)
 
-    _actions = MediaReorganizer.plan(nil, [])
+    Application.put_env(
+      :phoenix_kit_projects,
+      :attachments_parent_folder,
+      {FullStructHook, :parent}
+    )
+
+    actions = MediaReorganizer.plan(nil, [])
+
+    refute Enum.any?(actions, &(&1.kind == :hook_error))
 
     resource = Process.get(:last_parent_resource)
     refute is_nil(resource)
     assert resource.uuid == project.uuid
-    assert resource.name == project.name
-    assert is_nil(resource.description)
+    assert resource.description == "a very long description that must not be dropped"
   end
 end
