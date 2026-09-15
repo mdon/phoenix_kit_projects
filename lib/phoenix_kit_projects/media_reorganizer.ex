@@ -38,12 +38,15 @@ defmodule PhoenixKitProjects.MediaReorganizer do
 
   A host that has not configured `:attachments_parent_folder` is left
   entirely untouched: `plan/2`'s move-planning half runs, and the hooks
-  are called, only when the env is set — never a single move or report
-  for a legacy folder sitting somewhere other than root (see "Move
-  planning"). The orphan scan is independent of the hook and always runs
-  (root-only when no parent is resolved); it is a `:report`, so it is
-  produced with or without a configured hook (E1 — a source with no hook
-  still emits report-only housekeeping, never a `:move`/`:trash`).
+  are called, only when the env is set to a `{mod, fun}` that is actually
+  callable (T3 — a *configured but uncallable* hook, e.g. a typo, is a
+  distinct `kind: :hook_error` failure, never silently "no hook") — never
+  a single move or report for a legacy folder sitting somewhere other than
+  root (see "Move planning"). The orphan scan is independent of the hook
+  and always runs (root-only when no parent is resolved); it is a
+  `:report`, so it is produced with or without a configured hook (E1 — a
+  source with no working hook still emits report-only housekeeping, never
+  a `:move`/`:trash`).
 
   ## Move planning
 
@@ -59,31 +62,37 @@ defmodule PhoenixKitProjects.MediaReorganizer do
      the record reaching a host hook is always the FULL `Project` row —
      loaded for candidates only, in one batched `where uuid in
      ^candidate_uuids` query (R9 amended).
-  2. Only for candidates, the parent hook runs once, called directly
-     (guarded against raising/exiting/returning anything but `{:ok, uuid}`
-     or an explicit `nil` — R2): a hook FAILURE skips the project (no move
-     planned for it, never treated as "root") and is counted into one
-     `kind: :hook_error` report for the whole plan; only an explicit `nil`
-     means root. The name hook (`Attachments.folder_name/2`) runs once
-     too — it already falls back to the deterministic name on its own
-     failure, so it needs no separate failure report. When the parent hook
-     resolves `nil` the host name is **not** used as the desired name
-     either: `find_resource_folder/2` only ever looks for a host name
-     *under a parent*, so without one the desired name stays the
-     deterministic `project-<uuid>` name — a project whose parent hook
-     answers `nil` this run (while the name hook still answers a host
-     name) must not have its root folder renamed to that host name, or
-     `find_resource_folder/2` can no longer find it there on the next
-     read.
+  2. Only for candidates, the parent hook runs once, called directly and
+     guarded (T1: any answer is cast through `Ecto.UUID.cast/1` and
+     downcased — never a raw string forwarded into a later query) against
+     raising/exiting/returning anything but `{:ok, uuid}` or an explicit
+     `nil` (R2): a hook FAILURE skips the project (no move planned for it,
+     never treated as "root") and is counted into one `kind: :hook_error`
+     report for the whole plan; only an explicit `nil` means root. The
+     name hook (`:attachments_folder_name`) is called directly too — but
+     ONLY when the parent hook resolved a real parent (R8/T9): when it
+     resolves `nil`, `find_resource_folder/2` only ever looks for a host
+     name *under a parent*, so without one the desired name stays the
+     deterministic `project-<uuid>` name and the (possibly writing or
+     expensive) name hook is skipped entirely for that project. Called, a
+     failing name hook is a hook FAILURE too (F3, folded into the same
+     `kind: :hook_error` count) — never a silent fallback to the
+     deterministic name (unlike `Attachments.folder_name/2`, which the
+     live UI relies on staying up even when a hook regresses).
   3. The candidate's *current* folder is looked up, in the module's own
      order, only at the resolved parent (host name, then deterministic
      name) and at root (deterministic name) — never the unrestricted
      "anywhere" scan `find_resource_folder/2` falls back to for a live
-     upload. A legacy folder that exists live only somewhere else (the
-     owner moved it, or it is still parked under a parent the project was
-     since unlinked from) is reported as `kind: :relocated`, never moved —
-     the parent hook can be actor-dependent, so the reason notes that a
-     different actor's hook may still resolve it (E6).
+     upload; this is also why a `nil` parent-hook answer can never move a
+     folder that actually lives under a real parent to root (F1) — that
+     tier is simply never searched when the resolved parent is root. Every
+     legacy-named folder that exists live somewhere other than the
+     project's resolved current folder (the owner moved it, it is parked
+     under a parent the project was since unlinked from, or it is a leftover
+     twin) is reported `kind: :relocated`, never moved — one report per
+     copy, all of them (F5) — the parent hook can be actor-dependent, so
+     the reason notes that a different actor's hook may still resolve it
+     (E6).
   4. A live match at more than one of these tiers (host-named-under-parent,
      deterministic-named-under-parent, deterministic-named-at-root) is
      unresolvable — reported as `kind: :duplicate`, nothing moved, naming
@@ -99,6 +108,8 @@ defmodule PhoenixKitProjects.MediaReorganizer do
   """
 
   import Ecto.Query, warn: false
+
+  require Logger
 
   alias PhoenixKit.Modules.Storage.{Folder, FolderLink}
   alias PhoenixKitProjects.Attachments
@@ -130,22 +141,46 @@ defmodule PhoenixKitProjects.MediaReorganizer do
   # ── Projects ─────────────────────────────────────────────────────
 
   defp resource_plan(actor_uuid) do
-    if hook_configured?() do
-      build_resource_plan(actor_uuid)
-    else
-      {[], [], claimed_folder_uuids([], [], [], [])}
+    case hook_status() do
+      :ok ->
+        build_resource_plan(actor_uuid)
+
+      {:not_callable, mod, fun} ->
+        {[not_callable_hook_action(mod, fun)], [], claimed_folder_uuids([], [], [], [])}
+
+      :none ->
+        {[], [], claimed_folder_uuids([], [], [], [])}
     end
   end
 
-  defp hook_configured? do
+  # T3: a configured `{mod, fun}` that is not actually callable (a typo, a
+  # removed function) is a distinct failure from "no hook configured at
+  # all" — it must not silently degrade to report-only (E1) without telling
+  # the owner why nothing moved.
+  defp hook_status do
     case Application.get_env(:phoenix_kit_projects, :attachments_parent_folder) do
       {mod, fun} when is_atom(mod) and is_atom(fun) ->
-        Code.ensure_loaded?(mod) and
-          (function_exported?(mod, fun, 3) or function_exported?(mod, fun, 2))
+        if callable?(mod, fun), do: :ok, else: {:not_callable, mod, fun}
 
       _ ->
-        false
+        :none
     end
+  end
+
+  defp callable?(mod, fun) do
+    Code.ensure_loaded?(mod) and
+      (function_exported?(mod, fun, 3) or function_exported?(mod, fun, 2))
+  end
+
+  defp not_callable_hook_action(mod, fun) do
+    %{
+      source: "projects",
+      kind: :hook_error,
+      op: :report,
+      label: "attachments parent hook",
+      counts: nil,
+      reason: "configured parent hook {#{inspect(mod)}, #{inspect(fun)}} is not callable"
+    }
   end
 
   # Candidate detection needs no hook call: a live folder anywhere named
@@ -175,35 +210,59 @@ defmodule PhoenixKitProjects.MediaReorganizer do
     resolved_parents =
       desired |> Enum.map(& &1.parent_uuid) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
-    {unique, ambiguous, shared, relocated} = classify_entries(entries)
+    # R10/T6: entries keep the light query's deterministic order
+    # (`inserted_at`/`uuid`) all the way through — split below with
+    # `Enum.split_with`/`Enum.reject`, which preserve list order, never a
+    # plain `group_by`+reduce (that scrambles it via map iteration order).
+    {ambiguous, normal} = Enum.split_with(entries, & &1.ambiguous)
+    {with_folder, without_folder} = Enum.split_with(normal, & &1.folder)
+
+    {shared, unique} = split_shared(with_folder)
     {converging, solo} = split_converging(unique)
 
-    # A project whose current folder WAS resolved (unique or shared) can
-    # still leave a SEPARATE legacy-named folder live somewhere else
-    # entirely (an old container, or a duplicate from before parent hooks
-    # existed) — that stray twin is neither this project's current folder
-    # nor an orphan (the project is alive), so it gets its own
-    # `:relocated` report alongside whatever action the project itself
-    # gets. Mirrors catalogue's `stray_legacy` handling.
+    claimed_uuids = claimed_folder_uuids(unique, ambiguous, shared, converging)
+
+    # F5/T5: every live legacy-named copy other than the project's adopted
+    # current folder (if any) gets its own `:relocated` report — all of
+    # them, not only the first — except a copy that is itself another
+    # project's claimed (adopted) folder, which is never also reported as
+    # relocated. Mirrors catalogue's `stray_legacy` handling.
     stray_actions =
-      entries
-      |> Enum.filter(& &1.stray_legacy)
-      |> Enum.map(&build_relocated_action(%{&1 | relocated: &1.stray_legacy}))
+      Enum.flat_map(with_folder ++ without_folder, &stray_relocated_actions(&1, claimed_uuids))
 
     move_actions = solo |> Enum.map(&build_move_action/1) |> Enum.reject(&is_nil/1)
-    relocated_actions = Enum.map(relocated, &build_relocated_action/1)
     dup_actions = Enum.map(ambiguous, &build_ambiguous_duplicate_action/1)
     shared_actions = Enum.map(shared, &build_shared_duplicate_action/1)
     converging_actions = Enum.map(converging, &build_converging_duplicate_action/1)
     hook_error_actions = hook_error_action(hook_error_count)
 
     actions =
-      finalize_counts(move_actions ++ relocated_actions ++ stray_actions) ++
+      finalize_counts(move_actions ++ stray_actions) ++
         dup_actions ++ shared_actions ++ converging_actions ++ hook_error_actions
 
-    claimed_uuids = claimed_folder_uuids(unique, ambiguous, shared, converging)
-
     {actions, resolved_parents, claimed_uuids}
+  end
+
+  # F5/T5: a live legacy-named copy of a project other than its adopted
+  # current folder — one `:relocated` report per copy, all of them, never
+  # just the first. A copy that is itself claimed by another project (its
+  # own resolved current folder) is excluded — a claimed folder is never
+  # also reported `:relocated`.
+  defp stray_relocated_actions(entry, claimed) do
+    entry.stray_legacy
+    |> Enum.reject(&MapSet.member?(claimed, &1.uuid))
+    |> Enum.map(&build_relocated_action(%{project: entry.project, relocated: &1}))
+  end
+
+  # Order-preserving split into `unique` (one project ↔ one folder) and
+  # `shared` groups (X5 — two or more projects resolve to the very same
+  # live folder) — a plain `group_by`+reduce over `with_folder` would
+  # scramble R10's enumeration order via map iteration order.
+  defp split_shared(entries) do
+    freq = Enum.frequencies_by(entries, & &1.folder.uuid)
+    {shared_entries, unique} = Enum.split_with(entries, &(Map.get(freq, &1.folder.uuid) > 1))
+    shared_groups = shared_entries |> Enum.group_by(& &1.folder.uuid) |> Map.values()
+    {shared_groups, unique}
   end
 
   # R2: resolves each candidate's parent via the host's own hook, called
@@ -211,24 +270,19 @@ defmodule PhoenixKitProjects.MediaReorganizer do
   # swallows a raise/bad-return into `nil` and would make a hook FAILURE
   # indistinguishable from an explicit "root"). A failure skips the
   # project entirely (no move planned) and is tallied into one
-  # `hook_error_count` for the whole plan instead.
+  # `hook_error_count` for the whole plan instead. R8/T9: the name hook is
+  # only called when a parent WAS resolved — `find_resource_folder/2` only
+  # ever looks for a host name *under a parent*, so a project whose parent
+  # resolves to root keeps the deterministic name, and the (possibly
+  # writing/expensive) name hook is never called for it. F3: a name hook
+  # that itself raises or returns garbage is a hook FAILURE too, not a
+  # silent fallback to the deterministic name.
   defp resolve_desired(candidates, mod, fun, actor_uuid) do
     {desired, errors} =
       Enum.reduce(candidates, {[], 0}, fn project, {acc, errs} ->
         case resolve_parent(mod, fun, :project, actor_uuid, project) do
           {:ok, parent_uuid} ->
-            deterministic_name = Attachments.folder_name(project.uuid)
-            host_name = Attachments.folder_name(project, actor_uuid)
-            name = if parent_uuid, do: host_name, else: deterministic_name
-
-            entry = %{
-              project: project,
-              parent_uuid: parent_uuid,
-              name: name,
-              deterministic_name: deterministic_name
-            }
-
-            {[entry | acc], errs}
+            push_desired(project, parent_uuid, actor_uuid, acc, errs)
 
           :error ->
             {acc, errs + 1}
@@ -236,6 +290,38 @@ defmodule PhoenixKitProjects.MediaReorganizer do
       end)
 
     {Enum.reverse(desired), errors}
+  end
+
+  defp push_desired(project, nil, _actor_uuid, acc, errs) do
+    deterministic_name = Attachments.folder_name(project.uuid)
+
+    entry = %{
+      project: project,
+      parent_uuid: nil,
+      name: deterministic_name,
+      deterministic_name: deterministic_name
+    }
+
+    {[entry | acc], errs}
+  end
+
+  defp push_desired(project, parent_uuid, actor_uuid, acc, errs) do
+    deterministic_name = Attachments.folder_name(project.uuid)
+
+    case resolve_folder_name(project, actor_uuid) do
+      {:ok, name} ->
+        entry = %{
+          project: project,
+          parent_uuid: parent_uuid,
+          name: name,
+          deterministic_name: deterministic_name
+        }
+
+        {[entry | acc], errs}
+
+      :error ->
+        {acc, errs + 1}
+    end
   end
 
   defp resolve_parent(mod, fun, kind, actor_uuid, resource) do
@@ -251,17 +337,88 @@ defmodule PhoenixKitProjects.MediaReorganizer do
     end
   end
 
+  # T1: every answer is cast through `Ecto.UUID.cast/1` and downcased —
+  # `{:ok, ""}` / `{:ok, "not-a-uuid"}` are hook FAILURES (`:error`), never
+  # sent into a later `in ^uuids`/`==` query (which would raise a
+  # `Ecto.Query.CastError` and take down the whole plan). F2: an explicit
+  # `{:ok, nil}` or bare `nil` means root.
   defp guarded_hook_call(fun) do
     case fun.() do
-      {:ok, uuid} when is_binary(uuid) -> {:ok, uuid}
-      {:ok, nil} -> {:ok, nil}
+      {:ok, uuid} when is_binary(uuid) ->
+        case Ecto.UUID.cast(uuid) do
+          {:ok, cast} -> {:ok, cast}
+          :error -> :error
+        end
+
+      {:ok, nil} ->
+        {:ok, nil}
+
+      nil ->
+        {:ok, nil}
+
+      _other ->
+        :error
+    end
+  rescue
+    error ->
+      Logger.warning(
+        "Attachments parent hook raised: " <> Exception.format(:error, error, __STACKTRACE__)
+      )
+
+      :error
+  catch
+    kind, reason ->
+      Logger.warning("Attachments parent hook #{kind}: #{inspect(reason)}")
+      :error
+  end
+
+  # F3: the (optional) `:attachments_folder_name` hook, called directly
+  # (not through `Attachments.folder_name/2`, which is deliberately
+  # defensive for the live UI and swallows a failing hook into the
+  # deterministic name) so a raising/garbage-returning hook is a
+  # reportable failure here instead of a silent fallback. Not configured,
+  # or configured but not callable, is NOT a failure — it is simply "no
+  # host name", same as `Attachments.folder_name/2` treats it.
+  defp resolve_folder_name(project, actor_uuid) do
+    case Application.get_env(:phoenix_kit_projects, :attachments_folder_name) do
+      {mod, fun} when is_atom(mod) and is_atom(fun) ->
+        resolve_configured_folder_name(mod, fun, project, actor_uuid)
+
+      _ ->
+        {:ok, Attachments.folder_name(project.uuid)}
+    end
+  end
+
+  defp resolve_configured_folder_name(mod, fun, project, actor_uuid) do
+    if Code.ensure_loaded?(mod) and function_exported?(mod, fun, 2) do
+      case guarded_name_hook_call(mod, fun, project, actor_uuid) do
+        {:ok, nil} -> {:ok, Attachments.folder_name(project.uuid)}
+        {:ok, name} -> {:ok, name}
+        :error -> :error
+      end
+    else
+      {:ok, Attachments.folder_name(project.uuid)}
+    end
+  end
+
+  defp guarded_name_hook_call(mod, fun, project, actor_uuid) do
+    case apply(mod, fun, [project, actor_uuid]) do
+      {:ok, name} when is_binary(name) and name != "" -> {:ok, name}
       nil -> {:ok, nil}
       _other -> :error
     end
   rescue
-    _ -> :error
+    error ->
+      Logger.warning(
+        "Attachments name hook #{inspect(mod)}.#{fun} raised: " <>
+          Exception.format(:error, error, __STACKTRACE__)
+      )
+
+      :error
   catch
-    _, _ -> :error
+    kind, reason ->
+      Logger.warning("Attachments name hook #{inspect(mod)}.#{fun} #{kind}: #{inspect(reason)}")
+      :error
   end
 
   defp hook_error_action(0), do: []
@@ -304,14 +461,18 @@ defmodule PhoenixKitProjects.MediaReorganizer do
   # live but relocated). A live match at more than one of these tiers is
   # ambiguous.
   #
-  # `by_anywhere` (every live folder anywhere named after the
-  # project's legacy name) also surfaces a STRAY twin: when a single
-  # restricted match IS found, any other live folder sharing the legacy
-  # name elsewhere (a third parent, neither root nor the resolved
-  # parent) is a separate leftover — never this project's current
-  # folder, never an orphan (the project is alive) — so it is kept as
-  # `stray_legacy` and reported `:relocated` alongside whatever action
-  # the project itself gets (see `build_resource_plan/2`).
+  # `by_anywhere` (every live folder anywhere named after the project's
+  # legacy name) also surfaces STRAY twins: when a single restricted match
+  # IS found, every OTHER live folder sharing the legacy name elsewhere (a
+  # third parent, neither root nor the resolved parent) is a separate
+  # leftover — never this project's current folder, never an orphan (the
+  # project is alive) — kept as `stray_legacy` (F5: every one of them, not
+  # only the first) and reported `:relocated` alongside whatever action
+  # the project itself gets (see `build_resource_plan/2`). When NO
+  # restricted match exists at all, every live "anywhere" match is itself
+  # a stray copy — F1: the project's current folder is simply not found
+  # this run (a nil-root hook answer never treats one of these as "the"
+  # folder to move to root; see the moduledoc and the F1 test).
   defp resolve_entry(d, by_parent_host, by_parent_deterministic, by_root, by_anywhere) do
     host_match = d.parent_uuid && Map.get(by_parent_host, {d.name, d.parent_uuid})
 
@@ -329,47 +490,15 @@ defmodule PhoenixKitProjects.MediaReorganizer do
 
     case matches do
       [] ->
-        Map.merge(d, %{
-          folder: nil,
-          ambiguous: nil,
-          relocated: List.first(anywhere),
-          stray_legacy: nil
-        })
+        Map.merge(d, %{folder: nil, ambiguous: nil, stray_legacy: anywhere})
 
       [folder] ->
-        stray = Enum.find(anywhere, &(&1.uuid != folder.uuid))
-        Map.merge(d, %{folder: folder, ambiguous: nil, relocated: nil, stray_legacy: stray})
+        stray = Enum.filter(anywhere, &(&1.uuid != folder.uuid))
+        Map.merge(d, %{folder: folder, ambiguous: nil, stray_legacy: stray})
 
       matches ->
-        Map.merge(d, %{folder: nil, ambiguous: matches, relocated: nil, stray_legacy: nil})
+        Map.merge(d, %{folder: nil, ambiguous: matches, stray_legacy: []})
     end
-  end
-
-  # Splits resolved entries into: `unique` (one project ↔ one folder, safe
-  # to plan a move for — further split into `shared` when more than one
-  # project resolves to the very same folder, X5), `ambiguous` (one
-  # project, legacy/host name live at both root and under the resolved
-  # parent, X11), and `relocated` (no live folder at root or under the
-  # resolved parent, but a live legacy-named folder exists elsewhere, X9).
-  # A project with no folder anywhere (`relocated` also nil) has nothing
-  # to plan and is dropped.
-  defp classify_entries(entries) do
-    {ambiguous, normal} = Enum.split_with(entries, & &1.ambiguous)
-    {with_folder, without_folder} = Enum.split_with(normal, & &1.folder)
-    relocated = Enum.filter(without_folder, & &1.relocated)
-
-    grouped = Enum.group_by(with_folder, & &1.folder.uuid)
-
-    {shared, unique} =
-      Enum.reduce(grouped, {[], []}, fn {_uuid, group}, {shared_acc, unique_acc} ->
-        if length(group) > 1 do
-          {[group | shared_acc], unique_acc}
-        else
-          {shared_acc, group ++ unique_acc}
-        end
-      end)
-
-    {unique, ambiguous, shared, relocated}
   end
 
   # R7/E3: two (or more) `unique` entries whose *desired* target (resolved
@@ -607,11 +736,13 @@ defmodule PhoenixKitProjects.MediaReorganizer do
   # filtered in Elixir) for every live folder at root or under a resolved
   # parent whose name starts with the legacy prefix, minus every folder
   # already claimed by a live project (R4 — see `claimed_folder_uuids/4`).
+  # R10/T6: ordered deterministically, same as the candidate queries.
   defp legacy_candidate_folders(parent_uuids, claimed_uuids) do
     Folder
     |> where([f], is_nil(f.trashed_at))
     |> where([f], is_nil(f.parent_uuid) or f.parent_uuid in ^parent_uuids)
     |> where([f], like(f.name, ^"#{@legacy_prefix}%"))
+    |> order_by([f], asc: f.inserted_at, asc: f.uuid)
     |> repo().all()
     |> Enum.reject(&MapSet.member?(claimed_uuids, &1.uuid))
     |> Enum.map(&{&1, legacy_uuid(&1.name)})
