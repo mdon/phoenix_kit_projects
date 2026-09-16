@@ -159,8 +159,8 @@ defmodule PhoenixKitProjects.MediaReorganizer do
       :ok ->
         build_resource_plan(actor_uuid)
 
-      {:not_callable, mod, fun} ->
-        {[not_callable_hook_action(mod, fun)], [], claimed_folder_uuids([], [], [], [])}
+      {:not_callable, config} ->
+        {[not_callable_hook_action(config)], [], claimed_folder_uuids([], [], [], [])}
 
       :none ->
         {[], [], claimed_folder_uuids([], [], [], [])}
@@ -170,14 +170,22 @@ defmodule PhoenixKitProjects.MediaReorganizer do
   # T3: a configured `{mod, fun}` that is not actually callable (a typo, a
   # removed function) is a distinct failure from "no hook configured at
   # all" — it must not silently degrade to report-only (E1) without telling
-  # the owner why nothing moved.
+  # the owner why nothing moved. V3/U7: ANY configured value that is not a
+  # `{mod, fun}` naming a callable function — a typo'd tuple or outright
+  # garbage (a string, an integer, a wrong-arity tuple, a tuple of
+  # non-atoms) — is the very same misconfiguration and gets the very same
+  # `:hook_error`; only a genuinely unset key (`nil`, the default) means
+  # "no hook".
   defp hook_status do
     case Application.get_env(:phoenix_kit_projects, :attachments_parent_folder) do
-      {mod, fun} when is_atom(mod) and is_atom(fun) ->
-        if callable?(mod, fun), do: :ok, else: {:not_callable, mod, fun}
-
-      _ ->
+      nil ->
         :none
+
+      {mod, fun} = config when is_atom(mod) and is_atom(fun) ->
+        if callable?(mod, fun), do: :ok, else: {:not_callable, config}
+
+      other ->
+        {:not_callable, other}
     end
   end
 
@@ -186,14 +194,16 @@ defmodule PhoenixKitProjects.MediaReorganizer do
       (function_exported?(mod, fun, 3) or function_exported?(mod, fun, 2))
   end
 
-  defp not_callable_hook_action(mod, fun) do
+  defp not_callable_hook_action(config) do
     %{
       source: "projects",
       kind: :hook_error,
       op: :report,
       label: "attachments parent hook",
       counts: nil,
-      reason: "configured parent hook {#{inspect(mod)}, #{inspect(fun)}} is not callable"
+      reason:
+        "configured parent hook #{inspect(config)} is not callable or not a valid " <>
+          "{module, function} config"
     }
   end
 
@@ -240,7 +250,17 @@ defmodule PhoenixKitProjects.MediaReorganizer do
     {with_folder, without_folder} = Enum.split_with(normal, & &1.folder)
 
     {shared, unique} = split_shared(with_folder)
-    {converging, solo} = split_converging(unique)
+
+    # U2/F6: convergence collisions are only meaningful among entries that
+    # actually need to move — a folder already sitting exactly where it
+    # belongs (`noop_move?`) can never collide with anything at apply
+    # time, so it must never be swept into a `:duplicate` report merely
+    # for sharing its resolved destination with a real mover. Mirrors
+    # manufacturing's noop-then-converging ordering.
+    {movers, _noops} =
+      Enum.split_with(unique, &(!noop_move?(&1.folder, &1.parent_uuid, &1.name)))
+
+    {converging, _solo_movers} = split_converging(movers)
 
     claimed_uuids = claimed_folder_uuids(unique, ambiguous, shared, converging)
 
@@ -251,7 +271,14 @@ defmodule PhoenixKitProjects.MediaReorganizer do
     # relocated. Mirrors catalogue's `stray_legacy` handling.
     stray_actions = stray_relocated_actions(with_folder ++ without_folder, claimed_uuids)
 
-    move_actions = solo |> Enum.map(&build_move_action/1) |> Enum.reject(&is_nil/1)
+    converging_project_uuids = converging |> List.flatten() |> MapSet.new(& &1.project.uuid)
+
+    move_actions =
+      unique
+      |> Enum.reject(&MapSet.member?(converging_project_uuids, &1.project.uuid))
+      |> Enum.map(&build_move_action/1)
+      |> Enum.reject(&is_nil/1)
+
     dup_actions = Enum.map(ambiguous, &build_ambiguous_duplicate_action/1)
     shared_actions = Enum.map(shared, &build_shared_duplicate_action/1)
     converging_actions = Enum.map(converging, &build_converging_duplicate_action/1)
@@ -468,17 +495,22 @@ defmodule PhoenixKitProjects.MediaReorganizer do
   # deterministic name) so a raising/garbage-returning hook is a
   # reportable failure here instead of a silent fallback. Not configured
   # at all is NOT a failure — it is simply "no host name", same as
-  # `Attachments.folder_name/2` treats it. U7/V3: configured but not
-  # callable (a typo, a removed function) IS a failure — the same
-  # misconfiguration the parent hook already reports as `:hook_error` —
-  # never a silent fallback to the deterministic name either.
+  # `Attachments.folder_name/2` treats it. U7/V3: configured but not a
+  # `{mod, fun}` shape at all (a string, an integer, a wrong-arity tuple, a
+  # tuple of non-atoms), or a `{mod, fun}` that is not actually callable,
+  # are BOTH the same failure — the same misconfiguration the parent hook
+  # already reports as `:hook_error` — never a silent fallback to the
+  # deterministic name either.
   defp resolve_folder_name(project, actor_uuid) do
     case Application.get_env(:phoenix_kit_projects, :attachments_folder_name) do
+      nil ->
+        {:ok, Attachments.folder_name(project.uuid)}
+
       {mod, fun} when is_atom(mod) and is_atom(fun) ->
         resolve_configured_folder_name(mod, fun, project, actor_uuid)
 
-      _ ->
-        {:ok, Attachments.folder_name(project.uuid)}
+      _other ->
+        :error
     end
   end
 

@@ -556,6 +556,50 @@ defmodule PhoenixKitProjects.MediaReorganizerTest do
     end
   end
 
+  describe "a noop's occupied destination never spuriously collides as a converging duplicate (U2/F6)" do
+    test "an already-placed project and a would-be mover targeting the same slot both report shared, no move" do
+      project1 = project!()
+      project2 = project!()
+      {:ok, target} = Storage.create_folder(%{name: "Projects"})
+      {:ok, elsewhere} = Storage.create_folder(%{name: "Elsewhere"})
+
+      # project1 already sits exactly at the resolved destination (a
+      # genuine no-op for it) — plus keeps a stray copy of its own legacy
+      # name elsewhere so it still qualifies as a candidate.
+      {:ok, _already_placed} =
+        Storage.create_folder(%{name: "Shared name", parent_uuid: target.uuid})
+
+      {:ok, _stray1} =
+        Storage.create_folder(%{name: "project-#{project1.uuid}", parent_uuid: elsewhere.uuid})
+
+      # project2 has never moved — its own legacy folder lives elsewhere,
+      # undetected by the desired-parent/root tiers, so the only match it
+      # finds is project1's already-placed folder.
+      {:ok, _folder2} =
+        Storage.create_folder(%{name: "project-#{project2.uuid}", parent_uuid: elsewhere.uuid})
+
+      configure_parent_hook(target.uuid)
+      configure_name_hook("Shared name")
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      # Neither project is silently left as a plain no-op, and neither is
+      # moved into the occupied name — the already-placed folder is a
+      # real conflict for project2, reported once, never a `:move`. Both
+      # entries resolve to the SAME already-live folder (host_match), so
+      # this is a `split_shared` collision, never a `split_converging`
+      # one — the phantom converging-duplicate class this test guards
+      # against is structurally unreachable here.
+      refute Enum.any?(actions, &(&1.op == :move))
+
+      dup = Enum.find(actions, &(&1.kind == :duplicate and &1.op == :report))
+      refute is_nil(dup)
+      assert dup.reason =~ "claimed by more than one project"
+      assert dup.reason =~ project1.name
+      assert dup.reason =~ project2.name
+    end
+  end
+
   describe "hook failures (R2)" do
     test "a parent hook that raises is a failure, not root — project skipped, reported once" do
       project = project!()
@@ -699,6 +743,50 @@ defmodule PhoenixKitProjects.MediaReorganizerTest do
         :attachments_parent_folder,
         {BadUuidParentHook, :parent}
       )
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.kind == :project and &1.label == project.name))
+      assert Enum.any?(actions, &(&1.kind == :hook_error))
+    end
+  end
+
+  describe "garbage (not even a well-shaped tuple) parent hook config is a hook_error, never silent no-hook (V3/U7)" do
+    test "a bare string config is a hook_error, no moves" do
+      project = project!()
+      {:ok, _folder} = Storage.create_folder(%{name: "project-#{project.uuid}"})
+
+      Application.put_env(:phoenix_kit_projects, :attachments_parent_folder, "garbage")
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.kind == :project and &1.label == project.name))
+      error_action = Enum.find(actions, &(&1.kind == :hook_error))
+      refute is_nil(error_action)
+      assert error_action.reason =~ "not callable"
+    end
+
+    test "a wrong-arity tuple config is a hook_error, no moves" do
+      project = project!()
+      {:ok, _folder} = Storage.create_folder(%{name: "project-#{project.uuid}"})
+
+      Application.put_env(
+        :phoenix_kit_projects,
+        :attachments_parent_folder,
+        {Hook, :parent, :extra}
+      )
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.kind == :project and &1.label == project.name))
+      assert Enum.any?(actions, &(&1.kind == :hook_error))
+    end
+
+    test "a tuple of non-atoms config is a hook_error, no moves" do
+      project = project!()
+      {:ok, _folder} = Storage.create_folder(%{name: "project-#{project.uuid}"})
+
+      Application.put_env(:phoenix_kit_projects, :attachments_parent_folder, {"Hook", "parent"})
 
       actions = MediaReorganizer.plan(nil, [])
 
@@ -971,6 +1059,42 @@ defmodule PhoenixKitProjects.MediaReorganizerTest do
       refute Enum.any?(actions, &(&1.kind == :project and &1.label == project.name))
       error_action = Enum.find(actions, &(&1.kind == :hook_error))
       refute is_nil(error_action)
+    end
+  end
+
+  describe "garbage (not even a well-shaped tuple) name hook config is a hook_error, never a silent deterministic-name fallback (V3/U7)" do
+    test "a bare string config is a hook_error, no silent deterministic-name move" do
+      project = project!()
+      {:ok, target} = Storage.create_folder(%{name: "Projects"})
+      {:ok, _folder} = Storage.create_folder(%{name: "project-#{project.uuid}"})
+
+      configure_parent_hook(target.uuid)
+      Application.put_env(:phoenix_kit_projects, :attachments_folder_name, "garbage")
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.kind == :project and &1.label == project.name))
+      error_action = Enum.find(actions, &(&1.kind == :hook_error))
+      refute is_nil(error_action)
+    end
+
+    test "a wrong-arity tuple config is a hook_error, no silent deterministic-name move" do
+      project = project!()
+      {:ok, target} = Storage.create_folder(%{name: "Projects"})
+      {:ok, _folder} = Storage.create_folder(%{name: "project-#{project.uuid}"})
+
+      configure_parent_hook(target.uuid)
+
+      Application.put_env(
+        :phoenix_kit_projects,
+        :attachments_folder_name,
+        {Hook, :name, :extra}
+      )
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.kind == :project and &1.label == project.name))
+      assert Enum.any?(actions, &(&1.kind == :hook_error))
     end
   end
 
