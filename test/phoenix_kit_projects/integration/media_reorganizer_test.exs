@@ -224,7 +224,7 @@ defmodule PhoenixKitProjects.MediaReorganizerTest do
     refute Enum.any?(actions, &(&1.kind == :project and &1.label == project.name))
   end
 
-  test "folder already at right parent under an accepted 'name (N)' suffix variant → nothing planned" do
+  test "a 'name (N)' suffix variant is never a candidate — nothing planned, hooks never called" do
     project = project!()
     {:ok, target} = Storage.create_folder(%{name: "Projects"})
 
@@ -237,7 +237,9 @@ defmodule PhoenixKitProjects.MediaReorganizerTest do
     configure_parent_hook(target.uuid)
 
     actions = MediaReorganizer.plan(nil, [])
-    refute Enum.any?(actions, &(&1.kind == :project and &1.label == project.name))
+    refute Enum.any?(actions, &(&1.label == project.name))
+    refute Enum.any?(actions, &(&1.kind == :orphan))
+    assert Process.get(:parent_calls) == nil
   end
 
   test "hook configured, legacy folder lives away from root/resolved parent → reported relocated, not moved" do
@@ -912,6 +914,37 @@ defmodule PhoenixKitProjects.MediaReorganizerTest do
         |> Enum.sort()
 
       assert relocated_uuids == Enum.sort([stray1.uuid, stray2.uuid])
+    end
+  end
+
+  describe "a stray copy beside an ambiguous match is still reported" do
+    test "legacy folder at root AND under the target, plus a third copy elsewhere → duplicate + relocated" do
+      project = project!()
+      {:ok, target} = Storage.create_folder(%{name: "Projects"})
+      {:ok, elsewhere} = Storage.create_folder(%{name: "Elsewhere"})
+      {:ok, root_folder} = Storage.create_folder(%{name: "project-#{project.uuid}"})
+
+      {:ok, under_folder} =
+        Storage.create_folder(%{name: "project-#{project.uuid}", parent_uuid: target.uuid})
+
+      {:ok, stray} =
+        Storage.create_folder(%{name: "project-#{project.uuid}", parent_uuid: elsewhere.uuid})
+
+      configure_parent_hook(target.uuid)
+
+      actions = MediaReorganizer.plan(nil, [])
+      refute Enum.any?(actions, &(&1.op == :move))
+
+      assert [_dup] = Enum.filter(actions, &(&1.kind == :duplicate and &1.label == project.name))
+
+      relocated = Enum.filter(actions, &(&1.kind == :relocated and &1.label == project.name))
+      assert Enum.map(relocated, & &1.folder.uuid) == [stray.uuid]
+      assert hd(relocated).reason =~ "Elsewhere"
+
+      refute Enum.any?(
+               relocated,
+               &(&1.folder.uuid in [root_folder.uuid, under_folder.uuid])
+             )
     end
   end
 

@@ -2,13 +2,13 @@ defmodule PhoenixKitProjects.MediaReorganizer do
   @moduledoc """
   Projects' media-reorganizer plan source.
 
-  Not compiled against a core `PhoenixKit.Modules.Storage.Reorganizer.Source`
-  behaviour — today's hex core (2.23.x) does not ship the engine yet. This
-  module declares no `@behaviour` and returns plain maps; see
-  `PhoenixKitProjects.media_reorganizer/0` for the registration comment.
-  Once core ships the engine, `plan/2`'s contract (`plan(actor_uuid, opts)
-  :: [map()]`) already matches `Source.plan/2` — the only follow-up is
-  adding `@behaviour`/`@impl`.
+  Not compiled against core's `PhoenixKit.Modules.Storage.Reorganizer.Source`
+  behaviour — the engine ships in core 2.24.0, but the `~> 2.0` pin still
+  admits older cores that lack it. This module declares no `@behaviour` and
+  returns plain maps; see `PhoenixKitProjects.media_reorganizer/0` for the
+  registration comment. `plan/2`'s contract (`plan(actor_uuid, opts) ::
+  [map()]`) already matches `Source.plan/2` — once the documented core floor
+  reaches 2.24.0 the only follow-up is adding `@behaviour`/`@impl`.
 
   Covers `Project` only — its legacy `project-<uuid>` folder and the
   `:attachments_parent_folder` / `:attachments_folder_name` hooks
@@ -269,7 +269,8 @@ defmodule PhoenixKitProjects.MediaReorganizer do
     # them, not only the first — except a copy that is itself another
     # project's claimed (adopted) folder, which is never also reported as
     # relocated. Mirrors catalogue's `stray_legacy` handling.
-    stray_actions = stray_relocated_actions(with_folder ++ without_folder, claimed_uuids)
+    stray_actions =
+      stray_relocated_actions(with_folder ++ without_folder ++ ambiguous, claimed_uuids)
 
     converging_project_uuids = converging |> List.flatten() |> MapSet.new(& &1.project.uuid)
 
@@ -681,7 +682,13 @@ defmodule PhoenixKitProjects.MediaReorganizer do
         Map.merge(d, %{folder: folder, ambiguous: nil, stray_legacy: stray, hook_nil: false})
 
       matches ->
-        Map.merge(d, %{folder: nil, ambiguous: matches, stray_legacy: [], hook_nil: false})
+        # Every live legacy-named copy outside the ambiguous tiers is still a
+        # stray — the `:duplicate` report names only the tier matches, so
+        # without this a third-party copy went unreported until the owner
+        # resolved the duplicate and re-ran.
+        match_uuids = MapSet.new(matches, & &1.uuid)
+        stray = Enum.reject(anywhere, &MapSet.member?(match_uuids, &1.uuid))
+        Map.merge(d, %{folder: nil, ambiguous: matches, stray_legacy: stray, hook_nil: false})
     end
   end
 
@@ -752,12 +759,14 @@ defmodule PhoenixKitProjects.MediaReorganizer do
     MapSet.new(unique_uuids ++ ambiguous_uuids ++ shared_uuids ++ converging_uuids)
   end
 
-  # A `:move` whose folder already sits at `parent_uuid` under `name` (or
-  # an accepted `"name (N)"` suffix variant) is a no-op — filtered here;
-  # (unlike catalogue) this Source never has an `after_move` to keep the
-  # action alive for. D3: pointer-less — a taken destination is `:report`ed, never
-  # `:suffix`ed (this module's own lookup never searches for a suffixed
-  # name, so a renamed winner would be orphaned from its project).
+  # A `:move` whose folder already sits at `parent_uuid` under exactly
+  # `name` is a no-op — filtered here; (unlike catalogue) this Source never
+  # has an `after_move` to keep the action alive for. D3: pointer-less — a
+  # taken destination is `:report`ed, never `:suffix`ed (this module's own
+  # lookup never searches for a suffixed name, so a renamed winner would be
+  # orphaned from its project). For the same reason no `"name (N)"` variant
+  # is accepted as in place: every folder reaching here was found by an
+  # exact-name tier, so such a variant can never be the current folder.
   defp build_move_action(%{
          project: project,
          folder: folder,
@@ -783,16 +792,7 @@ defmodule PhoenixKitProjects.MediaReorganizer do
   end
 
   defp noop_move?(%Folder{parent_uuid: parent_uuid, name: name}, parent_uuid, name), do: true
-
-  defp noop_move?(%Folder{parent_uuid: parent_uuid, name: folder_name}, parent_uuid, name) do
-    suffixed_variant?(folder_name, name)
-  end
-
   defp noop_move?(_folder, _parent_uuid, _name), do: false
-
-  defp suffixed_variant?(folder_name, name) do
-    Regex.match?(~r/\A#{Regex.escape(name)} \(\d+\)\z/, folder_name)
-  end
 
   # E6: the parent hook can be actor-dependent (`fun(kind, actor_uuid,
   # resource)`), so a folder this run's actor can't place is not

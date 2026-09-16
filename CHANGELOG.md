@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.26.0 - 2026-09-16
+
+PR #45 plus its post-merge review
+(`dev_docs/pull_requests/2026/45-media-reorganizer/CLAUDE_REVIEW.md`).
+
+### Added
+
+- `PhoenixKitProjects.MediaReorganizer`, a plan source for core's media
+  reorganizer (`mix phoenix_kit.media.reorganize`, core ≥ 2.24.0), registered
+  through `media_reorganizer/0`. It plans moving each project's legacy
+  `project-<uuid>` folder to where the `:attachments_parent_folder` /
+  `:attachments_folder_name` hooks place it, and reports what it will not
+  move: duplicates, copies living elsewhere, orphaned folders of deleted
+  projects, and failing or root-answering hooks. A host with no parent hook
+  configured gets reports only, never a move.
+
+### Fixed
+
+- A stray legacy copy under an unrelated parent is reported even when the
+  same project is also a duplicate (live at root and under its target).
 ## 0.25.1 - 2026-09-15
 
 Post-merge review of PR #44 (`dev_docs/pull_requests/2026/44-attachments-parent-folder/CLAUDE_REVIEW.md`).
