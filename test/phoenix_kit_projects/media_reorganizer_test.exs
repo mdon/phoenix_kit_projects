@@ -3,9 +3,11 @@ defmodule PhoenixKitProjects.MediaReorganizerTest do
   use PhoenixKitProjects.DataCase, async: false
 
   import Ecto.Query
+  import ExUnit.CaptureLog
 
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Users.Auth
+  alias PhoenixKitProjects.Attachments
   alias PhoenixKitProjects.MediaReorganizer
   alias PhoenixKitProjects.Projects
   alias PhoenixKitProjects.QueryCounter
@@ -907,6 +909,288 @@ defmodule PhoenixKitProjects.MediaReorganizerTest do
       assert action.parent_uuid == target.uuid
       assert folder.parent_uuid == target.uuid
       assert action.name == "Nice project"
+    end
+  end
+
+  describe "relocated reason names the actual place (U3)" do
+    test "a stray copy under a third-party parent names that parent" do
+      project = project!()
+      {:ok, target} = Storage.create_folder(%{name: "Projects"})
+      {:ok, elsewhere} = Storage.create_folder(%{name: "Elsewhere HQ"})
+
+      {:ok, current} = Storage.create_folder(%{name: "project-#{project.uuid}"})
+
+      {:ok, stray} =
+        Storage.create_folder(%{name: "project-#{project.uuid}", parent_uuid: elsewhere.uuid})
+
+      configure_parent_hook(target.uuid)
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      relocated = Enum.find(actions, &(&1.kind == :relocated and &1.folder.uuid == stray.uuid))
+      refute is_nil(relocated)
+      assert relocated.reason =~ "Elsewhere HQ"
+      refute is_nil(Enum.find(actions, &(&1.folder && &1.folder.uuid == current.uuid)))
+    end
+
+    test "a stray copy with no adopted current folder at all is reported by its own parent's name" do
+      project = project!()
+      {:ok, target} = Storage.create_folder(%{name: "Projects"})
+      {:ok, elsewhere} = Storage.create_folder(%{name: "Somewhere else"})
+
+      {:ok, relocated_folder} =
+        Storage.create_folder(%{name: "project-#{project.uuid}", parent_uuid: elsewhere.uuid})
+
+      configure_parent_hook(target.uuid)
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      action = Enum.find(actions, &(&1.kind == :relocated and &1.label == project.name))
+      refute is_nil(action)
+      assert action.folder.uuid == relocated_folder.uuid
+      assert action.reason =~ "Somewhere else"
+    end
+  end
+
+  describe "not-callable name hook is a hook error, not a silent fallback (U7/V3)" do
+    test "a configured name hook whose module/function does not exist is reported, never a silent legacy-name move" do
+      project = project!()
+      {:ok, target} = Storage.create_folder(%{name: "Projects"})
+      {:ok, _folder} = Storage.create_folder(%{name: "project-#{project.uuid}"})
+
+      configure_parent_hook(target.uuid)
+
+      Application.put_env(
+        :phoenix_kit_projects,
+        :attachments_folder_name,
+        {NoSuchModuleForMediaReorganizerTest, :name}
+      )
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.kind == :project and &1.label == project.name))
+      error_action = Enum.find(actions, &(&1.kind == :hook_error))
+      refute is_nil(error_action)
+    end
+  end
+
+  describe "hook log lines carry {mod, fun} and bad returns are logged (U6)" do
+    test "a parent hook returning a bad value is logged with the module and function" do
+      project = project!()
+      {:ok, _folder} = Storage.create_folder(%{name: "project-#{project.uuid}"})
+
+      Application.put_env(
+        :phoenix_kit_projects,
+        :attachments_parent_folder,
+        {BadReturnHook, :parent}
+      )
+
+      log = capture_log(fn -> MediaReorganizer.plan(nil, []) end)
+
+      assert log =~ "BadReturnHook"
+      assert log =~ "parent"
+      assert log =~ "{:error, :timeout}"
+    end
+
+    test "a parent hook returning a non-uuid string is logged with the bad value" do
+      project = project!()
+      {:ok, _folder} = Storage.create_folder(%{name: "project-#{project.uuid}"})
+
+      Application.put_env(
+        :phoenix_kit_projects,
+        :attachments_parent_folder,
+        {BadUuidParentHook, :parent}
+      )
+
+      log = capture_log(fn -> MediaReorganizer.plan(nil, []) end)
+
+      assert log =~ "BadUuidParentHook"
+      assert log =~ "not-a-uuid"
+    end
+
+    test "a name hook returning a bad value is logged with the module and function" do
+      project = project!()
+      {:ok, target} = Storage.create_folder(%{name: "Projects"})
+      {:ok, _folder} = Storage.create_folder(%{name: "project-#{project.uuid}"})
+
+      Process.put(:target_folder, target.uuid)
+
+      Application.put_env(
+        :phoenix_kit_projects,
+        :attachments_parent_folder,
+        {BadReturnNameHook, :parent}
+      )
+
+      Application.put_env(
+        :phoenix_kit_projects,
+        :attachments_folder_name,
+        {BadReturnNameHook, :name}
+      )
+
+      log = capture_log(fn -> MediaReorganizer.plan(nil, []) end)
+
+      assert log =~ "BadReturnNameHook"
+      assert log =~ "not_a_valid_answer"
+    end
+  end
+
+  describe "hook_error/hook_nil reports list record labels, not only a count (U8)" do
+    test "hook_error report names the failing records" do
+      project1 = project!(%{"name" => "Alpha Project"})
+      project2 = project!(%{"name" => "Beta Project"})
+      {:ok, _f1} = Storage.create_folder(%{name: "project-#{project1.uuid}"})
+      {:ok, _f2} = Storage.create_folder(%{name: "project-#{project2.uuid}"})
+
+      Application.put_env(
+        :phoenix_kit_projects,
+        :attachments_parent_folder,
+        {RaisingHook, :parent}
+      )
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      error_action = Enum.find(actions, &(&1.kind == :hook_error))
+      assert error_action.reason =~ "Alpha Project"
+      assert error_action.reason =~ "Beta Project"
+    end
+
+    test "hook_error report lists at most 10 labels, then a trailing count" do
+      projects =
+        for i <- 1..12 do
+          p = project!(%{"name" => "Proj #{i}"})
+          {:ok, _f} = Storage.create_folder(%{name: "project-#{p.uuid}"})
+          p
+        end
+
+      Application.put_env(
+        :phoenix_kit_projects,
+        :attachments_parent_folder,
+        {RaisingHook, :parent}
+      )
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      error_action = Enum.find(actions, &(&1.kind == :hook_error))
+      assert error_action.reason =~ "12 record(s)"
+      assert error_action.reason =~ "… and 2 more"
+
+      shown = Enum.count(projects, &(error_action.reason =~ &1.name))
+      assert shown == 10
+    end
+
+    test "hook_nil report names the adopted record" do
+      project = project!(%{"name" => "Gamma Project"})
+      {:ok, old_parent} = Storage.create_folder(%{name: "Old parent"})
+
+      {:ok, _folder} =
+        Storage.create_folder(%{name: "project-#{project.uuid}", parent_uuid: old_parent.uuid})
+
+      configure_parent_hook(nil)
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      hook_nil = Enum.find(actions, &(&1.kind == :hook_nil))
+      refute is_nil(hook_nil)
+      assert hook_nil.reason =~ "Gamma Project"
+    end
+  end
+
+  describe "orphan scope includes every parent a successful hook answer resolved (U4)" do
+    test "a candidate's parent hook succeeds but its name hook fails afterwards — the parent still scopes the orphan scan" do
+      project = project!()
+      {:ok, parent} = Storage.create_folder(%{name: "Sub-order folder"})
+
+      {:ok, _folder} =
+        Storage.create_folder(%{name: "project-#{project.uuid}", parent_uuid: parent.uuid})
+
+      orphan_uuid = Ecto.UUID.generate()
+
+      {:ok, orphan_folder} =
+        Storage.create_folder(%{name: "project-#{orphan_uuid}", parent_uuid: parent.uuid})
+
+      Process.put(:target_folder, parent.uuid)
+
+      Application.put_env(
+        :phoenix_kit_projects,
+        :attachments_parent_folder,
+        {RaisingNameHook, :parent}
+      )
+
+      Application.put_env(
+        :phoenix_kit_projects,
+        :attachments_folder_name,
+        {RaisingNameHook, :name}
+      )
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      assert Enum.any?(actions, &(&1.kind == :hook_error))
+
+      orphan_action =
+        Enum.find(actions, &(&1.kind == :orphan and &1.folder.uuid == orphan_folder.uuid))
+
+      refute is_nil(orphan_action)
+    end
+  end
+
+  describe "parity with Attachments.find_resource_folder/2 (N10)" do
+    test "no legacy folder anywhere → neither the source nor find_resource_folder/2 finds a current folder" do
+      project = project!()
+
+      refute Enum.any?(MediaReorganizer.plan(nil, []), &(&1.label == project.name))
+      assert Attachments.find_resource_folder(project, nil) == nil
+    end
+
+    test "a folder that needs to move → the planned move's folder is the same one find_resource_folder/2 resolves before the move" do
+      project = project!()
+      {:ok, target} = Storage.create_folder(%{name: "Projects"})
+      {:ok, folder} = Storage.create_folder(%{name: "project-#{project.uuid}"})
+
+      configure_parent_hook(target.uuid)
+
+      move =
+        Enum.find(
+          MediaReorganizer.plan(nil, []),
+          &(&1.kind == :project and &1.label == project.name)
+        )
+
+      refute is_nil(move)
+      assert move.folder.uuid == folder.uuid
+
+      assert Attachments.find_resource_folder(project, nil).uuid == folder.uuid
+    end
+
+    test "a folder already exactly at the resolved target → no move planned, matching find_resource_folder/2" do
+      project = project!()
+      {:ok, target} = Storage.create_folder(%{name: "Projects"})
+
+      {:ok, folder} =
+        Storage.create_folder(%{name: "project-#{project.uuid}", parent_uuid: target.uuid})
+
+      configure_parent_hook(target.uuid)
+
+      refute Enum.any?(
+               MediaReorganizer.plan(nil, []),
+               &(&1.kind == :project and &1.label == project.name)
+             )
+
+      assert Attachments.find_resource_folder(project, nil).uuid == folder.uuid
+    end
+
+    test "hook resolves root while the only live copy sits under a real parent (F1) → left in place, matching find_resource_folder/2's own fallback" do
+      project = project!()
+      {:ok, old_parent} = Storage.create_folder(%{name: "Old parent"})
+
+      {:ok, folder} =
+        Storage.create_folder(%{name: "project-#{project.uuid}", parent_uuid: old_parent.uuid})
+
+      configure_parent_hook(nil)
+
+      actions = MediaReorganizer.plan(nil, [])
+      refute Enum.any?(actions, &(&1.op == :move and &1.label == project.name))
+      refute Enum.any?(actions, &(&1.kind == :relocated and &1.label == project.name))
+
+      assert Attachments.find_resource_folder(project, nil).uuid == folder.uuid
     end
   end
 end
