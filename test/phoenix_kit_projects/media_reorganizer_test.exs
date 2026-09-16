@@ -82,6 +82,29 @@ defmodule PhoenixKitProjects.MediaReorganizerTest do
     def name(%Project{}, _actor), do: :not_a_valid_answer
   end
 
+  defmodule MixedHook do
+    @moduledoc false
+    # Fails the PARENT hook for the project named `:fail_parent_project_name`
+    # and the NAME hook for the project named `:fail_name_project_name` —
+    # lets one plan exercise both a parent-hook failure and a name-hook
+    # failure among different candidates.
+    def parent(:project, _actor, %Project{name: name}) do
+      if name == Process.get(:fail_parent_project_name) do
+        raise "boom parent"
+      else
+        {:ok, Process.get(:target_folder)}
+      end
+    end
+
+    def name(%Project{name: name}, _actor) do
+      if name == Process.get(:fail_name_project_name) do
+        raise "boom name"
+      else
+        {:ok, nil}
+      end
+    end
+  end
+
   setup do
     on_exit(fn ->
       Application.delete_env(:phoenix_kit_projects, :attachments_parent_folder)
@@ -1216,6 +1239,74 @@ defmodule PhoenixKitProjects.MediaReorganizerTest do
       hook_nil = Enum.find(actions, &(&1.kind == :hook_nil))
       refute is_nil(hook_nil)
       assert hook_nil.reason =~ "Gamma Project"
+    end
+  end
+
+  describe "hook_error report names the actual failing hook (N4-3)" do
+    test "a parent-hook-only failure is reported as the parent hook" do
+      project = project!(%{"name" => "Only Parent Fails"})
+      {:ok, _folder} = Storage.create_folder(%{name: "project-#{project.uuid}"})
+
+      Application.put_env(
+        :phoenix_kit_projects,
+        :attachments_parent_folder,
+        {RaisingHook, :parent}
+      )
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      error_action = Enum.find(actions, &(&1.kind == :hook_error))
+      assert error_action.label == "attachments parent hook"
+      assert error_action.reason =~ "the configured parent hook"
+    end
+
+    test "a name-hook-only failure is reported as the folder-name hook, not the parent hook" do
+      project = project!(%{"name" => "Only Name Fails"})
+      {:ok, target} = Storage.create_folder(%{name: "Projects"})
+      {:ok, _folder} = Storage.create_folder(%{name: "project-#{project.uuid}"})
+
+      configure_parent_hook(target.uuid)
+
+      Application.put_env(
+        :phoenix_kit_projects,
+        :attachments_folder_name,
+        {RaisingNameHook, :name}
+      )
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      error_action = Enum.find(actions, &(&1.kind == :hook_error))
+      refute is_nil(error_action)
+      assert error_action.label == "attachments folder-name hook"
+      assert error_action.reason =~ "the configured folder-name hook"
+      refute error_action.reason =~ "the configured parent hook"
+    end
+
+    test "a parent-hook failure and a name-hook failure among different candidates are reported as both hooks" do
+      parent_fail_project = project!(%{"name" => "Parent Fails Here"})
+      name_fail_project = project!(%{"name" => "Name Fails Here"})
+      {:ok, target} = Storage.create_folder(%{name: "Projects"})
+
+      {:ok, _f1} = Storage.create_folder(%{name: "project-#{parent_fail_project.uuid}"})
+      {:ok, _f2} = Storage.create_folder(%{name: "project-#{name_fail_project.uuid}"})
+
+      # `name_fail_project`'s parent must resolve to a real (non-root)
+      # folder — the name hook is only ever called when a parent WAS
+      # resolved (R8) — so its name-hook failure is actually exercised.
+      Process.put(:target_folder, target.uuid)
+      Process.put(:fail_parent_project_name, parent_fail_project.name)
+      Process.put(:fail_name_project_name, name_fail_project.name)
+      Application.put_env(:phoenix_kit_projects, :attachments_parent_folder, {MixedHook, :parent})
+      Application.put_env(:phoenix_kit_projects, :attachments_folder_name, {MixedHook, :name})
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      error_action = Enum.find(actions, &(&1.kind == :hook_error))
+      refute is_nil(error_action)
+      assert error_action.label == "attachments hooks"
+      assert error_action.reason =~ "the configured parent/folder-name hooks"
+      assert error_action.reason =~ parent_fail_project.name
+      assert error_action.reason =~ name_fail_project.name
     end
   end
 

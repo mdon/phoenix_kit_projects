@@ -387,7 +387,7 @@ defmodule PhoenixKitProjects.MediaReorganizer do
             )
 
           :error ->
-            {acc, [project.name | errs], parents}
+            {acc, [{project.name, :parent} | errs], parents}
         end
       end)
 
@@ -422,7 +422,7 @@ defmodule PhoenixKitProjects.MediaReorganizer do
         {[entry | acc], errs, parents}
 
       :error ->
-        {acc, [project.name | errs], parents}
+        {acc, [{project.name, :name} | errs], parents}
     end
   end
 
@@ -579,20 +579,35 @@ defmodule PhoenixKitProjects.MediaReorganizer do
 
   defp hook_error_action([]), do: []
 
+  # N4-3: `labels` is `[{project_name, :parent | :name}, ...]` — the report
+  # names the ACTUAL failing hook (parent, folder-name, or both) instead of
+  # always blaming "the parent hook" for a folder-name hook failure. Mirrors
+  # catalogue's `hook_error_action`.
   defp hook_error_action(labels) do
+    sources = labels |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> Enum.sort()
+    record_labels = Enum.map(labels, &elem(&1, 0))
+
     [
       %{
         source: "projects",
         kind: :hook_error,
         op: :report,
-        label: "attachments parent hook",
+        label: hook_error_label(sources),
         counts: nil,
         reason:
-          "#{length(labels)} record(s) skipped: the configured parent hook raised, exited, or " <>
-            "returned neither {:ok, uuid} nor nil — #{label_list(labels)}"
+          "#{length(labels)} record(s) skipped: #{hook_error_prefix(sources)} raised, exited, " <>
+            "or returned neither {:ok, uuid} nor nil — #{label_list(record_labels)}"
       }
     ]
   end
+
+  defp hook_error_label([:parent]), do: "attachments parent hook"
+  defp hook_error_label([:name]), do: "attachments folder-name hook"
+  defp hook_error_label(_mixed), do: "attachments hooks"
+
+  defp hook_error_prefix([:parent]), do: "the configured parent hook"
+  defp hook_error_prefix([:name]), do: "the configured folder-name hook"
+  defp hook_error_prefix(_mixed), do: "the configured parent/folder-name hooks"
 
   # U8: `:hook_error`/`:hook_nil` reports list the first 10 record labels
   # so the owner can tell where to look, instead of a bare count —
