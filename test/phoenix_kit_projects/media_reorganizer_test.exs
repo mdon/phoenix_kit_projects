@@ -841,11 +841,11 @@ defmodule PhoenixKitProjects.MediaReorganizerTest do
   end
 
   describe "nil hook answer never moves a nested folder to root (F1)" do
-    test "parent hook resolves nil while the folder lives under a different parent → relocated, not moved" do
+    test "parent hook resolves nil while the folder lives under a different parent → hook_nil report, not moved" do
       project = project!()
       {:ok, old_parent} = Storage.create_folder(%{name: "Old parent"})
 
-      {:ok, folder} =
+      {:ok, _folder} =
         Storage.create_folder(%{name: "project-#{project.uuid}", parent_uuid: old_parent.uuid})
 
       configure_parent_hook(nil)
@@ -853,12 +853,60 @@ defmodule PhoenixKitProjects.MediaReorganizerTest do
       actions = MediaReorganizer.plan(nil, [])
 
       refute Enum.any?(actions, &(&1.op == :move and &1.label == project.name))
+      refute Enum.any?(actions, &(&1.kind == :relocated))
 
-      relocated =
-        Enum.find(actions, &(&1.kind == :relocated and &1.folder.uuid == folder.uuid))
+      hook_nil = Enum.find(actions, &(&1.kind == :hook_nil))
 
-      refute is_nil(relocated)
-      assert relocated.label == project.name
+      refute is_nil(hook_nil)
+      assert hook_nil.op == :report
+      assert hook_nil.reason =~ "1 record(s)"
+    end
+  end
+
+  describe "duplicate: host-named and legacy-named folders both live under the same parent (§11 R3)" do
+    test "host-named and deterministic-named folders both live under the resolved parent → duplicate, no move" do
+      project = project!()
+      {:ok, target} = Storage.create_folder(%{name: "Projects"})
+
+      {:ok, _host_folder} =
+        Storage.create_folder(%{name: "Nice project", parent_uuid: target.uuid})
+
+      {:ok, _legacy_folder} =
+        Storage.create_folder(%{name: "project-#{project.uuid}", parent_uuid: target.uuid})
+
+      configure_parent_hook(target.uuid)
+      configure_name_hook("Nice project")
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.op == :move and &1.label == project.name))
+
+      dup = Enum.find(actions, &(&1.kind == :duplicate and &1.label == project.name))
+      refute is_nil(dup)
+      assert dup.op == :report
+    end
+  end
+
+  describe "rename in place under the resolved parent" do
+    test "folder already under the resolved parent, name hook picks a host name → renamed without moving parents" do
+      project = project!()
+      {:ok, target} = Storage.create_folder(%{name: "Projects"})
+
+      {:ok, folder} =
+        Storage.create_folder(%{name: "project-#{project.uuid}", parent_uuid: target.uuid})
+
+      configure_parent_hook(target.uuid)
+      configure_name_hook("Nice project")
+
+      actions = MediaReorganizer.plan(nil, [])
+      action = Enum.find(actions, &(&1.kind == :project and &1.label == project.name))
+
+      refute is_nil(action)
+      assert action.op == :move
+      assert action.folder.uuid == folder.uuid
+      assert action.parent_uuid == target.uuid
+      assert folder.parent_uuid == target.uuid
+      assert action.name == "Nice project"
     end
   end
 end

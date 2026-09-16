@@ -85,14 +85,19 @@ defmodule PhoenixKitProjects.MediaReorganizer do
      "anywhere" scan `find_resource_folder/2` falls back to for a live
      upload; this is also why a `nil` parent-hook answer can never move a
      folder that actually lives under a real parent to root (F1) — that
-     tier is simply never searched when the resolved parent is root. Every
-     legacy-named folder that exists live somewhere other than the
-     project's resolved current folder (the owner moved it, it is parked
-     under a parent the project was since unlinked from, or it is a leftover
-     twin) is reported `kind: :relocated`, never moved — one report per
-     copy, all of them (F5) — the parent hook can be actor-dependent, so
-     the reason notes that a different actor's hook may still resolve it
-     (E6).
+     tier is simply never searched when the resolved parent is root.
+     Instead, when exactly one live legacy-named folder exists anywhere and
+     it sits under a real parent, it is recognized as the project's current
+     folder, left untouched (no move, no rename), and counted once into an
+     aggregate `kind: :hook_nil` report for the whole plan — mirroring
+     catalogue's `apply_nil_root_guard/1` — rather than the generic
+     `:relocated` a stray copy would get. Every OTHER legacy-named folder
+     that exists live somewhere other than the project's resolved current
+     folder (the owner moved it, it is parked under a parent the project
+     was since unlinked from, or it is a leftover twin) is reported
+     `kind: :relocated`, never moved — one report per copy, all of them
+     (F5) — the parent hook can be actor-dependent, so the reason notes
+     that a different actor's hook may still resolve it (E6).
   4. A live match at more than one of these tiers (host-named-under-parent,
      deterministic-named-under-parent, deterministic-named-at-root) is
      unresolvable — reported as `kind: :duplicate`, nothing moved, naming
@@ -196,6 +201,14 @@ defmodule PhoenixKitProjects.MediaReorganizer do
 
     {desired, hook_error_count} = resolve_desired(candidates, mod, fun, actor_uuid)
 
+    # R10/T6: `order_index` pins the light query's deterministic order
+    # (`inserted_at`/`uuid`) so it survives `split_shared`/`split_converging`
+    # below, which regroup entries by folder/destination — a plain
+    # `group_by` + `Map.values/1` does not promise to hand groups back in
+    # the order their keys were first seen.
+    desired =
+      desired |> Enum.with_index() |> Enum.map(fn {d, idx} -> Map.put(d, :order_index, idx) end)
+
     by_parent_host = preload_pairs(desired, & &1.name)
     by_parent_deterministic = preload_pairs(desired, & &1.deterministic_name)
     by_root = preload_by_root_name(Enum.map(desired, & &1.deterministic_name))
@@ -209,6 +222,8 @@ defmodule PhoenixKitProjects.MediaReorganizer do
 
     resolved_parents =
       desired |> Enum.map(& &1.parent_uuid) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    hook_nil_count = Enum.count(entries, & &1.hook_nil)
 
     # R10/T6: entries keep the light query's deterministic order
     # (`inserted_at`/`uuid`) all the way through — split below with
@@ -235,10 +250,12 @@ defmodule PhoenixKitProjects.MediaReorganizer do
     shared_actions = Enum.map(shared, &build_shared_duplicate_action/1)
     converging_actions = Enum.map(converging, &build_converging_duplicate_action/1)
     hook_error_actions = hook_error_action(hook_error_count)
+    hook_nil_actions = hook_nil_action(hook_nil_count)
 
     actions =
       finalize_counts(move_actions ++ stray_actions) ++
-        dup_actions ++ shared_actions ++ converging_actions ++ hook_error_actions
+        dup_actions ++
+        shared_actions ++ converging_actions ++ hook_error_actions ++ hook_nil_actions
 
     {actions, resolved_parents, claimed_uuids}
   end
@@ -261,7 +278,7 @@ defmodule PhoenixKitProjects.MediaReorganizer do
   defp split_shared(entries) do
     freq = Enum.frequencies_by(entries, & &1.folder.uuid)
     {shared_entries, unique} = Enum.split_with(entries, &(Map.get(freq, &1.folder.uuid) > 1))
-    shared_groups = shared_entries |> Enum.group_by(& &1.folder.uuid) |> Map.values()
+    shared_groups = shared_entries |> group_by_ordered(& &1.folder.uuid)
     {shared_groups, unique}
   end
 
@@ -421,6 +438,23 @@ defmodule PhoenixKitProjects.MediaReorganizer do
       :error
   end
 
+  defp hook_nil_action(0), do: []
+
+  defp hook_nil_action(count) do
+    [
+      %{
+        source: "projects",
+        kind: :hook_nil,
+        op: :report,
+        label: "attachments parent hook",
+        counts: nil,
+        reason:
+          "#{count} record(s): the parent hook answered root for a folder living under a " <>
+            "parent — left in place"
+      }
+    ]
+  end
+
   defp hook_error_action(0), do: []
 
   defp hook_error_action(count) do
@@ -490,16 +524,33 @@ defmodule PhoenixKitProjects.MediaReorganizer do
 
     case matches do
       [] ->
-        Map.merge(d, %{folder: nil, ambiguous: nil, stray_legacy: anywhere})
+        hook_nil_entry(d, anywhere) ||
+          Map.merge(d, %{folder: nil, ambiguous: nil, stray_legacy: anywhere, hook_nil: false})
 
       [folder] ->
         stray = Enum.filter(anywhere, &(&1.uuid != folder.uuid))
-        Map.merge(d, %{folder: folder, ambiguous: nil, stray_legacy: stray})
+        Map.merge(d, %{folder: folder, ambiguous: nil, stray_legacy: stray, hook_nil: false})
 
       matches ->
-        Map.merge(d, %{folder: nil, ambiguous: matches, stray_legacy: []})
+        Map.merge(d, %{folder: nil, ambiguous: matches, stray_legacy: [], hook_nil: false})
     end
   end
+
+  # F1: the restricted tiers above never search under a real parent once
+  # the hook resolves root (`d.parent_uuid == nil`), which is what keeps a
+  # nil answer from ever moving a nested folder to root. When that leaves
+  # `matches` empty but exactly one live folder anywhere still carries the
+  # project's legacy name AND currently sits under a real parent, that
+  # folder IS the project's current folder — left in place (no move, no
+  # rename) and counted once into the aggregate `:hook_nil` report instead
+  # of the generic `:relocated` a stray copy would get. Mirrors catalogue's
+  # `apply_nil_root_guard/1`.
+  defp hook_nil_entry(%{parent_uuid: nil} = d, [%Folder{parent_uuid: parent_uuid}])
+       when not is_nil(parent_uuid) do
+    Map.merge(d, %{folder: nil, ambiguous: nil, stray_legacy: [], hook_nil: true})
+  end
+
+  defp hook_nil_entry(_d, _anywhere), do: nil
 
   # R7/E3: two (or more) `unique` entries whose *desired* target (resolved
   # parent + desired name) coincide, even though their current folders
@@ -512,11 +563,24 @@ defmodule PhoenixKitProjects.MediaReorganizer do
     {converging_entries, solo} =
       Enum.split_with(entries, &(Map.get(freq, convergence_key(&1)) > 1))
 
-    converging_groups = converging_entries |> Enum.group_by(&convergence_key/1) |> Map.values()
+    converging_groups = converging_entries |> group_by_ordered(&convergence_key/1)
     {converging_groups, solo}
   end
 
   defp convergence_key(entry), do: {entry.parent_uuid, entry.name}
+
+  # `Enum.group_by/2` keeps each group's own members in encounter order, but
+  # its result is a map — iterating it (`Map.values/1`) is not promised to
+  # hand groups back in the order their keys were first seen. Since callers
+  # here only ever group entries that already carry `order_index` (R10),
+  # sorting the groups by their first (smallest-index) member restores that
+  # order deterministically instead of relying on map iteration order.
+  defp group_by_ordered(entries, key_fun) do
+    entries
+    |> Enum.group_by(key_fun)
+    |> Map.values()
+    |> Enum.sort_by(fn [first | _] -> first.order_index end)
+  end
 
   # R4/§9: every folder this batch has already resolved as a live project's
   # current folder — a unique move/no-op target, every folder listed in an
@@ -540,10 +604,9 @@ defmodule PhoenixKitProjects.MediaReorganizer do
   end
 
   # A `:move` whose folder already sits at `parent_uuid` under `name` (or
-  # an accepted `"name (N)"` suffix variant) is a no-op — filtered here
-  # since this Source has no core `Action.noop?/1` to lean on, and (unlike
-  # catalogue) never has an `after_move` to keep the action alive for.
-  # D3: pointer-less — a taken destination is `:report`ed, never
+  # an accepted `"name (N)"` suffix variant) is a no-op — filtered here;
+  # (unlike catalogue) this Source never has an `after_move` to keep the
+  # action alive for. D3: pointer-less — a taken destination is `:report`ed, never
   # `:suffix`ed (this module's own lookup never searches for a suffixed
   # name, so a renamed winner would be orphaned from its project).
   defp build_move_action(%{
