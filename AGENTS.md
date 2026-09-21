@@ -152,10 +152,11 @@ Repo-local aliases:
   settings tables can't crash module discovery.
 - **Activity logging** goes through the `PhoenixKitProjects.Activity` wrapper
   and happens at the **LiveView layer**, never inside `PhoenixKitProjects.Projects`.
-  LiveViews have `actor_uuid` via `socket.assigns[:phoenix_kit_current_user]`
-  and know the user's intent; contexts stay pure, returning
-  `{:ok, record} | {:error, changeset}`. Every call is guarded with
-  `Code.ensure_loaded?/1` + rescue — logging never crashes a mutation.
+  LiveViews read the actor with `Activity.actor_uuid/1` (core's
+  `PhoenixKitWeb.Actor`: the scope first, then the bare current user) and
+  know the user's intent; contexts stay pure, returning
+  `{:ok, record} | {:error, changeset}`. Core's `PhoenixKit.Activity.log/3`
+  never raises — logging never crashes a mutation.
   Activity metadata captures the **primary** column value
   (`metadata.name = project.name`), not the localized one: audit trails are
   locale-agnostic.
@@ -163,8 +164,8 @@ Repo-local aliases:
     `:phoenix_kit_ensure_admin` `on_mount` never runs, so the actor comes from
     `WebHelpers.assign_embed_user/2` reconstructing it from
     `session["current_user_uuid"]`. Without that key embedded mutations log
-    `actor_uuid: nil` by design; `Activity.actor_uuid/1` reads the assign with
-    bracket access so a missing key is tolerated.
+    `actor_uuid: nil` by design; `Activity.actor_uuid/1` tolerates a missing
+    assign.
   - **Sugar helpers don't log on their own:** `complete_assignment/2` and
     `reopen_assignment/1` delegate to the server-trusted
     `update_assignment_status/2`, emit the same PubSub broadcast, and log
