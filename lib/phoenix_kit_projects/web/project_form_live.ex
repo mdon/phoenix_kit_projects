@@ -46,7 +46,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
     # dev_docs/embedding_audit.md.
     socket =
       socket
-      |> mount_multilang()
+      |> mount_multilang(open_on: if(live_action == :edit, do: :viewing_language, else: :primary))
       |> assign(
         wrapper_class: wrapper_class,
         embed_redirect_to: redirect_to,
