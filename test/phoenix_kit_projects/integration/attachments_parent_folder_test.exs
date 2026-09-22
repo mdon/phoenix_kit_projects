@@ -18,6 +18,14 @@ defmodule PhoenixKitProjects.AttachmentsParentFolderTest do
     def name(_resource, _actor), do: nil
   end
 
+  # Answers one parent for reads and another when asked to create.
+  defmodule SplitParentHook do
+    @moduledoc false
+    def parent(:project, _actor, {:ensure, %Project{}}), do: {:ok, Process.get(:create_parent)}
+    def parent(:project, _actor, %Project{}), do: {:ok, Process.get(:read_parent)}
+    def name(%Project{}, _actor), do: {:ok, "Human"}
+  end
+
   defmodule ProjectNameHook do
     @moduledoc false
     def name(%Project{name: name}, _actor), do: {:ok, name}
@@ -113,6 +121,28 @@ defmodule PhoenixKitProjects.AttachmentsParentFolderTest do
 
     assert Attachments.folder_uuid(project, nil) == folder_uuid
     assert Attachments.ensure_folder(project, nil) == {:ok, folder_uuid}
+  end
+
+  test "a host answering reads and creates differently gets no second folder" do
+    Process.put(:read_parent, container!("Read").uuid)
+    Process.put(:create_parent, container!("Create").uuid)
+
+    Application.put_env(
+      :phoenix_kit_projects,
+      :attachments_parent_folder,
+      {SplitParentHook, :parent}
+    )
+
+    Application.put_env(:phoenix_kit_projects, :attachments_folder_name, {SplitParentHook, :name})
+    project = project!()
+
+    assert {:ok, first} = Attachments.ensure_folder(project, nil)
+    assert Attachments.ensure_folder(project, nil) == {:ok, first}
+
+    assert Repo.aggregate(
+             from(f in Folder, where: f.parent_uuid == ^Process.get(:create_parent)),
+             :count
+           ) == 1
   end
 
   # ── legacy compatibility ──

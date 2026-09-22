@@ -27,7 +27,10 @@ defmodule PhoenixKitProjects.Attachments do
       parent_folder_uuid}` or anything else for "no parent". `subject` is
       the bare `%Project{}` for read-only lookups (`folder_uuid/2`,
       render-safe: never creates a parent) and `{:ensure, %Project{}}` for
-      `ensure_folder/2`, which may create the parent chain.
+      `ensure_folder/2`, which may create the parent chain. Both forms must
+      name the same parent once it exists: reads only ever look under the
+      bare form's answer, so a folder created under a different one is
+      invisible to the Files page.
     * `:attachments_folder_name` — `{mod, fun}` where `fun(resource,
       actor_uuid)` returns `{:ok, name}` or anything else to fall back to
       the deterministic `project-<uuid>` name.
@@ -119,9 +122,12 @@ defmodule PhoenixKitProjects.Attachments do
   def find_resource_folder({:ensure, %Project{} = project}, actor_uuid),
     do: find_resource_folder(project, actor_uuid)
 
-  def find_resource_folder(%Project{} = project, actor_uuid) do
+  def find_resource_folder(%Project{} = project, actor_uuid),
+    do: find_under_parent(project, parent_folder_uuid(project, actor_uuid), actor_uuid)
+
+  defp find_under_parent(project, parent_uuid, actor_uuid) do
     ResourceFolders.resolve(
-      parent: parent_folder_uuid(project, actor_uuid),
+      parent: parent_uuid,
       host_name: folder_name(project, actor_uuid),
       name: deterministic_name(project),
       anywhere: true
@@ -174,17 +180,24 @@ defmodule PhoenixKitProjects.Attachments do
   end
 
   defp do_ensure_folder(project, actor_uuid) do
-    lookup = fn -> find_resource_folder(project, actor_uuid) end
-
-    case lookup.() do
+    case find_resource_folder(project, actor_uuid) do
       %Folder{uuid: uuid} ->
         {:ok, uuid}
 
       nil ->
         # Creation may build the parent chain: the host gets `{:ensure, project}`.
+        # Its folder is looked for under that parent too, so a host answering
+        # the two forms differently gets no second folder on the next upload.
+        create_parent = parent_folder_uuid({:ensure, project}, actor_uuid)
+
+        lookup = fn ->
+          find_resource_folder(project, actor_uuid) ||
+            find_under_parent(project, create_parent, actor_uuid)
+        end
+
         project
         |> folder_name(actor_uuid)
-        |> ResourceFolders.ensure(parent_folder_uuid({:ensure, project}, actor_uuid), actor_uuid,
+        |> ResourceFolders.ensure(create_parent, actor_uuid,
           lookup: lookup,
           fallback_name: deterministic_name(project)
         )
