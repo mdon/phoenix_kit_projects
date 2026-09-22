@@ -66,6 +66,8 @@ defmodule PhoenixKitProjects.Attachments do
     URLSigner
   }
 
+  alias PhoenixKit.Utils.Format
+
   alias PhoenixKitProjects.Schemas.Project
 
   @list_limit 200
@@ -274,14 +276,9 @@ defmodule PhoenixKitProjects.Attachments do
     end
   end
 
-  @doc "Heroicon name for a file's type (template helper)."
+  @doc "Heroicon name for a file's Storage type / mime (`Format.file_icon/1`)."
   @spec file_icon(map()) :: String.t()
-  def file_icon(%{file_type: "image"}), do: "hero-photo"
-  def file_icon(%{file_type: "video"}), do: "hero-film"
-  def file_icon(%{file_type: "audio"}), do: "hero-musical-note"
-  def file_icon(%{file_type: "archive"}), do: "hero-archive-box"
-  def file_icon(%{mime_type: "application/pdf"}), do: "hero-document-text"
-  def file_icon(_), do: "hero-document"
+  defdelegate file_icon(file), to: Format
 
   @doc "Public download URL, nil-safe."
   @spec download_url(File.t()) :: String.t() | nil
