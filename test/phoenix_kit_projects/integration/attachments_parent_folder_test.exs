@@ -18,6 +18,11 @@ defmodule PhoenixKitProjects.AttachmentsParentFolderTest do
     def name(_resource, _actor), do: nil
   end
 
+  defmodule ProjectNameHook do
+    @moduledoc false
+    def name(%Project{name: name}, _actor), do: {:ok, name}
+  end
+
   setup do
     on_exit(fn ->
       Application.delete_env(:phoenix_kit_projects, :attachments_parent_folder)
@@ -96,6 +101,18 @@ defmodule PhoenixKitProjects.AttachmentsParentFolderTest do
     folder = Repo.get!(Folder, folder_uuid)
     assert folder.name == "project-#{project.uuid}"
     assert folder.parent_uuid == nil
+  end
+
+  test "a name hook without a parent hook: the host-named root folder is found again" do
+    Application.put_env(:phoenix_kit_projects, :attachments_folder_name, {ProjectNameHook, :name})
+    project = project!()
+
+    assert {:ok, folder_uuid} = Attachments.ensure_folder(project, nil)
+    folder = Repo.get!(Folder, folder_uuid)
+    assert {folder.name, folder.parent_uuid} == {project.name, nil}
+
+    assert Attachments.folder_uuid(project, nil) == folder_uuid
+    assert Attachments.ensure_folder(project, nil) == {:ok, folder_uuid}
   end
 
   # ── legacy compatibility ──
