@@ -111,9 +111,13 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
 
       project ->
         socket
-        |> assign(Crumbs.under(:templates))
+        # Trail: Admin Panel / Projects / Templates / <name> / Edit — the
+        # template is a linked crumb, the leaf is the page. The drawer has
+        # no trail, so its heading still names the template.
+        |> assign(Crumbs.under_project(project, socket.assigns[:phoenix_kit_current_scope]))
         |> assign(
-          page_title:
+          page_title: gettext("Edit"),
+          heading:
             gettext("Edit %{name}",
               name: Project.localized_name(project, L10n.current_content_lang())
             ),

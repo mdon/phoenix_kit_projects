@@ -482,11 +482,14 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
 
       project ->
         socket
-        |> assign(Crumbs.above_project(project, socket.assigns[:phoenix_kit_current_scope]))
+        |> assign(Crumbs.under_project(project, socket.assigns[:phoenix_kit_current_scope]))
         |> assign(
-          # Trail: Admin Panel / Projects / <parents…> / Edit <name> — the
-          # leaf names its object (core's Users convention).
-          page_title:
+          # Trail: Admin Panel / Projects / <parents…> / <name> / Edit — the
+          # project is a linked crumb, the leaf is the page (core's
+          # admin-header-trail guide). The drawer has no trail, so its
+          # heading still names the project.
+          page_title: gettext("Edit"),
+          heading:
             gettext("Edit %{name}",
               name: Project.localized_name(project, L10n.current_content_lang())
             ),
