@@ -30,7 +30,9 @@ defmodule PhoenixKitProjects.Attachments do
       `ensure_folder/2`, which may create the parent chain. Both forms must
       name the same parent once it exists: reads only ever look under the
       bare form's answer, so a folder created under a different one is
-      invisible to the Files page.
+      invisible to the Files page. A hook with no clause for the tuple form
+      is read as answering nothing for it, and creation then uses the bare
+      form's parent.
     * `:attachments_folder_name` — `{mod, fun}` where `fun(resource,
       actor_uuid)` returns `{:ok, name}` or anything else to fall back to
       the deterministic `project-<uuid>` name.
@@ -190,7 +192,14 @@ defmodule PhoenixKitProjects.Attachments do
         # Creation may build the parent chain: the host gets `{:ensure, project}`.
         # Its folder is looked for under that parent too, so a host answering
         # the two forms differently gets no second folder on the next upload.
-        create_parent = parent_folder_uuid({:ensure, project}, actor_uuid)
+        # A hook that answers only the bare form (a clause on `%Project{}`
+        # raises on the tuple, which core reads as no answer) still places
+        # the folder under the parent it names for reads, where the Files
+        # page looks for it — not at the root, where reads would miss a
+        # host-named folder.
+        create_parent =
+          parent_folder_uuid({:ensure, project}, actor_uuid) ||
+            parent_folder_uuid(project, actor_uuid)
 
         lookup = fn ->
           find_resource_folder(project, actor_uuid) ||

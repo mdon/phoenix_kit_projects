@@ -26,6 +26,14 @@ defmodule PhoenixKitProjects.AttachmentsParentFolderTest do
     def name(%Project{}, _actor), do: {:ok, "Human"}
   end
 
+  # A hook with a clause for the bare project only: the tuple form raises,
+  # which core reads as no answer.
+  defmodule StrictParentHook do
+    @moduledoc false
+    def parent(:project, _actor, %Project{}), do: {:ok, Process.get(:read_parent)}
+    def name(%Project{}, _actor), do: {:ok, "Human"}
+  end
+
   defmodule ProjectNameHook do
     @moduledoc false
     def name(%Project{name: name}, _actor), do: {:ok, name}
@@ -143,6 +151,30 @@ defmodule PhoenixKitProjects.AttachmentsParentFolderTest do
              from(f in Folder, where: f.parent_uuid == ^Process.get(:create_parent)),
              :count
            ) == 1
+  end
+
+  test "a hook that answers only the bare form still places the folder where reads look" do
+    read_parent = container!("Read parent")
+    Process.put(:read_parent, read_parent.uuid)
+
+    Application.put_env(
+      :phoenix_kit_projects,
+      :attachments_parent_folder,
+      {StrictParentHook, :parent}
+    )
+
+    Application.put_env(
+      :phoenix_kit_projects,
+      :attachments_folder_name,
+      {StrictParentHook, :name}
+    )
+
+    project = project!()
+
+    assert {:ok, uuid} = Attachments.ensure_folder(project, nil)
+    assert Repo.get!(Folder, uuid).parent_uuid == read_parent.uuid
+    assert Attachments.folder_uuid(project, nil) == uuid
+    assert Attachments.ensure_folder(project, nil) == {:ok, uuid}
   end
 
   # ── legacy compatibility ──
