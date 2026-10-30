@@ -17,6 +17,12 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
   import PhoenixKitWeb.Components.MultilangForm
   import PhoenixKitProjects.Web.Components.TimeInput, only: [datetime_input: 1]
 
+  import PhoenixKitProjects.Web.Components.AssigneePicker,
+    only: [assignee_picker: 1, assignee_picker_outside: 1]
+
+  import PhoenixKitProjects.Web.Components.FormParts,
+    only: [form_header: 1, form_tabs: 1, form_pane: 1, words_block: 1]
+
   alias PhoenixKit.Mentions
   alias PhoenixKit.Utils.Values
   alias PhoenixKitAI.Components.AITranslate.FormGlue
@@ -26,7 +32,9 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
   alias PhoenixKitProjects.Schemas.Project
   alias PhoenixKitProjects.Web.Components.AccessPanel
   alias PhoenixKitProjects.Web.Components.ConfirmAction
-  alias PhoenixKitProjects.Web.Components.TimeInput
+  alias PhoenixKitProjects.Web.Components.{AssigneePicker, FormParts, TimeInput}
+
+  @picker_events AssigneePicker.events()
   alias PhoenixKitProjects.Web.Crumbs
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
   alias PhoenixKitProjects.Web.OutlineList
@@ -75,6 +83,8 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
       |> assign_fx_and_presets()
       |> assign_creation_state()
       |> assign_assignee_state()
+      |> assign(form_pane: "project")
+      |> assign_assignee_picker()
       |> assign_status_preview()
       |> assign_status_mode()
       |> assign_ai_translate()
@@ -550,8 +560,115 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
     |> WebHelpers.close_or_navigate(Paths.projects())
   end
 
-  defp assign_form(socket, cs),
-    do: assign(socket, form: to_form(cs), key_field: key_field(socket, cs))
+  defp assign_form(socket, cs) do
+    socket
+    |> assign(form: to_form(cs), key_field: key_field(socket, cs))
+    |> then(fn s ->
+      if s.assigns[:assignee_project_uuid] != nil or Map.has_key?(s.assigns, :assignee_chip),
+        do: refresh_assignee_chip(s),
+        else: s
+    end)
+  end
+
+  # ── The assignee picker (`Web.Components.AssigneePicker`) ──────────
+
+  @assignee_names %{
+    person: "assigned_person_uuid",
+    team: "assigned_team_uuid",
+    department: "assigned_department_uuid"
+  }
+
+  defp assign_assignee_picker(socket) do
+    project = socket.assigns[:project]
+
+    socket
+    |> AssigneePicker.init(project, can_assign?: picker_allowed?(socket), source: "project_form")
+    |> refresh_assignee_chip()
+  end
+
+  defp refresh_assignee_chip(%{assigns: %{form: %Phoenix.HTML.Form{} = f}} = socket),
+    do:
+      AssigneePicker.refresh_chip(
+        socket,
+        AssigneePicker.key_of(&f[String.to_existing_atom(Map.fetch!(@assignee_names, &1))].value)
+      )
+
+  defp refresh_assignee_chip(socket), do: socket
+
+  @doc false
+  # `AssigneePicker` callback: whoever may save this form may say whose the
+  # project is, while the project's assignees are on.
+  def picker_allowed?(socket) do
+    write_allowed?(socket) and
+      case socket.assigns[:project] do
+        %Project{uuid: uuid} when is_binary(uuid) ->
+          Features.on?(Projects.get_project(uuid) || %Project{}, "assignees")
+
+        _ ->
+          true
+      end
+  rescue
+    _ -> false
+  end
+
+  @doc false
+  # `AssigneePicker` callback: the choice into the form, as if posted.
+  def picker_choose(socket, kind, uuid) do
+    attrs =
+      (socket.assigns.form.params || %{})
+      |> Map.merge(AssigneePicker.field_attrs(@assignee_names, kind, uuid))
+      |> merge_attrs(socket)
+
+    cs =
+      Projects.change_project(socket.assigns.project, attrs,
+        enforce_scheduled_date_required: false
+      )
+
+    socket
+    |> assign(assign_type: kind || "")
+    |> assign_form(cs)
+    |> WebHelpers.mark_dirty()
+  end
+
+  # The form's tabs, the open one and the ones holding an error.
+  @panes ~w(project schedule settings)
+
+  defp prepare_render(assigns) do
+    panes = [
+      {"project", gettext("Project")},
+      {"schedule", gettext("Schedule")},
+      {"settings", gettext("Settings")}
+    ]
+
+    assign(assigns,
+      panes: panes,
+      pane: FormParts.open_pane(panes, assigns[:form_pane]),
+      pane_errors:
+        FormParts.error_panes([assigns.form.source], %{
+          name: "project",
+          description: "project",
+          key: "project",
+          external_url: "project",
+          external_label: "project",
+          start_mode: "schedule",
+          scheduled_start_date: "schedule",
+          status_entity_uuid: "settings"
+        })
+    )
+  end
+
+  # The project's name as typed, in the language whose tab is open.
+  defp project_title(assigns) do
+    typed =
+      assigns.form.source
+      |> Ecto.Changeset.apply_changes()
+      |> Project.localized_name(assigns[:current_lang])
+
+    case typed && String.trim(typed) do
+      name when is_binary(name) and name != "" -> name
+      _ -> gettext("New project")
+    end
+  end
 
   # What the Key input says under itself (`PhoenixKitProjects.Refs`): for a
   # new project the key its name suggests — what it gets if the field is
@@ -587,8 +704,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
       assign_type: assignee_type(socket.assigns.project),
       participant_people: load_participant_people(),
       team_options: load_teams(),
-      department_options: load_departments(),
-      person_options: load_people()
+      department_options: load_departments()
     )
   end
 
@@ -635,15 +751,6 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
   rescue
     e in [Postgrex.Error, DBConnection.ConnectionError, Ecto.QueryError] ->
       Logger.warning("[Projects] load_participant_people failed: #{Exception.message(e)}")
-      []
-  end
-
-  defp load_people do
-    PhoenixKitProjects.People.list_people()
-    |> Enum.map(&{(&1.user && &1.user.email) || "—", &1.uuid})
-  rescue
-    e in [Postgrex.Error, DBConnection.ConnectionError, Ecto.QueryError] ->
-      Logger.warning("[Projects] load_people failed: #{Exception.message(e)}")
       []
   end
 
@@ -769,6 +876,16 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
   def handle_event("switch_language", %{"lang" => lang_code}, socket) do
     {:noreply, handle_switch_language(socket, lang_code)}
   end
+
+  # The form's tabs (`FormParts.form_tabs/1`): only which one shows.
+  def handle_event("set_form_pane", %{"pane" => pane}, socket) when pane in @panes,
+    do: {:noreply, assign(socket, :form_pane, pane)}
+
+  def handle_event("set_form_pane", _params, socket), do: {:noreply, socket}
+
+  # The assignee picker (`Web.Components.AssigneePicker`).
+  def handle_event(event, params, socket) when event in @picker_events,
+    do: AssigneePicker.handle_event(event, params, socket, __MODULE__)
 
   # A cued section reports itself when the reader opens it. From then on
   # its baseline is what they just saw.
@@ -2264,21 +2381,15 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
 
   defp translatable_card(assigns) do
     ~H"""
-    <div class="card bg-base-100 shadow">
-          <%!-- Bundled tabs + AI row (phoenix_kit_ai's canonical placement;
-            the border-b separator converges away — see the PR note). --%>
-          <.ai_multilang_tabs
+    <div class="flex flex-col gap-3">
+          <%!-- The task popup's language block (`FormParts.words_block/1`):
+               the tabs with AI translate, over the two translatable fields. --%>
+          <.words_block
+            id="project-words"
             multilang_enabled={@multilang_enabled}
             language_tabs={@language_tabs}
             current_lang={@current_lang}
             ai_translate={@ai_translate}
-          />
-
-          <.multilang_fields_wrapper
-            multilang_enabled={@multilang_enabled}
-            current_lang={@current_lang}
-            skeleton_class="card-body pt-4 space-y-4"
-            fields_class="card-body pt-4 space-y-4"
           >
 
             <.translatable_field
@@ -2315,12 +2426,12 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
               mentions
               data-mention-context={mention_context(assigns[:project])}
             />
-          </.multilang_fields_wrapper>
+          </.words_block>
 
           <%!-- The project's short name (`ACME`): its tasks are ACME-1,
                ACME-2, … in links, search and on the API. Not translated,
                so it sits under the language tabs' fields. --%>
-          <div :if={@key_field} class="card-body pt-0">
+          <div :if={@key_field}>
             <.input
               field={@form[:key]}
               type="text"
@@ -2353,29 +2464,45 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
 
   @impl true
   def render(assigns) do
+    assigns = prepare_render(assigns)
+
     ~H"""
     <div class={@wrapper_class}>
-      <.page_header title={@heading} embed_mode={@embed_mode}>
-        <:back_link>
-          <.link :if={@embed_mode == :navigate} navigate={Paths.projects()} class="link link-hover text-sm">
-            <.icon name="hero-arrow-left" class="w-4 h-4 inline" /> {gettext("Projects")}
+      <%!-- The task popup's header: the way back, and the name as typed. --%>
+      <.form_header
+        id="project-form-header"
+        title={project_title(assigns)}
+        mode={if @live_action == :edit, do: gettext("Editing"), else: gettext("New project")}
+        close_event={@embed_mode not in [:navigate, :emit] && "cancel"}
+        close_confirm={@dirty? && gettext("Discard your changes?")}
+      >
+        <:context>
+          <.link
+            :if={@embed_mode == :navigate}
+            navigate={Paths.projects()}
+            class="link link-hover text-base-content/70 inline-flex items-center gap-1"
+          >
+            <.icon name="hero-arrow-left" class="w-4 h-4 shrink-0" /> {gettext("Projects")}
           </.link>
           <button
             :if={@embed_mode != :navigate}
             type="button"
             phx-click="cancel"
             data-confirm={@dirty? && gettext("Discard your changes?")}
-            class="link link-hover text-sm"
+            class="link link-hover text-base-content/70 inline-flex items-center gap-1"
           >
-            <.icon name="hero-arrow-left" class="w-4 h-4 inline" /> {gettext("Projects")}
+            <.icon name="hero-arrow-left" class="w-4 h-4 shrink-0" /> {gettext("Projects")}
           </button>
-        </:back_link>
-      </.page_header>
+        </:context>
+      </.form_header>
 
       <.form for={@form} id="project-form" phx-change="validate" phx-submit="save" phx-debounce="300" class="flex flex-col gap-4">
+        <.form_tabs id="project-form-tabs" prefix="project" panes={@panes} active={@pane} errors={@pane_errors} />
+
         <%!-- ══ :new — the 2026-08-06 redesign: basics, starting-point
              cards, capability customize, statuses, invites. ══ --%>
         <%= if @live_action == :new do %>
+          <.form_pane prefix="project" pane="project" active={@pane}>
           <%!-- The house pattern: the SAME multilang tabs card every other
                create form uses — all languages fillable from the start. --%>
           <.translatable_card
@@ -2452,7 +2579,8 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
                 </div>
                 <button
                   type="button"
-                  phx-click={Phoenix.LiveView.JS.set_attribute({"open", ""}, to: "#create-customize")}
+                  phx-click="set_form_pane"
+                  phx-value-pane="settings"
                   class="link link-hover shrink-0 opacity-60"
                 >
                   {gettext("Customize capabilities ↓")}
@@ -2508,6 +2636,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
             </:actions>
             <.people_block participants={@participants} />
           </.form_section>
+          </.form_pane>
 
           <%!-- The four sections below replace three grab-bags ("Customize
                capabilities" / "People" / "Setup options"). The 2026-08-07
@@ -2520,6 +2649,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
                entirely (and out of their own summaries). --%>
 
           <%!-- 1. What it starts from — template, timing, statuses. --%>
+          <.form_pane prefix="project" pane="schedule" active={@pane}>
           <.accordion :if={setup_section_shown?(assigns)} id="create-start" cue={true} class={drawer_class()}>
             <:title>
               {gettext("Start from")}
@@ -2562,7 +2692,9 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
               </div>
             </:content>
           </.accordion>
+          </.form_pane>
 
+          <.form_pane prefix="project" pane="settings" active={@pane}>
           <%!-- 2. Who's on it and what they may do. Permissions live here
                rather than in their own drawer: "who is on this project" and
                "what can they do" is one question, and the roles picked
@@ -2774,6 +2906,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
               </div>
             </:content>
           </.accordion>
+          </.form_pane>
 
           <.form_actions
             class="gap-2"
@@ -2794,277 +2927,259 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
           </.form_actions>
         <% end %>
 
-        <%!-- Translatable card: name + description with language tabs.
-             Wrapper id keys on @current_lang so morphdom re-mounts the
-             inputs when the user switches languages — that's what swaps
-             primary-column inputs for `lang_*` JSONB inputs. --%>
+        <%!-- ══ :edit — the task popup's shape (the boss, 2026-10-30): the
+             header above, tabs Project · Schedule · Settings. Every pane
+             stays in the form, only hidden, so Save posts all of them. ══ --%>
         <%= if @live_action == :edit do %>
-          <.translatable_card
-          key_field={assigns[:key_field]}
-            form={@form}
-            multilang_enabled={@multilang_enabled}
-            language_tabs={@language_tabs}
-            current_lang={@current_lang}
-            primary_language={@primary_language}
-            ai_in_flight={@ai_in_flight}
-            ai_translate={FormGlue.ai_translate_config(assigns)}
-          />
-        <% end %>
-
-        <%!-- Non-translatable settings stay outside the wrapper so they
-             don't lose state when the user switches languages. --%>
-        <%!-- Holds the feature-gated settings AND the form's action row, so
-             it stays even when every control inside is switched off — the
-             card is how you save a rename. --%>
-        <div :if={@live_action == :edit} class="card bg-base-100 shadow">
-          <div class="card-body flex flex-col gap-3">
-            <%!-- Schedule math config — gated on `scheduling` (start mode /
-                 date below stay: they're lifecycle, not schedule math). --%>
-            <.checkbox
-              :if={@fx.scheduling}
-              field={@form[:counts_weekends]}
-              label={gettext("Count weekends in schedule")}
-              class="checkbox-primary checkbox-sm"
+          <.form_pane prefix="project" pane="project" active={@pane}>
+            <.translatable_card
+              key_field={assigns[:key_field]}
+              form={@form}
+              multilang_enabled={@multilang_enabled}
+              language_tabs={@language_tabs}
+              current_lang={@current_lang}
+              primary_language={@primary_language}
+              ai_in_flight={@ai_in_flight}
+              ai_translate={FormGlue.ai_translate_config(assigns)}
             />
-            <.start_block form={@form} lifecycle={@flag_states["lifecycle"] != false} />
 
-            <%!-- How the project ends (Max, 2026-10-05: "some projects have a
-                 defined end while this one is more of an ongoing one… it
-                 should be a setting"). Ongoing work never completes on its
-                 own; every task done is "all caught up". --%>
-            <.select
-              :if={@can_manage_modules}
-              name="completion"
-              label={gettext("Ends")}
-              value={Project.completion(@project)}
-              options={[
-                {gettext("When the last task is done"), "auto"},
-                {gettext("Only when someone ends it — ongoing work"), "manual"}
+            <%!-- Whose it is (V128): the task popup's picker. --%>
+            <.assignee_picker
+              :if={@fx.assignees}
+              id="project-assignee"
+              label={gettext("Assignee")}
+              search_form="project-assignee-form"
+              fields={[
+                {@form[:assigned_person_uuid].name, @form[:assigned_person_uuid].value},
+                {@form[:assigned_team_uuid].name, @form[:assigned_team_uuid].value},
+                {@form[:assigned_department_uuid].name, @form[:assigned_department_uuid].value}
               ]}
+              chip={@assignee_chip}
+              can_assign?={@can_assign?}
+              my_person_uuid={@my_person_uuid}
+              recent={@recent_assignees}
+              notice={@assignee_notice}
             />
 
-            <%!-- A link out (V26): where this project belongs elsewhere — the
-                 order a host app made it for, a client folder. It shows as
-                 a button in the project's header on every tab. A path on
-                 this site ("/admin/…") stays right when the database moves
-                 between servers; hence a text field, not type="url". --%>
-            <fieldset id="project-link-settings" class="flex flex-col gap-2 rounded-box border border-base-300 p-3">
-              <legend class="px-1 text-sm font-medium">{gettext("Link")}</legend>
-              <.input
-                field={@form[:external_url]}
-                type="text"
-                inputmode="url"
-                label={gettext("Address")}
-                placeholder="https://…"
-              />
-              <.input
-                field={@form[:external_label]}
-                type="text"
-                label={gettext("Button text")}
-                placeholder={gettext("Open link")}
-              />
-              <p class="text-xs opacity-60">
-                {gettext("A web address opens in a new tab; a path on this site (/…) opens in the same one.")}
-              </p>
-            </fieldset>
+              <%!-- A link out (V26): where this project belongs elsewhere — the
+                   order a host app made it for, a client folder. It shows as
+                   a button in the project's header on every tab. A path on
+                   this site ("/admin/…") stays right when the database moves
+                   between servers; hence a text field, not type="url". --%>
+              <fieldset id="project-link-settings" class="flex flex-col gap-2 rounded-box border border-base-300 p-3">
+                <legend class="px-1 text-sm font-medium">{gettext("Link")}</legend>
+                <.input
+                  field={@form[:external_url]}
+                  type="text"
+                  inputmode="url"
+                  label={gettext("Address")}
+                  placeholder="https://…"
+                />
+                <.input
+                  field={@form[:external_label]}
+                  type="text"
+                  label={gettext("Button text")}
+                  placeholder={gettext("Open link")}
+                />
+                <p class="text-xs opacity-60">
+                  {gettext("A web address opens in a new tab; a path on this site (/…) opens in the same one.")}
+                </p>
+              </fieldset>
 
-            <%!-- How the task list looks (`Web.OutlineList`): typed like a
-                 text, or rows that carry what the features add — and which
-                 of those stay in the task's form (Max, 2026-10-14: "the more
-                 settings, the better… the main important stuff clearly
-                 visible", the rest folded away). --%>
-            <% outline = Map.get(@project.settings || %{}, "outline") || %{} %>
-            <fieldset :if={@can_manage_modules and not @project.is_template} id="project-outline-settings" class="flex flex-col gap-2 rounded-box border border-base-300 p-3">
-              <legend class="px-1 text-sm font-medium">{gettext("The task list")}</legend>
+          </.form_pane>
+
+          <.form_pane prefix="project" pane="schedule" active={@pane}>
+              <.start_block form={@form} lifecycle={@flag_states["lifecycle"] != false} />
+
+              <%!-- How the project ends (Max, 2026-10-05: "some projects have a
+                   defined end while this one is more of an ongoing one… it
+                   should be a setting"). Ongoing work never completes on its
+                   own; every task done is "all caught up". --%>
               <.select
-                name="outline[style]"
-                label={gettext("How it looks")}
-                value={outline["style"] || "auto"}
+                :if={@can_manage_modules}
+                name="completion"
+                label={gettext("Ends")}
+                value={Project.completion(@project)}
                 options={[
-                  {gettext("Automatic — a text list until a feature needs more room"), "auto"},
-                  {gettext("Always a text list — type, paste, Enter for the next"), "text"},
-                  {gettext("Always task cards"), "cards"}
+                  {gettext("When the last task is done"), "auto"},
+                  {gettext("Only when someone ends it — ongoing work"), "manual"}
                 ]}
               />
-              <label class="flex items-center gap-2 cursor-pointer text-sm">
-                <input type="hidden" name="outline[complete_parent]" value="false" />
-                <input
-                  type="checkbox"
-                  name="outline[complete_parent]"
-                  value="true"
-                  checked={outline["complete_parent"] != false}
-                  class="checkbox checkbox-primary checkbox-sm"
+
+              <%!-- Schedule math config — gated on `scheduling` (start mode /
+                   date below stay: they're lifecycle, not schedule math). --%>
+              <.checkbox
+                :if={@fx.scheduling}
+                field={@form[:counts_weekends]}
+                label={gettext("Count weekends in schedule")}
+                class="checkbox-primary checkbox-sm"
+              />
+              <%!-- Ongoing work has no end to reach, so nothing on its page
+                   ends it; the one way is here, beside the setting that makes
+                   it ongoing (Max, 2026-10-13: "we could just hide the way to
+                   end it in the settings"). --%>
+              <div
+                :if={@live_action == :edit and @can_manage_modules and Project.ongoing?(@project) and not @project.is_template}
+                id="project-end"
+                class="flex flex-wrap items-center gap-2 text-sm"
+              >
+                <%= if @project.completed_at do %>
+                  <span class="opacity-70">
+                    {gettext("Ended %{when}", when: L10n.format_date(@project.completed_at))}
+                  </span>
+                  <button type="button" phx-click="resume_project" class="btn btn-ghost btn-xs">
+                    {gettext("Reopen it")}
+                  </button>
+                <% else %>
+                  <span class="opacity-60">{gettext("Finished with it for good?")}</span>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs text-error"
+                    {ConfirmAction.ask("end_project",
+                      title: gettext("End this project"),
+                      message: gettext("The project is marked completed and leaves the active lists. Its tasks stay as they are, and it can be reopened here."),
+                      confirm: gettext("End project")
+                    )}
+                  >
+                    {gettext("End this project")}
+                  </button>
+                <% end %>
+              </div>
+
+          </.form_pane>
+
+          <.form_pane prefix="project" pane="settings" active={@pane}>
+              <%!-- How the task list looks (`Web.OutlineList`): typed like a
+                   text, or rows that carry what the features add — and which
+                   of those stay in the task's form (Max, 2026-10-14: "the more
+                   settings, the better… the main important stuff clearly
+                   visible", the rest folded away). --%>
+              <% outline = Map.get(@project.settings || %{}, "outline") || %{} %>
+              <fieldset :if={@can_manage_modules and not @project.is_template} id="project-outline-settings" class="flex flex-col gap-2 rounded-box border border-base-300 p-3">
+                <legend class="px-1 text-sm font-medium">{gettext("The task list")}</legend>
+                <.select
+                  name="outline[style]"
+                  label={gettext("How it looks")}
+                  value={outline["style"] || "auto"}
+                  options={[
+                    {gettext("Automatic — a text list until a feature needs more room"), "auto"},
+                    {gettext("Always a text list — type, paste, Enter for the next"), "text"},
+                    {gettext("Always task cards"), "cards"}
+                  ]}
                 />
-                {gettext("Tick a task when its last subtask is ticked")}
-              </label>
-              <%!-- The text list's extras (Max, 2026-10-14: "an X to delete
-                   the task, or maybe even like drag handles… maybe that
-                   should be all in the settings"). --%>
-              <% lines = outline["lines"] || %{} %>
-              <label class="flex items-center gap-2 cursor-pointer text-sm">
-                <input type="hidden" name="outline[lines][delete]" value="false" />
-                <input
-                  type="checkbox"
-                  name="outline[lines][delete]"
-                  value="true"
-                  checked={lines["delete"] != false}
-                  class="checkbox checkbox-primary checkbox-sm"
-                />
-                {gettext("In the text list, an × at the end of each line deletes it")}
-              </label>
-              <label class="flex items-center gap-2 cursor-pointer text-sm">
-                <input type="hidden" name="outline[lines][handles]" value="false" />
-                <input
-                  type="checkbox"
-                  name="outline[lines][handles]"
-                  value="true"
-                  checked={lines["handles"] == true}
-                  class="checkbox checkbox-primary checkbox-sm"
-                />
-                {gettext("In the text list, drag handles before each line")}
-              </label>
-              <details class="text-sm">
-                <summary class="cursor-pointer opacity-70">{gettext("What the task cards show")}</summary>
-                <p class="text-xs opacity-60 mt-1 mb-2">
-                  {gettext("Unticked, a feature stays in the task's form and off the card.")}
-                </p>
-                <% row = outline["row"] || %{} %>
-                <label :for={{key, label} <- outline_row_features()} class="flex items-center gap-2 cursor-pointer py-0.5">
-                  <input type="hidden" name={"outline[row][#{key}]"} value="false" />
+                <label class="flex items-center gap-2 cursor-pointer text-sm">
+                  <input type="hidden" name="outline[complete_parent]" value="false" />
                   <input
                     type="checkbox"
-                    name={"outline[row][#{key}]"}
+                    name="outline[complete_parent]"
                     value="true"
-                    checked={row[key] != false}
-                    class="checkbox checkbox-sm"
+                    checked={outline["complete_parent"] != false}
+                    class="checkbox checkbox-primary checkbox-sm"
                   />
-                  {label}
+                  {gettext("Tick a task when its last subtask is ticked")}
                 </label>
-              </details>
-            </fieldset>
+                <%!-- The text list's extras (Max, 2026-10-14: "an X to delete
+                     the task, or maybe even like drag handles… maybe that
+                     should be all in the settings"). --%>
+                <% lines = outline["lines"] || %{} %>
+                <label class="flex items-center gap-2 cursor-pointer text-sm">
+                  <input type="hidden" name="outline[lines][delete]" value="false" />
+                  <input
+                    type="checkbox"
+                    name="outline[lines][delete]"
+                    value="true"
+                    checked={lines["delete"] != false}
+                    class="checkbox checkbox-primary checkbox-sm"
+                  />
+                  {gettext("In the text list, an × at the end of each line deletes it")}
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer text-sm">
+                  <input type="hidden" name="outline[lines][handles]" value="false" />
+                  <input
+                    type="checkbox"
+                    name="outline[lines][handles]"
+                    value="true"
+                    checked={lines["handles"] == true}
+                    class="checkbox checkbox-primary checkbox-sm"
+                  />
+                  {gettext("In the text list, drag handles before each line")}
+                </label>
+                <details class="text-sm">
+                  <summary class="cursor-pointer opacity-70">{gettext("What the task cards show")}</summary>
+                  <p class="text-xs opacity-60 mt-1 mb-2">
+                    {gettext("Unticked, a feature stays in the task's form and off the card.")}
+                  </p>
+                  <% row = outline["row"] || %{} %>
+                  <label :for={{key, label} <- outline_row_features()} class="flex items-center gap-2 cursor-pointer py-0.5">
+                    <input type="hidden" name={"outline[row][#{key}]"} value="false" />
+                    <input
+                      type="checkbox"
+                      name={"outline[row][#{key}]"}
+                      value="true"
+                      checked={row[key] != false}
+                      class="checkbox checkbox-sm"
+                    />
+                    {label}
+                  </label>
+                </details>
+              </fieldset>
 
-            <%!-- Ongoing work has no end to reach, so nothing on its page
-                 ends it; the one way is here, beside the setting that makes
-                 it ongoing (Max, 2026-10-13: "we could just hide the way to
-                 end it in the settings"). --%>
-            <div
-              :if={@live_action == :edit and @can_manage_modules and Project.ongoing?(@project) and not @project.is_template}
-              id="project-end"
-              class="flex flex-wrap items-center gap-2 text-sm"
-            >
-              <%= if @project.completed_at do %>
-                <span class="opacity-70">
-                  {gettext("Ended %{when}", when: L10n.format_date(@project.completed_at))}
-                </span>
-                <button type="button" phx-click="resume_project" class="btn btn-ghost btn-xs">
-                  {gettext("Reopen it")}
-                </button>
-              <% else %>
-                <span class="opacity-60">{gettext("Finished with it for good?")}</span>
-                <button
-                  type="button"
-                  class="btn btn-ghost btn-xs text-error"
-                  {ConfirmAction.ask("end_project",
-                    title: gettext("End this project"),
-                    message: gettext("The project is marked completed and leaves the active lists. Its tasks stay as they are, and it can be reopened here."),
-                    confirm: gettext("End project")
-                  )}
-                >
-                  {gettext("End this project")}
-                </button>
-              <% end %>
-            </div>
-
-            <%!-- What an AI agent on the API may do here. Every row is a
-                 project setting (`Project.agent_policy/1`), so the same
-                 module serves a locked-down client project and an open
-                 sandbox. --%>
-            <% policy = Project.agent_policy(@project) %>
-            <fieldset :if={@can_manage_modules} class="flex flex-col gap-2 rounded-box border border-base-300 p-3">
-              <legend class="px-1 text-sm font-medium">{gettext("What an AI agent may do here")}</legend>
-              <label :for={{key, label} <- agent_policy_switches()} class="flex items-center gap-2 cursor-pointer text-sm">
-                <input type="hidden" name={"agents[#{key}]"} value="false" />
-                <input
-                  type="checkbox"
-                  name={"agents[#{key}]"}
-                  value="true"
-                  checked={policy[key] == true}
-                  class="checkbox checkbox-primary checkbox-sm"
-                />
-                <span>{label}</span>
-              </label>
-              <div class="w-72">
-                <.select
-                  name="agents[delete_tasks]"
-                  label={gettext("Delete tasks")}
-                  value={policy["delete_tasks"]}
-                  class="select-sm"
-                  options={[
-                    {gettext("Never"), "none"},
-                    {gettext("Only the ones it created"), "own"},
-                    {gettext("Any task"), "any"}
-                  ]}
-                />
-              </div>
-              <p class="text-xs opacity-60">
-                {gettext("An agent always acts with the role of the person its key acts for; these rows narrow what it may do on top of that.")}
-              </p>
-            </fieldset>
-
-            <%!-- Assignee (V128) — same polymorphic team/department/person
-                 picker tasks use. Non-translatable, so it lives outside the
-                 multilang wrapper. `assign_type` chooses which staff select
-                 shows; `clear_other_assignees/2` nulls the rest on change.
-                 Feature-gated (Step 4): hidden when `assignees` is off. --%>
-            <%= if @fx.assignees do %>
-              <%!-- Instant reveal via CSS (group-has) — same pattern as the
-                   :new People block; the server still nulls non-matching
-                   uuids at save. --%>
-              <div class="group/assign flex flex-col gap-2">
-                <.select
-                  name="assign_type"
-                  label={gettext("Assign to")}
-                  value={@assign_type}
-                  options={[
-                    {gettext("Nobody"), ""},
-                    {gettext("Department"), "department"},
-                    {gettext("Team"), "team"},
-                    {gettext("Person"), "person"}
-                  ]}
-                />
-                <div class="hidden group-has-[option[value=department]:checked]/assign:block">
-                  <.select field={@form[:assigned_department_uuid]} label={gettext("Department")} options={@department_options} prompt={gettext("Select department")} />
+              <%!-- What an AI agent on the API may do here. Every row is a
+                   project setting (`Project.agent_policy/1`), so the same
+                   module serves a locked-down client project and an open
+                   sandbox. --%>
+              <% policy = Project.agent_policy(@project) %>
+              <fieldset :if={@can_manage_modules} class="flex flex-col gap-2 rounded-box border border-base-300 p-3">
+                <legend class="px-1 text-sm font-medium">{gettext("What an AI agent may do here")}</legend>
+                <label :for={{key, label} <- agent_policy_switches()} class="flex items-center gap-2 cursor-pointer text-sm">
+                  <input type="hidden" name={"agents[#{key}]"} value="false" />
+                  <input
+                    type="checkbox"
+                    name={"agents[#{key}]"}
+                    value="true"
+                    checked={policy[key] == true}
+                    class="checkbox checkbox-primary checkbox-sm"
+                  />
+                  <span>{label}</span>
+                </label>
+                <div class="w-72">
+                  <.select
+                    name="agents[delete_tasks]"
+                    label={gettext("Delete tasks")}
+                    value={policy["delete_tasks"]}
+                    class="select-sm"
+                    options={[
+                      {gettext("Never"), "none"},
+                      {gettext("Only the ones it created"), "own"},
+                      {gettext("Any task"), "any"}
+                    ]}
+                  />
                 </div>
-                <div class="hidden group-has-[option[value=team]:checked]/assign:block">
-                  <.select field={@form[:assigned_team_uuid]} label={gettext("Team")} options={@team_options} prompt={gettext("Select team")} />
-                </div>
-                <div class="hidden group-has-[option[value=person]:checked]/assign:block">
-                  <.select field={@form[:assigned_person_uuid]} label={gettext("Person")} options={@person_options} prompt={gettext("Select person")} />
-                </div>
-              </div>
-            <% end %>
+                <p class="text-xs opacity-60">
+                  {gettext("An agent always acts with the role of the person its key acts for; these rows narrow what it may do on top of that.")}
+                </p>
+              </fieldset>
 
-            <%!-- Workflow-status list selection (entities-backed), via the
-                 shared `<.workflow_status_fields>` so projects, templates and
-                 sub-projects render an identical section. The source is a
-                 pre-start choice — `locked` once the project has started,
-                 since its statuses were cemented at `started_at`. --%>
-            <%!-- Feature-gated (Step 4): with `statuses` off for this project
-                 the whole workflow-status section disappears; the save path
-                 strips the field so a crafted submit can't set a source. --%>
-            <.workflow_status_fields
-              class="border-t border-base-300 mt-6 pt-6"
-              :if={@fx.statuses}
-              statuses_available={@statuses_available}
-              field={@form[:status_entity_uuid]}
-              status_entities={@status_entities}
-              status_preview={@status_preview}
-              status_translation_mode={@status_translation_mode}
-              locked={Statuses.started?(@project)}
-            />
+              <%!-- Workflow-status list selection (entities-backed), via the
+                   shared `<.workflow_status_fields>` so projects, templates and
+                   sub-projects render an identical section. The source is a
+                   pre-start choice — `locked` once the project has started,
+                   since its statuses were cemented at `started_at`. --%>
+              <%!-- Feature-gated (Step 4): with `statuses` off for this project
+                   the whole workflow-status section disappears; the save path
+                   strips the field so a crafted submit can't set a source. --%>
+              <.workflow_status_fields
+                :if={@fx.statuses}
+                statuses_available={@statuses_available}
+                field={@form[:status_entity_uuid]}
+                status_entities={@status_entities}
+                status_preview={@status_preview}
+                status_translation_mode={@status_translation_mode}
+                locked={Statuses.started?(@project)}
+              />
 
-          </div>
-        </div>
+          </.form_pane>
+        <% end %>
 
         <%!-- Cancel + Save belong to the FIELDS above: the modules panel
              below writes immediately and has nothing to save, and a Save
@@ -3107,7 +3222,13 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
            would be bounced out of editing it. Identity has to be threaded
            explicitly: an embed mounts off-router, so the hooks that build
            a scope never run and the LV rebuilds it from this uuid. --%>
-      <div :if={@live_action == :edit and @can_manage_modules} class="card bg-base-100 shadow">
+      <%!-- Shown with the Settings tab: it is the project's modules and
+           permissions, though it cannot sit inside the form. --%>
+      <div
+        :if={@live_action == :edit and @can_manage_modules}
+        id="project-modules-card"
+        class={["card bg-base-100 shadow", @pane != "settings" && "hidden"]}
+      >
         <div class="card-body">
           {live_render(@socket, PhoenixKitProjects.Web.ProjectModulesLive,
             id: "edit-modules-#{@project.uuid}",
@@ -3127,6 +3248,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
            phx-submit never fires and its submit button posts the OUTER
            form, which here would CREATE the project. --%>
       <.add_participant_dialog open={@add_open} role={@add_role} staged={@add_staged} />
+      <.assignee_picker_outside search_form="project-assignee-form" staff_confirm={@staff_confirm} />
 
       <%!--
         AI translate modal lives OUTSIDE the project form on purpose

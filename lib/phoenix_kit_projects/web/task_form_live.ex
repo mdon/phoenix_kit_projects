@@ -12,12 +12,19 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
   import PhoenixKitWeb.Components.MultilangForm
   import PhoenixKitProjects.Web.Components.DurationInput, only: [duration_input: 1]
 
+  import PhoenixKitProjects.Web.Components.AssigneePicker,
+    only: [assignee_picker: 1, assignee_picker_outside: 1]
+
+  import PhoenixKitProjects.Web.Components.FormParts, only: [form_header: 1, words_block: 1]
+
   require Logger
 
   alias PhoenixKitAI.Components.AITranslate.FormGlue
   alias PhoenixKitProjects.{Activity, Authz, L10n, Paths, Projects}
   alias PhoenixKitProjects.Schemas.Task
-  alias PhoenixKitProjects.Web.Components.DurationInput
+  alias PhoenixKitProjects.Web.Components.{AssigneePicker, DurationInput}
+
+  @picker_events AssigneePicker.events()
   alias PhoenixKitProjects.Web.Crumbs
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
 
@@ -49,6 +56,7 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
       |> WebHelpers.assign_embed_user(session)
       |> WebHelpers.attach_open_embed_hook()
       |> apply_action_if_allowed(live_action, resolved_params)
+      |> assign_assignee_picker()
       |> assign_ai_translate()
       |> assign(dirty?: false)
       |> WebHelpers.keep_host_title()
@@ -83,7 +91,6 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
         task_deps: [],
         available_deps: []
       )
-      |> assign_staff_options()
       |> assign_form(Projects.change_task(%Task{}))
       |> put_flash(:error, no_permission())
       |> WebHelpers.close_or_navigate(Paths.tasks())
@@ -140,7 +147,6 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
       task_deps: [],
       available_deps: []
     )
-    |> assign_staff_options()
     |> assign_form(Projects.change_task(task))
   end
 
@@ -161,7 +167,6 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
           task_deps: [],
           available_deps: []
         )
-        |> assign_staff_options()
         |> assign_form(Projects.change_task(%Task{}))
         |> put_flash(:error, gettext("Task not found."))
         |> WebHelpers.close_or_navigate(Paths.tasks())
@@ -192,7 +197,6 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
           task_deps: Projects.list_task_dependencies(task.uuid),
           available_deps: Projects.available_task_dependencies(task.uuid)
         )
-        |> assign_staff_options()
         |> assign_form(Projects.change_task(task))
     end
   end
@@ -209,47 +213,72 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
       task_deps: [],
       available_deps: []
     )
-    |> assign_staff_options()
     |> assign_form(Projects.change_task(%Task{}))
     |> put_flash(:error, gettext("Task not found."))
     |> WebHelpers.close_or_navigate(Paths.tasks())
   end
 
-  defp assign_staff_options(socket) do
-    assign(socket,
-      team_options: load_teams(),
-      department_options: load_departments(),
-      person_options: load_people()
+  defp assign_form(socket, cs) do
+    socket
+    |> assign(form: to_form(cs))
+    |> then(
+      &if(Map.has_key?(&1.assigns, :assignee_chip), do: refresh_assignee_chip(&1), else: &1)
     )
   end
 
-  defp load_teams do
-    PhoenixKitProjects.People.list_teams()
-    |> Enum.map(&{"#{&1.name} (#{&1.department.name})", &1.uuid})
-  rescue
-    e in [Postgrex.Error, DBConnection.ConnectionError, Ecto.QueryError] ->
-      Logger.warning("[Projects] load_teams failed: #{Exception.message(e)}")
-      []
+  # ── The default assignee: the task popup's picker ──────────────────
+
+  @assignee_names %{
+    person: "default_assigned_person_uuid",
+    team: "default_assigned_team_uuid",
+    department: "default_assigned_department_uuid"
+  }
+
+  defp assign_assignee_picker(socket) do
+    socket
+    |> AssigneePicker.init(nil, can_assign?: picker_allowed?(socket), source: "task_library")
+    |> refresh_assignee_chip()
   end
 
-  defp load_departments do
-    PhoenixKitProjects.People.list_departments() |> Enum.map(&{&1.name, &1.uuid})
-  rescue
-    e in [Postgrex.Error, DBConnection.ConnectionError, Ecto.QueryError] ->
-      Logger.warning("[Projects] load_departments failed: #{Exception.message(e)}")
-      []
+  defp refresh_assignee_chip(%{assigns: %{form: %Phoenix.HTML.Form{} = f}} = socket),
+    do:
+      AssigneePicker.refresh_chip(
+        socket,
+        AssigneePicker.key_of(&f[String.to_existing_atom(Map.fetch!(@assignee_names, &1))].value)
+      )
+
+  defp refresh_assignee_chip(socket), do: socket
+
+  @doc false
+  # `AssigneePicker` callback: who may save the library task.
+  def picker_allowed?(socket), do: can_manage?(socket) and may_write?(socket)
+
+  @doc false
+  # `AssigneePicker` callback: the choice into the form, as if posted.
+  def picker_choose(socket, kind, uuid) do
+    attrs =
+      (socket.assigns.form.params || %{})
+      |> Map.merge(AssigneePicker.field_attrs(@assignee_names, kind, uuid))
+      |> merge_attrs(socket)
+
+    socket
+    |> assign(assign_type: kind || "")
+    |> assign_form(Projects.change_task(socket.assigns.task, attrs))
+    |> WebHelpers.mark_dirty()
   end
 
-  defp load_people do
-    PhoenixKitProjects.People.list_people()
-    |> Enum.map(&{(&1.user && &1.user.email) || "—", &1.uuid})
-  rescue
-    e in [Postgrex.Error, DBConnection.ConnectionError, Ecto.QueryError] ->
-      Logger.warning("[Projects] load_people failed: #{Exception.message(e)}")
-      []
-  end
+  # The task's title as typed, in the language whose tab is open.
+  defp typed_title(assigns) do
+    typed =
+      assigns.form.source
+      |> Ecto.Changeset.apply_changes()
+      |> Task.localized_title(assigns[:current_lang])
 
-  defp assign_form(socket, cs), do: assign(socket, form: to_form(cs))
+    case typed && String.trim(typed) do
+      title when is_binary(title) and title != "" -> title
+      _ -> gettext("New task")
+    end
+  end
 
   # AI-translate modal events (ai_toggle_modal/ai_select_*/ai_generate_prompt/
   # ai_translate_lang) are handled by `use PhoenixKitAI.Components.AITranslate.Embed`.
@@ -273,6 +302,10 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
   def handle_event("cancel", _params, socket) do
     {:noreply, WebHelpers.close_or_navigate(socket, Paths.tasks())}
   end
+
+  # The default-assignee picker (`Web.Components.AssigneePicker`).
+  def handle_event(event, params, socket) when event in @picker_events,
+    do: AssigneePicker.handle_event(event, params, socket, __MODULE__)
 
   # The library writes re-check the sub-key against the live scope.
   def handle_event(event, params, socket) when event in ~w(save add_dep remove_dep) do
@@ -493,41 +526,39 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
   def render(assigns) do
     ~H"""
     <div class={@wrapper_class}>
-      <.page_header title={@heading} embed_mode={@embed_mode}>
-        <:back_link>
-          <.link :if={@embed_mode == :navigate} navigate={Paths.tasks()} class="link link-hover text-sm">
-            <.icon name="hero-arrow-left" class="w-4 h-4 inline" /> {gettext("Tasks")}
+      <.form_header
+        id="task-form-header"
+        title={typed_title(assigns)}
+        mode={if @live_action == :edit, do: gettext("Editing")}
+        close_event={@embed_mode not in [:navigate, :emit] && "cancel"}
+        close_confirm={@dirty? && gettext("Discard your changes?")}
+      >
+        <:context>
+          <.link :if={@embed_mode == :navigate} navigate={Paths.tasks()} class="link link-hover text-base-content/70 inline-flex items-center gap-1">
+            <.icon name="hero-arrow-left" class="w-4 h-4 shrink-0" /> {gettext("Tasks")}
           </.link>
           <button
             :if={@embed_mode != :navigate}
             type="button"
             phx-click="cancel"
             data-confirm={@dirty? && gettext("Discard your changes?")}
-            class="link link-hover text-sm"
+            class="link link-hover text-base-content/70 inline-flex items-center gap-1"
           >
-            <.icon name="hero-arrow-left" class="w-4 h-4 inline" /> {gettext("Tasks")}
+            <.icon name="hero-arrow-left" class="w-4 h-4 shrink-0" /> {gettext("Tasks")}
           </button>
-        </:back_link>
-      </.page_header>
+        </:context>
+      </.form_header>
 
       <.form for={@form} id="task-form" phx-change="validate" phx-submit="save" phx-debounce="300" class="flex flex-col gap-4">
-        <%!-- Translatable card: title + description with language tabs. --%>
-        <div class="card bg-base-100 shadow">
-          <%!-- Bundled tabs + AI row (phoenix_kit_ai's canonical placement;
-            the border-b separator converges away — see the PR note). --%>
-          <.ai_multilang_tabs
-            multilang_enabled={@multilang_enabled}
-            language_tabs={@language_tabs}
-            current_lang={@current_lang}
-            ai_translate={FormGlue.ai_translate_config(assigns)}
-          />
-
-          <.multilang_fields_wrapper
-            multilang_enabled={@multilang_enabled}
-            current_lang={@current_lang}
-            skeleton_class="card-body pt-4 space-y-4"
-            fields_class="card-body pt-4 space-y-4"
-          >
+        <%!-- The task popup's language block: title + description per
+             language, AI translate in the tab row. --%>
+        <.words_block
+          id="task-words"
+          multilang_enabled={@multilang_enabled}
+          language_tabs={@language_tabs}
+          current_lang={@current_lang}
+          ai_translate={FormGlue.ai_translate_config(assigns)}
+        >
 
             <.translatable_field
               field_name="title"
@@ -561,8 +592,7 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
               rows={4}
               disabled={@current_lang in @ai_in_flight}
             />
-          </.multilang_fields_wrapper>
-        </div>
+        </.words_block>
 
         <%!-- Non-translatable settings (duration, default assignee). --%>
         <div class="card bg-base-100 shadow">
@@ -586,24 +616,24 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
               class="checkbox-primary checkbox-sm"
             />
 
-            <div class="divider text-xs text-base-content/50 my-1">{gettext("Default assignment")}</div>
-
-            <.select
-              name="default_assign_type"
-              label={gettext("Default assign to")}
-              value={@assign_type}
-              options={[{gettext("Nobody"), ""}, {gettext("Department"), "department"}, {gettext("Team"), "team"}, {gettext("Person"), "person"}]}
+            <%!-- Whom the task goes to when it is added to a project: the
+                 task popup's picker. --%>
+            <.assignee_picker
+              id="task-default-assignee"
+              label={gettext("Default assignment")}
+              search_form="task-default-assignee-form"
+              kind_name="default_assign_type"
+              fields={[
+                {@form[:default_assigned_person_uuid].name, @form[:default_assigned_person_uuid].value},
+                {@form[:default_assigned_team_uuid].name, @form[:default_assigned_team_uuid].value},
+                {@form[:default_assigned_department_uuid].name, @form[:default_assigned_department_uuid].value}
+              ]}
+              chip={@assignee_chip}
+              can_assign?={@can_assign?}
+              my_person_uuid={@my_person_uuid}
+              recent={@recent_assignees}
+              notice={@assignee_notice}
             />
-
-            <%= if @assign_type == "department" do %>
-              <.select field={@form[:default_assigned_department_uuid]} label={gettext("Department")} options={@department_options} prompt={gettext("Select department")} />
-            <% end %>
-            <%= if @assign_type == "team" do %>
-              <.select field={@form[:default_assigned_team_uuid]} label={gettext("Team")} options={@team_options} prompt={gettext("Select team")} />
-            <% end %>
-            <%= if @assign_type == "person" do %>
-              <.select field={@form[:default_assigned_person_uuid]} label={gettext("Person")} options={@person_options} prompt={gettext("Select person")} />
-            <% end %>
           </div>
         </div>
 
@@ -678,6 +708,7 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
 
       <%!-- Modal lives outside the form — see project_form_live.ex. --%>
       <.ai_translate_modal ai_translate={FormGlue.ai_translate_config(assigns)} />
+      <.assignee_picker_outside search_form="task-default-assignee-form" staff_confirm={@staff_confirm} />
     </div>
     """
   end

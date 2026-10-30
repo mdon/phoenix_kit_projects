@@ -12,6 +12,7 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
   use PhoenixKitProjects.Web.Components
 
   import PhoenixKitWeb.Components.MultilangForm
+  import PhoenixKitProjects.Web.Components.FormParts, only: [form_header: 1, words_block: 1]
 
   alias PhoenixKitAI.Components.AITranslate.FormGlue
   alias PhoenixKitProjects.{Activity, L10n, Paths, Projects, Statuses}
@@ -343,26 +344,45 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
     end
   end
 
+  # The template's name as typed, in the language whose tab is open.
+  defp typed_name(assigns) do
+    typed =
+      assigns.form.source
+      |> Ecto.Changeset.apply_changes()
+      |> Project.localized_name(assigns[:current_lang])
+
+    case typed && String.trim(typed) do
+      name when is_binary(name) and name != "" -> name
+      _ -> assigns[:heading] || gettext("New template")
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
     <div class={@wrapper_class}>
-      <.page_header title={@heading} embed_mode={@embed_mode}>
-        <:back_link>
-          <.link :if={@embed_mode == :navigate} navigate={Paths.templates()} class="link link-hover text-sm">
-            <.icon name="hero-arrow-left" class="w-4 h-4 inline" /> {gettext("Templates")}
+      <.form_header
+        id="template-form-header"
+        title={typed_name(assigns)}
+        mode={if @live_action == :edit, do: gettext("Editing")}
+        close_event={@embed_mode not in [:navigate, :emit] && "cancel"}
+        close_confirm={@dirty? && gettext("Discard your changes?")}
+      >
+        <:context>
+          <.link :if={@embed_mode == :navigate} navigate={Paths.templates()} class="link link-hover text-base-content/70 inline-flex items-center gap-1">
+            <.icon name="hero-arrow-left" class="w-4 h-4 shrink-0" /> {gettext("Templates")}
           </.link>
           <button
             :if={@embed_mode != :navigate}
             type="button"
             phx-click="cancel"
             data-confirm={@dirty? && gettext("Discard your changes?")}
-            class="link link-hover text-sm"
+            class="link link-hover text-base-content/70 inline-flex items-center gap-1"
           >
-            <.icon name="hero-arrow-left" class="w-4 h-4 inline" /> {gettext("Templates")}
+            <.icon name="hero-arrow-left" class="w-4 h-4 shrink-0" /> {gettext("Templates")}
           </button>
-        </:back_link>
-      </.page_header>
+        </:context>
+      </.form_header>
 
       <.form for={@form} id="template-form" phx-change="validate" phx-submit="save" phx-debounce="300" class="flex flex-col gap-4">
         <%!-- Translatable card: name + description with language tabs.
@@ -370,22 +390,13 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
              inputs when the user switches languages — that's what swaps
              primary-column inputs for JSONB-backed secondary inputs.
              Matches `ProjectFormLive`'s shape. --%>
-        <div class="card bg-base-100 shadow">
-          <%!-- Bundled tabs + AI row (phoenix_kit_ai's canonical placement;
-            the border-b separator converges away — see the PR note). --%>
-          <.ai_multilang_tabs
-            multilang_enabled={@multilang_enabled}
-            language_tabs={@language_tabs}
-            current_lang={@current_lang}
-            ai_translate={FormGlue.ai_translate_config(assigns)}
-          />
-
-          <.multilang_fields_wrapper
-            multilang_enabled={@multilang_enabled}
-            current_lang={@current_lang}
-            skeleton_class="card-body pt-4 space-y-4"
-            fields_class="card-body pt-4 space-y-4"
-          >
+        <.words_block
+          id="template-words"
+          multilang_enabled={@multilang_enabled}
+          language_tabs={@language_tabs}
+          current_lang={@current_lang}
+          ai_translate={FormGlue.ai_translate_config(assigns)}
+        >
 
             <.translatable_field
               field_name="name"
@@ -419,8 +430,7 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
               rows={4}
               disabled={@current_lang in @ai_in_flight}
             />
-          </.multilang_fields_wrapper>
-        </div>
+        </.words_block>
 
         <%!-- Non-translatable settings stay outside the wrapper so they
              don't lose state when the user switches languages. --%>

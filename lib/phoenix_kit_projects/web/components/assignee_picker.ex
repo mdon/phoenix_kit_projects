@@ -353,6 +353,12 @@ defmodule PhoenixKitProjects.Web.Components.AssigneePicker do
   attr(:notice, :any, default: nil)
   attr(:search_form, :string, required: true)
   attr(:me_id, :string, default: nil)
+
+  attr(:kind_name, :string,
+    default: "assign_type",
+    doc: "the hidden input naming the kind chosen"
+  )
+
   attr(:class, :any, default: nil)
 
   def assignee_picker(assigns) do
@@ -365,7 +371,7 @@ defmodule PhoenixKitProjects.Web.Components.AssigneePicker do
 
     ~H"""
     <div id={@id} class={["flex flex-col gap-2", @class]} data-kind={@kind}>
-      <input type="hidden" name="assign_type" value={@kind} />
+      <input type="hidden" name={@kind_name} value={@kind} />
       <input :for={{name, value} <- @fields} type="hidden" name={name} value={value} />
       <div class="flex items-center justify-between gap-2">
         <label :if={@label} for={"#{@id}-search"} class="text-sm font-semibold">{@label}</label>
