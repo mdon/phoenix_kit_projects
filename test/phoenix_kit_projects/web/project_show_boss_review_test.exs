@@ -151,8 +151,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowBossReviewTest do
       refute fx.billable
 
       {:ok, view, html} = live(conn, "/en/admin/projects/#{project.uuid}")
-      refute html =~ "Logged:"
-      refute html =~ ~s(phx-click="open_log_time">)
+      refute html =~ "project-logged-"
 
       # A task's own Log time stays.
       html = render_click(view, "open_log_time", %{"uuid" => a.uuid})
@@ -199,6 +198,38 @@ defmodule PhoenixKitProjects.Web.ProjectShowBossReviewTest do
       # The project's own value still wins.
       {:ok, project} = Features.set_flags(project, %{"project_time" => false})
       refute Features.gates(project).project_time
+    end
+  end
+
+  describe "the header line instead of full-width bars (item 32)" do
+    test "a not-started project gets a small Start in the header, no bar", %{conn: conn} do
+      project = fixture_project(%{"start_mode" => "immediate"})
+      {:ok, _view, html} = live(conn, "/en/admin/projects/#{project.uuid}")
+
+      [crumbs] = Regex.run(~r/<div id="test-breadcrumb".*?<div id="test-flashes"/s, html)
+      assert crumbs =~ ~s(phx-click="open_start_modal")
+      refute html =~ "Not started — set up tasks, then start"
+    end
+
+    test "a started project says since when, quietly, in the header", %{conn: conn} do
+      project = started_project()
+      {:ok, _view, html} = live(conn, "/en/admin/projects/#{project.uuid}")
+
+      [crumbs] = Regex.run(~r/<div id="test-breadcrumb".*?<div id="test-flashes"/s, html)
+      assert crumbs =~ "since "
+      refute crumbs =~ "open_start_modal"
+      # The full "Started …" is the tooltip, not a bar's text.
+      refute html =~ ~r/>\s*Started [A-Z]/
+    end
+
+    test "with time on the project on, the logged time is a header chip", %{conn: conn} do
+      project = started_project()
+      {:ok, project} = Features.set_flags(project, %{"project_time" => true})
+      {:ok, _view, html} = live(conn, "/en/admin/projects/#{project.uuid}")
+
+      [crumbs] = Regex.run(~r/<div id="test-breadcrumb".*?<div id="test-flashes"/s, html)
+      assert crumbs =~ ~s(id="project-logged-#{project.uuid}")
+      refute html =~ "Logged:"
     end
   end
 

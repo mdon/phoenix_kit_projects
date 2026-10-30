@@ -120,7 +120,7 @@ defmodule PhoenixKitProjects.LifecycleFlagTest do
       refute html =~ "Not started", "the hub still asked a checklist to be started"
       refute html =~ "Start project"
       refute html =~ "Start now"
-      refute html =~ "Logged:", "the hub still showed a time readout on a checklist"
+      refute html =~ "project-logged-", "the hub still showed a time readout on a checklist"
     end
 
     test "a normal project still shows both", %{conn: conn} do
@@ -134,8 +134,10 @@ defmodule PhoenixKitProjects.LifecycleFlagTest do
 
       {:ok, _view, html} = live(conn, "/en/admin/projects/#{project.uuid}")
 
-      assert html =~ "Not started"
-      assert html =~ "Logged:"
+      # On the header line now (the boss, 2026-10-30): a small Start and
+      # the logged-time chip.
+      assert html =~ "Start project"
+      assert html =~ ~s(id="project-logged-#{project.uuid}")
     end
   end
 

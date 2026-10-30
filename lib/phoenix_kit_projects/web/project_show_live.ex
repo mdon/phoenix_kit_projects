@@ -976,6 +976,17 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
              routes; either opens in a new tab, so the project stays open
              here. --%>
         <.project_link project={@project} />
+        <%!-- What full-width bars above the list used to say, as quiet
+             items of this line (the boss, 2026-10-30): since when it runs,
+             how it stands against its plan, a small Start for a project
+             not yet started, and the time logged on it. --%>
+        <.header_progress
+          :if={not @is_template and is_binary(@project.uuid)}
+          project={@project}
+          fx={@fx}
+          schedule={assigns[:schedule]}
+          ledger_totals={assigns[:ledger_totals]}
+        />
         <%!-- Inline workflow-status picker (the current value). The
              status-list *source* is chosen on the new/edit form (and the
              global default in Settings), not here. Hidden when no
@@ -1060,6 +1071,14 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
           />
           <%!-- Out of its parent, or under another project — with what it
                takes along (`Components.MoveProject`). --%>
+          <.table_row_menu_button
+            :if={assigns[:invoice_ready?]}
+            phx-click="generate_invoice"
+            phx-disable-with={gettext("Generating…")}
+            data-confirm={gettext("Create a draft invoice from all uninvoiced billable time?")}
+            icon="hero-banknotes"
+            label={gettext("Invoice effort")}
+          />
           <MoveProject.locked_menu_item
             :if={is_nil(@project.archived_at) and @move_locks[@project.uuid]}
             reason={@move_locks[@project.uuid]}
@@ -1848,6 +1867,32 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                 <.icon name={if @ol.folded, do: "hero-chevron-right", else: "hero-chevron-down"} class="w-4 h-4" />
               </button>
               <.assignment_status_badge :if={not @is_template} status={@a.status} />
+              <%!-- Work that started and then had something before it
+                   reopened is ON HOLD — derived, never stored: it clears
+                   itself when what it waits on is done again. Beside the
+                   status rather than on a row of its own (the boss,
+                   2026-10-30); the tasks it waits for are named in the
+                   tooltip. --%>
+              <% open_deps = Map.get(@held_by, @a.uuid, []) %>
+              <span
+                :if={@fx.dependencies and @a.status == "in_progress" and open_deps != []}
+                class="badge badge-warning badge-sm gap-1 shrink-0"
+                title={
+                  gettext("On hold — waiting for %{tasks}",
+                    tasks:
+                      Enum.map_join(
+                        open_deps,
+                        ", ",
+                        &gettext("“%{task}”",
+                          task: Assignment.label(&1.depends_on, L10n.current_content_lang())
+                        )
+                      )
+                  )
+                }
+              >
+                <.icon name="hero-pause-circle" class="w-3.5 h-3.5" />
+                {gettext("On hold")}
+              </span>
               <%!-- The ID opens the task's view, like its title. --%>
               <.smart_link
                 :if={not @is_template and Refs.task_ref(@project.key, @a.number)}
@@ -2160,35 +2205,6 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
             </span>
           </div>
 
-          <%!-- Work that started and then had something before it reopened
-               is ON HOLD — derived, never stored: it clears itself when what
-               it waits on is done again. The tasks it waits for are named in
-               the tooltip; connections are never written out on the card
-               (hover / trace shows them, `PkpLinks`). --%>
-          <% open_deps = Map.get(@held_by, @a.uuid, []) %>
-          <div
-            :if={@fx.dependencies and @a.status == "in_progress" and open_deps != []}
-            class="mt-1"
-          >
-            <span
-              class="badge badge-warning badge-sm gap-1"
-              title={
-                gettext("On hold — waiting for %{tasks}",
-                  tasks:
-                    Enum.map_join(
-                      open_deps,
-                      ", ",
-                      &gettext("“%{task}”",
-                        task: Assignment.label(&1.depends_on, L10n.current_content_lang())
-                      )
-                    )
-                )
-              }
-            >
-              <.icon name="hero-pause-circle" class="w-3.5 h-3.5" />
-              {gettext("On hold")}
-            </span>
-          </div>
           <%!-- What it depends on, one chip each (× removes the link);
                hovering / tracing shows the rest of the chain (`PkpLinks`). --%>
           <% deps = Map.get(@deps_by_assignment, @a.uuid, []) %>
@@ -4139,6 +4155,105 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   end
 
   attr(:project, :map, required: true)
+  attr(:fx, :map, required: true)
+  attr(:schedule, :map, default: nil)
+  attr(:ledger_totals, :map, default: nil)
+
+  defp header_progress(assigns) do
+    project = assigns.project
+
+    assigns =
+      assign(assigns,
+        lifecycle?: assigns.fx[:lifecycle] == true,
+        running?: project.started_at != nil and is_nil(project.completed_at),
+        # Ongoing work has no start to press — unless it still waits for a
+        # scheduled one, which this brings forward.
+        startable?:
+          is_nil(project.started_at) and is_nil(project.completed_at) and
+            (not Project.ongoing?(project) or project.start_mode == "scheduled"),
+        logged?:
+          assigns.fx[:ledger] == true and assigns.fx[:project_time] == true and
+            assigns.ledger_totals != nil,
+        ai?:
+          assigns.fx[:ledger] == true and assigns.ledger_totals != nil and
+            (assigns.ledger_totals.tokens > 0 or assigns.ledger_totals.cost_cents > 0 or
+               assigns.ledger_totals.ai_minutes > 0)
+      )
+
+    ~H"""
+    <%= if @lifecycle? do %>
+      <span
+        :if={@running?}
+        class="text-xs text-base-content/60 whitespace-nowrap"
+        title={gettext("Started %{when}", when: L10n.format_datetime(@project.started_at))}
+      >
+        {gettext("since %{date}", date: L10n.format_date(@project.started_at))}
+      </span>
+      <%= if @running? and @schedule do %>
+        <% detail = gettext("%{actual}% done vs %{expected}% expected", actual: @schedule.actual_pct, expected: @schedule.expected_pct) %>
+        <%= cond do %>
+          <% @schedule.overdue? -> %>
+            <span class="badge badge-error badge-sm gap-1 whitespace-nowrap" title={detail}>
+              <.icon name="hero-exclamation-triangle" class="w-3 h-3" />
+              {gettext("%{delta} overdue", delta: @schedule.delta_label)}
+            </span>
+          <% @schedule.ahead? -> %>
+            <span class="badge badge-success badge-sm gap-1 whitespace-nowrap" title={detail}>
+              <.icon name="hero-arrow-trending-up" class="w-3 h-3" />
+              {gettext("%{delta} ahead", delta: @schedule.delta_label)}
+            </span>
+          <% true -> %>
+            <span class="badge badge-error badge-sm gap-1 whitespace-nowrap" title={detail}>
+              <.icon name="hero-arrow-trending-down" class="w-3 h-3" />
+              {gettext("%{delta} behind", delta: @schedule.delta_label)}
+            </span>
+        <% end %>
+      <% end %>
+      <%= if @startable? do %>
+        <span
+          :if={@project.start_mode == "scheduled"}
+          class="text-xs text-base-content/60 whitespace-nowrap"
+        >
+          {gettext("Scheduled for %{when}", when: L10n.format_datetime(@project.scheduled_start_date))}
+        </span>
+        <button
+          type="button"
+          phx-click="open_start_modal"
+          class="btn btn-success btn-xs gap-1"
+        >
+          <.icon name="hero-play" class="w-3.5 h-3.5" />
+          {if @project.start_mode == "scheduled", do: gettext("Start now"), else: gettext("Start project")}
+        </button>
+      <% end %>
+    <% end %>
+    <button
+      :if={@logged?}
+      type="button"
+      phx-click="open_log_time"
+      id={"project-logged-#{@project.uuid}"}
+      class="badge badge-sm badge-outline gap-1 cursor-pointer whitespace-nowrap hover:bg-primary hover:text-primary-content hover:border-primary"
+      title={gettext("Time logged on this project — click to log more")}
+    >
+      <.icon name="hero-clock" class="w-3 h-3" />
+      {format_minutes(@ledger_totals.time_minutes)}
+      <span :if={@fx[:billable] and @ledger_totals.billable_minutes > 0} class="opacity-70">
+        {gettext("(%{amount} billable)", amount: format_minutes(@ledger_totals.billable_minutes))}
+      </span>
+    </button>
+    <span
+      :if={@ai?}
+      class="badge badge-sm badge-ghost gap-1 whitespace-nowrap"
+      title={gettext("What AI agents reported on this project")}
+    >
+      <.icon name="hero-cpu-chip" class="w-3 h-3" />
+      <span :if={@ledger_totals.ai_minutes > 0}>{format_minutes(@ledger_totals.ai_minutes)}</span>
+      <span :if={@ledger_totals.tokens > 0}>{format_tokens(@ledger_totals.tokens)}</span>
+      <span :if={@ledger_totals.cost_cents > 0} class="opacity-70">({format_cents(@ledger_totals.cost_cents)})</span>
+    </span>
+    """
+  end
+
+  attr(:project, :map, required: true)
 
   defp project_link(%{project: %{external_url: url}} = assigns)
        when is_binary(url) and url != "" do
@@ -5010,94 +5125,23 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
             </.smart_link>
         </div>
 
-      <%!-- Start mode / template bar. Hidden entirely when the project has
-           no lifecycle: a checklist has no beginning to announce, and the
-           bar's whole job is announcing one. Templates keep it — their
-           branch is about how to USE the template, not about starting.
-           Ongoing work has nothing to announce either (no setup, no start
-           to press, no end to reach), so it has no bar — unless it still
-           waits for a scheduled start, which the bar is how you bring
-           forward. --%>
-      <% ongoing_open? = not @is_template and Project.ongoing?(@project) and is_nil(@project.completed_at) %>
-      <% waiting? = is_nil(@project.started_at) and @project.start_mode == "scheduled" %>
+      <%!-- The template bar: how to USE a template. A project's start,
+           its "since" and how it stands against its plan sit on the header
+           line (`header_progress/1`) instead of a full-width bar. --%>
       <div
-        :if={(@is_template or @fx.lifecycle) and not (ongoing_open? and not waiting?)}
+        :if={@is_template}
         class="flex flex-wrap items-center gap-3 bg-base-200 rounded-lg px-4 py-3"
       >
-        <%= cond do %>
-          <% @is_template -> %>
-            <.icon name="hero-document-duplicate" class="w-5 h-5 text-info" />
-            <span class="text-sm">{gettext("This is a template — set up tasks, then create projects from it.")}</span>
-            <.smart_link
-              navigate={Paths.new_project() <> "?template=#{@project.uuid}"}
-              emit={{PhoenixKitProjects.Web.ProjectFormLive, %{"live_action" => "new", "template" => @project.uuid}}}
-              embed_mode={@embed_mode}
-              class="btn btn-primary btn-xs ml-auto"
-            >
-              <.icon name="hero-plus" class="w-4 h-4" /> {gettext("Create project from this template")}
-            </.smart_link>
-          <% @project.completed_at -> %>
-            <.icon name="hero-trophy" class="w-5 h-5 text-success" />
-            <span class="text-sm font-medium">
-              {gettext("Completed %{when}", when: L10n.format_datetime(@project.completed_at))}
-            </span>
-            <%= if @project.started_at do %>
-              <span class="text-base-content/40 mx-1">·</span>
-              <span class="text-sm text-base-content/60">
-                {gettext("took %{duration}", duration: delta_days(@project.completed_at, @project.started_at))}
-              </span>
-            <% end %>
-          <% @project.started_at -> %>
-            <.icon name="hero-play" class="w-5 h-5 text-success" />
-            <span class="text-sm">
-              {gettext("Started %{when}", when: L10n.format_datetime(@project.started_at))}
-            </span>
-            <%= if @schedule do %>
-              <span class="text-base-content/40 mx-1">·</span>
-              <%= cond do %>
-                <% @schedule.overdue? -> %>
-                  <span class="badge badge-error badge-sm gap-1">
-                    <.icon name="hero-exclamation-triangle" class="w-3 h-3" />
-                    {gettext("%{delta} overdue", delta: @schedule.delta_label)}
-                  </span>
-                <% @schedule.ahead? -> %>
-                  <span class="badge badge-success badge-sm gap-1">
-                    <.icon name="hero-arrow-trending-up" class="w-3 h-3" />
-                    {gettext("%{delta} ahead", delta: @schedule.delta_label)}
-                  </span>
-                <% true -> %>
-                  <span class="badge badge-error badge-sm gap-1">
-                    <.icon name="hero-arrow-trending-down" class="w-3 h-3" />
-                    {gettext("%{delta} behind", delta: @schedule.delta_label)}
-                  </span>
-              <% end %>
-              <span class="text-xs text-base-content/50 ml-1">
-                {gettext("(%{actual}% done vs %{expected}% expected)", actual: @schedule.actual_pct, expected: @schedule.expected_pct)}
-              </span>
-            <% end %>
-          <% @project.start_mode == "scheduled" -> %>
-            <.icon name="hero-calendar" class="w-5 h-5 text-info" />
-            <span class="text-sm">
-              {gettext("Scheduled for %{when}", when: L10n.format_datetime(@project.scheduled_start_date))}
-            </span>
-            <button
-              type="button"
-              phx-click="open_start_modal"
-              class="btn btn-success btn-xs ml-auto"
-            >
-              {gettext("Start now")}
-            </button>
-          <% true -> %>
-            <.icon name="hero-clock" class="w-5 h-5 text-warning" />
-            <span class="text-sm">{gettext("Not started — set up tasks, then start")}</span>
-            <button
-              type="button"
-              phx-click="open_start_modal"
-              class="btn btn-success btn-xs ml-auto"
-            >
-              <.icon name="hero-play" class="w-4 h-4" /> {gettext("Start project")}
-            </button>
-        <% end %>
+        <.icon name="hero-document-duplicate" class="w-5 h-5 text-info" />
+        <span class="text-sm">{gettext("This is a template — set up tasks, then create projects from it.")}</span>
+        <.smart_link
+          navigate={Paths.new_project() <> "?template=#{@project.uuid}"}
+          emit={{PhoenixKitProjects.Web.ProjectFormLive, %{"live_action" => "new", "template" => @project.uuid}}}
+          embed_mode={@embed_mode}
+          class="btn btn-primary btn-xs ml-auto"
+        >
+          <.icon name="hero-plus" class="w-4 h-4" /> {gettext("Create project from this template")}
+        </.smart_link>
       </div>
 
       <%!-- Health strip — the hub's manual "Needle" (P2b): a human judgment
@@ -5122,12 +5166,11 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       <%!-- Ongoing work has no finish line, so no bar towards one (Max,
            2026-10-05); the start bar's badges say Ongoing / All caught up. --%>
       <% show_progress = @fx.tasks and @total_tasks > 0 and not @is_template and not Project.ongoing?(@project) %>
-      <% show_effort = @fx.ledger and @fx.project_time and @ledger_totals != nil %>
       <%!-- Every block around the list carries an id: a block that appears
            (this one, with the first task) must be inserted, not matched
            against the next block by position — that rebuilt the typed list
            under the cursor and lost the line just begun. --%>
-      <%= if show_schedule or show_progress or show_effort do %>
+      <%= if show_schedule or show_progress do %>
         <div id={"project-summary-#{@project.uuid}"} class="bg-base-200/50 rounded-t-lg overflow-hidden">
           <%= if show_schedule do %>
             <% {rem_v, rem_u} = humanize_hours(@schedule.remaining_hours) %>
@@ -5158,70 +5201,6 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                   <span class="text-base-content/40">{gettext("at planned pace")}</span>
                 </div>
               <% end %>
-            </div>
-          <% end %>
-          <%!-- Effort row (Step 10 work ledger): human time + AI usage
-               totals, and the project-level Log-time entry point. --%>
-          <%= if show_effort do %>
-            <div class={[
-              "flex flex-wrap items-center gap-3 px-4 py-2 text-xs",
-              show_schedule && "border-t border-base-300/50"
-            ]}>
-              <div class="flex items-center gap-2">
-                <.icon name="hero-play-circle" class="w-4 h-4 text-base-content/60" />
-                <span class="text-base-content/60">{gettext("Logged:")}</span>
-                <span class="font-medium">{format_minutes(@ledger_totals.time_minutes)}</span>
-                <span :if={@fx.billable and @ledger_totals.billable_minutes > 0} class="text-base-content/50">
-                  {gettext("(%{amount} billable)",
-                    amount: format_minutes(@ledger_totals.billable_minutes)
-                  )}
-                </span>
-              </div>
-              <%!-- AI effort, apart from people's: tokens and cost as before, and
-                   the minutes an agent reported over the API (never billable). --%>
-              <%= if @ledger_totals.tokens > 0 or @ledger_totals.cost_cents > 0 or @ledger_totals.ai_minutes > 0 do %>
-                <span class="text-base-content/40">·</span>
-                <div class="flex items-center gap-2">
-                  <.icon name="hero-cpu-chip" class="w-4 h-4 text-base-content/60" />
-                  <span class="text-base-content/60">{gettext("AI:")}</span>
-                  <span :if={@ledger_totals.ai_minutes > 0} class="font-medium">
-                    {format_minutes(@ledger_totals.ai_minutes)}
-                  </span>
-                  <span :if={@ledger_totals.tokens > 0} class="font-medium">
-                    {format_tokens(@ledger_totals.tokens)}
-                  </span>
-                  <span :if={@ledger_totals.cost_cents > 0} class="text-base-content/50">
-                    ({format_cents(@ledger_totals.cost_cents)})
-                  </span>
-                </div>
-              <% end %>
-              <div class="flex items-center gap-1 ml-auto">
-                <button
-                  :if={@invoice_ready?}
-                  type="button"
-                  class="btn btn-ghost btn-xs"
-                  phx-click="generate_invoice"
-                  phx-disable-with={gettext("Generating…")}
-                  data-confirm={gettext("Create a draft invoice from all uninvoiced billable time?")}
-                >
-                  <.icon name="hero-banknotes" class="w-3 h-3" /> {gettext("Invoice effort")}
-                </button>
-                <%!-- The whole picture — who, which task, which day — is the
-                     Hours tab (offered while the ledger is on). --%>
-                <button
-                  :if={Enum.any?(@ext_tabs, &(&1.id == "ext:tasks:hours"))}
-                  type="button"
-                  class="btn btn-ghost btn-xs"
-                  phx-click="switch_tab"
-                  phx-value-tab="ext:tasks:hours"
-                  id={"project-hours-link-#{@project.uuid}"}
-                >
-                  <.icon name="hero-clock" class="w-3 h-3" /> {gettext("Hours")}
-                </button>
-                <button type="button" class="btn btn-ghost btn-xs" phx-click="open_log_time">
-                  <.icon name="hero-plus" class="w-3 h-3" /> {gettext("Log time")}
-                </button>
-              </div>
             </div>
           <% end %>
           <%!-- Progress bar — the card's bottom border (not for templates). --%>
