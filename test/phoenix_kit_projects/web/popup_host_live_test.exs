@@ -86,6 +86,33 @@ defmodule PhoenixKitProjects.Web.PopupHostLiveTest do
       assert html =~ "Projects"
     end
 
+    # The order page's gap (the boss, 2026-10-30): the root view used to
+    # get `py-6 gap-6` from here on top of the host's own frame; it keeps
+    # its own tight default now.
+    test "the root view keeps its own wrapper, with no extra top padding", %{
+      conn: conn,
+      actor_uuid: actor_uuid
+    } do
+      project = fixture_project()
+      {:ok, _} = PhoenixKitProjects.Members.add_member(project, actor_uuid, role: "member")
+
+      {:ok, _view, html} =
+        live_isolated(conn, PhoenixKitProjects.Web.PopupHostLive,
+          session: %{
+            "pubsub_topic" => unique_topic(),
+            "current_user_uuid" => actor_uuid,
+            "root_view" => %{
+              "lv" => "Elixir.PhoenixKitProjects.Web.ProjectShowLive",
+              "session" => %{"id" => project.uuid}
+            }
+          }
+        )
+
+      assert html =~ project.name
+      refute html =~ "py-6 gap-6"
+      assert html =~ "flex flex-col w-full px-4 pt-2 pb-4 gap-4"
+    end
+
     test "logs a warning and renders without root when root_view.lv is not whitelisted",
          %{conn: conn} do
       topic = unique_topic()

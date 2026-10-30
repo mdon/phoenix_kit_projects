@@ -101,7 +101,6 @@ defmodule PhoenixKitProjects.Web.PopupHostLive do
   require Logger
 
   @default_wrapper_class "flex flex-col w-full"
-  @default_root_wrapper_class "flex flex-col w-full px-4 py-6 gap-6"
   # Default cap on simultaneously-stacked modal frames. Hosts can
   # override via `session["max_stack_depth"]`; the value is clamped to
   # `1..@absolute_max_stack_depth` so a misconfigured host can't
@@ -202,7 +201,10 @@ defmodule PhoenixKitProjects.Web.PopupHostLive do
         session
         |> Map.put("mode", "emit")
         |> Map.put("pubsub_topic", topic)
-        |> Map.put_new("wrapper_class", @default_root_wrapper_class)
+        # No wrapper forced on the root view: it sits in the host's own
+        # page, which already frames it, and each view's own default is
+        # the tight one. The `py-6 gap-6` this used to put here was the
+        # gap the boss saw above a project on the order page (2026-10-30).
         |> maybe_put_locale_key(locale)
         |> maybe_put_current_user_uuid(current_user_uuid)
 
