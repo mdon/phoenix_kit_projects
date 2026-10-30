@@ -501,6 +501,13 @@ defmodule PhoenixKitProjects do
         app: :phoenix_kit_projects,
         file: "static/assets/phoenix_kit_projects.js",
         global: "PhoenixKitProjectsHooks"
+      },
+      # The card list's draft row (`PkpDraft`): a title typed after Enter
+      # that becomes a task only once something is in it.
+      %{
+        app: :phoenix_kit_projects,
+        file: "static/assets/phoenix_kit_projects_drafts.js",
+        global: "PhoenixKitProjectsDraftHooks"
       }
     ]
   end

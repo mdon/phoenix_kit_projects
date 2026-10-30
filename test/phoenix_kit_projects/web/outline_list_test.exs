@@ -230,6 +230,145 @@ defmodule PhoenixKitProjects.Web.OutlineListTest do
     end
   end
 
+  # The page's socket, as the handlers left it.
+  defp page_assigns(view), do: :sys.get_state(view.pid).socket.assigns
+
+  describe "the draft row (Enter on a card)" do
+    test "Enter opens a draft that writes nothing until a title is typed", %{conn: conn} do
+      p = project()
+      {:ok, _} = Outline.sync(p.uuid, [%{"text" => "First"}, %{"text" => "Last"}], [])
+      [first, _last] = Projects.list_assignments(p.uuid)
+      {:ok, view, _} = live(conn, "/en/admin/projects/#{p.uuid}")
+
+      render_hook(view, "outline_add", %{"after" => first.uuid, "text" => ""})
+      assert titles(p) == ["First", "Last"]
+      draft = page_assigns(view).outline_draft
+      assert %{slot: slot, depth: 0, key: key} = draft
+      assert slot == first.uuid
+
+      # Enter with a title: written right below its row, and the next draft opens.
+      render_hook(view, "outline_draft_save", %{"key" => key, "text" => "Second", "next" => true})
+      assert titles(p) == ["First", "Second", "Last"]
+      next = page_assigns(view).outline_draft
+      assert next.key != key
+
+      # The same event again (a blur as the row went) writes nothing more.
+      render_hook(view, "outline_draft_save", %{"key" => key, "text" => "Second", "next" => true})
+      assert titles(p) == ["First", "Second", "Last"]
+
+      # The last Enter of a run, on the empty draft: nothing is left behind.
+      render_hook(view, "outline_draft_save", %{"key" => next.key, "text" => "  ", "next" => true})
+
+      assert titles(p) == ["First", "Second", "Last"]
+      assert page_assigns(view).outline_draft == nil
+    end
+
+    test "Esc or clicking away drops the draft; text after the cursor is a task at once",
+         %{conn: conn} do
+      p = project()
+      {:ok, _} = Outline.sync(p.uuid, [%{"text" => "Only"}], [])
+      [only] = Projects.list_assignments(p.uuid)
+      {:ok, view, _} = live(conn, "/en/admin/projects/#{p.uuid}")
+
+      render_hook(view, "outline_add", %{"after" => only.uuid, "text" => ""})
+      key = page_assigns(view).outline_draft.key
+      render_hook(view, "outline_draft_cancel", %{"key" => key, "refocus" => true})
+      assert page_assigns(view).outline_draft == nil
+      assert page_assigns(view).outline_focus == only.uuid
+      assert titles(p) == ["Only"]
+
+      # Splitting a title: what was after the cursor is typed already.
+      render_hook(view, "outline_add", %{"after" => only.uuid, "text" => "Tail"})
+      assert titles(p) == ["Only", "Tail"]
+      assert page_assigns(view).outline_draft == nil
+    end
+
+    test "Tab nests the draft under the row above, and it is written there", %{conn: conn} do
+      p = project()
+      {:ok, _} = Outline.sync(p.uuid, [%{"text" => "Parent"}], [])
+      [parent] = Projects.list_assignments(p.uuid)
+      {:ok, view, _} = live(conn, "/en/admin/projects/#{p.uuid}")
+
+      render_hook(view, "outline_add", %{"after" => parent.uuid, "text" => ""})
+      key = page_assigns(view).outline_draft.key
+      render_hook(view, "outline_draft_nest", %{"key" => key, "dir" => "in", "text" => "Chi"})
+      draft = page_assigns(view).outline_draft
+      assert %{parent: parent_uuid, depth: 1, text: "Chi"} = draft
+      assert parent_uuid == parent.uuid
+
+      render_hook(view, "outline_draft_save", %{"key" => draft.key, "text" => "Child"})
+      [_, child] = Projects.list_assignments(p.uuid)
+      assert child.task.title == "Child"
+      assert child.parent_uuid == parent.uuid
+
+      # Out again, before anything is typed.
+      render_hook(view, "outline_add", %{"after" => child.uuid, "text" => ""})
+      draft = page_assigns(view).outline_draft
+      assert draft.depth == 1
+      render_hook(view, "outline_draft_nest", %{"key" => draft.key, "dir" => "out", "text" => ""})
+      assert %{parent: nil, depth: 0} = page_assigns(view).outline_draft
+    end
+
+    test "Add a task opens a draft at the foot, and a pasted list lands there",
+         %{conn: conn} do
+      p = project()
+
+      {:ok, _} =
+        Outline.sync(p.uuid, [%{"text" => "One"}, %{"text" => "Under", "depth" => 1}], [])
+
+      {:ok, view, _} = live(conn, "/en/admin/projects/#{p.uuid}")
+
+      render_hook(view, "outline_add_first", %{})
+      assert %{slot: :end, key: key} = page_assigns(view).outline_draft
+      assert titles(p) == ["One", "Under"]
+
+      render_hook(view, "outline_draft_paste", %{
+        "key" => key,
+        "text" => "Two",
+        "lines" => [%{"text" => "Three", "depth" => 0}, %{"text" => "Four", "depth" => 1}]
+      })
+
+      assert titles(p) == ["One", "Under", "Two", "Three", "Four"]
+      assert page_assigns(view).outline_draft == nil
+      [_, _, two, three, four] = Projects.list_assignments(p.uuid)
+      assert two.parent_uuid == nil
+      assert four.parent_uuid == three.uuid
+    end
+
+    test "a task this list made and left empty is removed; any other is not", %{conn: conn} do
+      p = project()
+      {:ok, _} = Outline.sync(p.uuid, [%{"text" => "Old"}], [])
+      [old] = Projects.list_assignments(p.uuid)
+      {:ok, view, _} = live(conn, "/en/admin/projects/#{p.uuid}")
+
+      render_hook(view, "outline_add", %{"after" => old.uuid, "text" => ""})
+      key = page_assigns(view).outline_draft.key
+      render_hook(view, "outline_draft_save", %{"key" => key, "text" => "Made here"})
+      [_, made] = Projects.list_assignments(p.uuid)
+
+      render_hook(view, "outline_drop", %{"id" => old.uuid})
+      render_hook(view, "outline_drop", %{"id" => made.uuid})
+      assert titles(p) == ["Old"]
+    end
+
+    test "the draft row is drawn only at its own place" do
+      draft = %{key: "d1", slot: "row-a", depth: 1, text: "Typed"}
+
+      html =
+        render_component(&OutlineList.draft_row/1, draft: draft, slot: "row-a", indent: true)
+
+      assert html =~ ~s(phx-hook="PkpDraft")
+      assert html =~ ~s(data-key="d1")
+      assert html =~ ~s(value="Typed")
+      assert html =~ "margin-left: 2rem"
+
+      assert render_component(&OutlineList.draft_row/1, draft: draft, slot: "row-b") =~
+               ~r/^\s*$/
+
+      assert render_component(&OutlineList.draft_row/1, draft: nil, slot: :end) =~ ~r/^\s*$/
+    end
+  end
+
   describe "the settings" do
     test "a project picks its list style, and keeps a feature off its cards", %{conn: conn} do
       p = project()
