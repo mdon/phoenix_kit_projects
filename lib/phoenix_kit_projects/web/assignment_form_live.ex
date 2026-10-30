@@ -3797,7 +3797,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
               <.input field={@sp_form[:name]} label={gettext("Sub-project name")} required />
               <.textarea
                 field={@sp_form[:description]}
-                label={gettext("Description (optional)")}
+                label={gettext("Description")}
                 rows="2"
                 mentions
                 data-mention-context={mention_context(@project)}
@@ -3813,7 +3813,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
                 options={completion_options()}
               />
 
-              <div class="divider text-xs text-base-content/50 my-1">{gettext("Assignment (optional)")}</div>
+              <div class="divider text-xs text-base-content/50 my-1">{gettext("Assignment")}</div>
               <.select
                 name="assign_type"
                 label={gettext("Assign to")}
@@ -4387,12 +4387,12 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
             <fieldset id="assignment-planned-start" class="rounded-box border border-base-300 p-3 flex flex-col gap-2">
               <legend class="px-1 text-sm font-semibold">{gettext("Planned start")}</legend>
               <.input field={@form[:start_date]} type="date" label={gettext("Day")} />
-              <.input field={@form[:start_time]} value={time_input_value(@form[:start_time].value)} type="time" label={gettext("Time (optional)")} />
+              <.input field={@form[:start_time]} value={time_input_value(@form[:start_time].value)} type="time" label={gettext("Time")} />
             </fieldset>
             <fieldset id="assignment-planned-end" class="rounded-box border border-base-300 p-3 flex flex-col gap-2">
               <legend class="px-1 text-sm font-semibold">{gettext("Planned end")}</legend>
               <.input field={@form[:end_date]} type="date" label={gettext("Day")} />
-              <.input field={@form[:end_time]} value={time_input_value(@form[:end_time].value)} type="time" label={gettext("Time (optional)")} />
+              <.input field={@form[:end_time]} value={time_input_value(@form[:end_time].value)} type="time" label={gettext("Time")} />
             </fieldset>
             <p class="sm:col-span-2 -mt-1 text-xs text-base-content/60">
               {gettext("The plan: when the work is meant to happen. A time belongs to its day. Only the deadline makes a task overdue.")}
@@ -4709,7 +4709,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
                   id={"assignment-log-note-#{@log_seq}"}
                   name="note"
                   form="assignment-log-form"
-                  label={gettext("What was done (optional)")}
+                  label={gettext("What was done")}
                   value=""
                   autocomplete="off"
                   class="input-sm"

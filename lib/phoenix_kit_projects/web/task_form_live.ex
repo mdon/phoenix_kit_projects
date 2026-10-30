@@ -598,7 +598,7 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
               class="checkbox-primary checkbox-sm"
             />
 
-            <div class="divider text-xs text-base-content/50 my-1">{gettext("Default assignment (optional)")}</div>
+            <div class="divider text-xs text-base-content/50 my-1">{gettext("Default assignment")}</div>
 
             <.select
               name="default_assign_type"

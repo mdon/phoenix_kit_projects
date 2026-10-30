@@ -2011,7 +2011,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
     ~H"""
     <.select
       name="template_uuid"
-      label={gettext("From template (optional)")}
+      label={gettext("From template")}
       value={@selected_template}
       options={Enum.map(@templates, &{&1.name, &1.uuid})}
       prompt={gettext("Start from scratch")}

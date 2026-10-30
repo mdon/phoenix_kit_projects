@@ -2002,7 +2002,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
             id={"#{@dom}-log-time"}
             type="time"
             name="time"
-            label={gettext("Started at (optional)")}
+            label={gettext("Started at")}
             value={@form.values["time"]}
             class="input-sm"
             wrapper_class="flex-1"
@@ -2053,7 +2053,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
         <.input
           id={"#{@dom}-log-note"}
           name="note"
-          label={gettext("Note (optional)")}
+          label={gettext("Note")}
           value={@form.values["note"]}
           placeholder={gettext("What was the time spent on?")}
           class="input-sm"
