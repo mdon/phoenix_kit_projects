@@ -35,6 +35,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
   import PhoenixKitWeb.Components.Core.SearchPicker, only: [search_picker: 1]
   import PhoenixKitProjects.Web.Components.TimeInput, only: [clock_input: 1]
   import PhoenixKitProjects.Web.Components.DurationInput, only: [duration_input: 1]
+  import PhoenixKitProjects.Web.Components.PersonDisplay, only: [person: 1]
 
   alias PhoenixKit.Users.Auth.User
   alias PhoenixKit.Utils.Date, as: KitDate
@@ -565,6 +566,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
       "task" -> {:noreply, push_url_state(socket, task: value)}
       "project" -> {:noreply, push_url_state(socket, project_filter: value)}
       "logtask" -> {:noreply, put_log_value(socket, "task", value)}
+      "logperson" -> {:noreply, put_log_value(socket, "person", value)}
       _ -> {:noreply, socket}
     end
   end
@@ -576,6 +578,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
       "task" -> {:noreply, push_url_state(socket, task: "")}
       "project" -> {:noreply, push_url_state(socket, project_filter: "")}
       "logtask" -> {:noreply, put_log_value(socket, "task", "")}
+      "logperson" -> {:noreply, put_log_value(socket, "person", "me")}
       _ -> {:noreply, socket}
     end
   end
@@ -844,7 +847,29 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
     end)
   end
 
+  # Whose time: the people the open form offers (`person_options/2`).
+  defp pick_rows("logperson", q, limit, socket) do
+    case socket.assigns[:log_form] do
+      %{people: people} ->
+        people
+        |> Enum.filter(fn {name, _key} -> name_matches?(name, q) end)
+        |> page_of(limit, fn {name, key} ->
+          %{kind: "person", uuid: key, label: name, icon: "hero-user"}
+        end)
+
+      _ ->
+        {[], false}
+    end
+  end
+
   defp pick_rows(_field, _q, _limit, _socket), do: {[], false}
+
+  # The chosen person's name for the picker, nil for "Me".
+  defp person_label(%{values: %{"person" => key}, people: people})
+       when key not in [nil, "", "me"],
+       do: Enum.find_value(people, fn {name, k} -> k == key && name end)
+
+  defp person_label(_form), do: nil
 
   defp task_row(task) do
     %{
@@ -951,11 +976,17 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
     if is_binary(project_uuid) and may?(socket.assigns, project_uuid, :for_others) do
       my_uuid = Activity.actor_uuid(socket)
 
+      members = project_uuid |> Members.list_members() |> Enum.reject(&(&1.user_uuid == my_uuid))
+      # By name — the account's, else its staff person's — never by email
+      # when a name exists.
+      names = People.user_display_names(Enum.map(members, & &1.user_uuid))
+
       members =
-        project_uuid
-        |> Members.list_members()
-        |> Enum.reject(&(&1.user_uuid == my_uuid))
-        |> Enum.map(&{member_name(&1), Hours.actor_key("user", &1.user_uuid)})
+        Enum.map(
+          members,
+          &{Map.get(names, &1.user_uuid) || member_name(&1),
+           Hours.actor_key("user", &1.user_uuid)}
+        )
 
       listed =
         MapSet.new([
@@ -1746,7 +1777,9 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
           </.table_default_header>
           <.table_default_body>
             <.table_default_row :for={w <- @workers}>
-              <.table_default_cell class="whitespace-nowrap">{w.name}</.table_default_cell>
+              <.table_default_cell class="whitespace-nowrap">
+                <.person name={w.name} kind={w.kind} />
+              </.table_default_cell>
               <.table_default_cell :for={day <- @sheet.days} class="text-right tabular-nums">
                 {sheet_cell(@sheet.matrix[w.key][day])}
               </.table_default_cell>
@@ -1846,8 +1879,9 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
                 {day} <span class="text-base-content/50 tabular-nums">{time}</span>
               </.table_default_cell>
               <.table_default_cell class="whitespace-nowrap">
-                {row.worker.name}
-                <span :if={row.worker.kind == "ai_agent"} class="badge badge-ghost badge-xs ml-1">{gettext("AI")}</span>
+                <.person name={row.worker.name} kind={row.worker.kind}>
+                  <span :if={row.worker.kind == "ai_agent"} class="badge badge-ghost badge-xs">{gettext("AI")}</span>
+                </.person>
               </.table_default_cell>
               <.table_default_cell :if={@multi?} class="whitespace-nowrap">
                 <.smart_link
@@ -2029,15 +2063,30 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
           amount={@form.values["duration"]["amount"]}
           unit={@form.values["duration"]["unit"]}
         />
-        <.select
-          :if={length(@form.people) > 1}
-          id={"#{@dom}-log-person"}
-          name="person"
-          label={gettext("Who")}
-          value={@form.values["person"]}
-          options={@form.people}
-          class="select-sm"
-        />
+        <%!-- Whose time: searched like every other person pick (the
+             assignee picker's search box), "Me" until someone is picked. --%>
+        <div :if={length(@form.people) > 1}>
+          <span class="label mb-2 block"><span class="font-semibold">{gettext("Who")}</span></span>
+          <input type="hidden" name="person" value={@form.values["person"]} />
+          <.search_picker
+            id={"#{@dom}-pick-logperson"}
+            dropdown_id={"#{@dom}-pick-logperson-list"}
+            search_event="pick_search"
+            pick_event="pick_pick"
+            chosen={person_label(@form)}
+            clear_event="unpick"
+            clear_label={gettext("Back to me")}
+            search_on_focus
+            close_on_pick
+            row_layout="stacked"
+            placeholder={gettext("Me — or search a person")}
+            class="input input-sm w-full"
+            searching_label={gettext("Searching…")}
+            more_label={gettext("Load more")}
+            loading_more_label={gettext("Loading…")}
+            no_matches_label={gettext("No matches")}
+          />
+        </div>
         <%!-- Searched, not listed: a project can hold any number of
              tasks. Empty means the project itself. --%>
         <div>

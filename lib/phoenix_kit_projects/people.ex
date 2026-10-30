@@ -391,6 +391,44 @@ defmodule PhoenixKitProjects.People do
 
   def display_name(_), do: gettext("Unnamed")
 
+  @doc """
+  How the module names accounts, in one read for many: the account's first
+  and last name, else its staff person's name, else its email —
+  `%{user_uuid => name}`. A person picked or shown by name
+  is never shown as an email when a name exists (the boss, 2026-10-30: time
+  logs listed people by email).
+  """
+  @spec user_display_names([String.t()]) :: %{String.t() => String.t()}
+  def user_display_names([]), do: %{}
+
+  def user_display_names(user_uuids) when is_list(user_uuids) do
+    uuids = Enum.uniq(user_uuids)
+
+    staff =
+      from(p in Person,
+        where: p.user_uuid in ^uuids and p.status != ^@trashed,
+        where: not is_nil(p.name) and p.name != "",
+        select: {p.user_uuid, p.name}
+      )
+      |> RepoHelper.repo().all()
+      |> Map.new()
+
+    uuids
+    |> Auth.get_users_by_uuids()
+    |> Map.new(fn user ->
+      {user.uuid, account_name(user) || Map.get(staff, user.uuid) || user.email}
+    end)
+  rescue
+    _ -> %{}
+  end
+
+  defp account_name(user) do
+    case Auth.User.full_name(user) do
+      name when is_binary(name) and name != "" -> name
+      _ -> nil
+    end
+  end
+
   @doc "A team/department's localized name: `translations[lang][\"name\"]` else the primary."
   @spec localized_name(Team.t() | Department.t() | nil, String.t() | nil) :: String.t() | nil
   def localized_name(%{name: primary, translations: translations}, lang) do

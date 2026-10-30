@@ -307,17 +307,46 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLiveTest do
       ann = user("Ann", "Able")
       {:ok, _} = Members.add_member(project, ann.uuid, role: "member")
       {:ok, view, _html} = mount_tab(conn, project, admin)
-      assert render_click(view, "open_log", %{}) =~ "Ann Able"
+      render_click(view, "open_log", %{})
+      dom = "hours-#{project.uuid}"
+
+      # Whose time is searched like every other person pick, by name.
+      render_hook(view, "pick_search", %{"q" => "ann", "id" => "#{dom}-pick-logperson"})
+      assert_push_event(view, "picker_results", %{results: [%{label: "Ann Able", uuid: key}]})
+
+      render_click(view, "pick_pick", %{"uuid" => key, "id" => "#{dom}-pick-logperson"})
+      assert has_element?(view, "input[name=person][value='user:#{ann.uuid}']")
 
       render_submit(view, "save_log", %{
         "project" => project.uuid,
         "date" => Date.to_iso8601(Date.utc_today()),
         "duration" => %{"amount" => "2", "unit" => "hours"},
-        "person" => "user:#{ann.uuid}"
+        "person" => key
       })
 
       assert [%{actor_uuid: uuid, started_at: nil}] = Ledger.list_entries(project.uuid)
       assert uuid == ann.uuid
+    end
+
+    test "an account with no name of its own shows by its staff person's name, never its email",
+         %{conn: conn, project: project, admin: admin} do
+      {:ok, nameless} =
+        Auth.register_user(%{
+          email: "nameless-#{uniq()}@example.com",
+          password: "ValidPassword123!"
+        })
+
+      Repo.insert!(%PhoenixKitStaff.Schemas.Person{
+        user_uuid: nameless.uuid,
+        status: "active",
+        name: "Mati Mets"
+      })
+
+      log(project, 45, actor_uuid: nameless.uuid, ended_at: DateTime.utc_now(), note: "fitting")
+      {:ok, _view, html} = mount_tab(conn, project, admin)
+
+      assert html =~ "Mati Mets"
+      refute html =~ nameless.email
     end
 
     test "amends and removes an entry, leaving a trace", %{

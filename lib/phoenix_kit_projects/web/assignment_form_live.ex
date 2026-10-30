@@ -219,7 +219,16 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
           project_uuid
           |> PhoenixKitProjects.Members.list_members()
           |> Enum.reject(&(&1.user_uuid == my_uuid))
-          |> Enum.map(&{log_member_name(&1), "user:#{&1.user_uuid}"})
+
+        # By name — the account's, else its staff person's — never by
+        # email when a name exists.
+        names = PhoenixKitProjects.People.user_display_names(Enum.map(members, & &1.user_uuid))
+
+        members =
+          Enum.map(
+            members,
+            &{Map.get(names, &1.user_uuid) || log_member_name(&1), "user:#{&1.user_uuid}"}
+          )
 
         listed = MapSet.new([my_uuid | Enum.map(members, fn {_n, "user:" <> uuid} -> uuid end)])
 
@@ -4502,6 +4511,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
                     clear_label={gettext("Back to me")}
                     search_on_focus
                     close_on_pick
+                    row_layout="stacked"
                     placeholder={gettext("Me — or search a person")}
                     class="input input-sm w-full"
                     searching_label={gettext("Searching…")}
