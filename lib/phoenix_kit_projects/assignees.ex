@@ -300,20 +300,7 @@ defmodule PhoenixKitProjects.Assignees do
 
     {page, rest} = Enum.split(rows, limit)
 
-    picker_rows =
-      Enum.map(page, fn r ->
-        label = r.name || r.email || "?"
-
-        %{
-          kind: "person",
-          uuid: r.uuid,
-          label: label,
-          sublabel: if(r.name && r.email, do: r.email),
-          icon: "hero-user"
-        }
-      end)
-
-    {picker_rows, rest != []}
+    {page |> Enum.map(&person_row/1) |> with_places(nil), rest != []}
   rescue
     e in [Postgrex.Error, DBConnection.ConnectionError, Ecto.QueryError] ->
       Logger.warning("[Assignees] people search failed: #{Exception.message(e)}")
@@ -363,6 +350,7 @@ defmodule PhoenixKitProjects.Assignees do
       end)
       |> repo().all()
       |> Enum.map(&person_row/1)
+      |> with_places(lang)
 
     teams =
       from(t in Team, order_by: [asc: t.name], limit: ^(limit + 1), preload: [:department])
@@ -466,10 +454,147 @@ defmodule PhoenixKitProjects.Assignees do
 
   def recent_for_project(_project_uuid, _limit, _lang), do: []
 
+  # ── The viewer's own recent picks ───────────────────────────────────
+  #
+  # The boss, 2026-10-30: he picked a person, removed them again, and had to
+  # search for them anew — "Recent" knew only whom tasks had been saved to.
+  # Every pick the viewer makes in an assignee picker is remembered on their
+  # account (core `custom_fields`, one internal key, merged — never a
+  # whole-map replace), newest first, so a removed pick stays one press
+  # away.
+
+  @recent_key "projects_recent_assignees"
+  @recent_cap 10
+
+  @doc "The `custom_fields` key the viewer's recent picks live under."
+  @spec recent_picks_key() :: String.t()
+  def recent_picks_key, do: @recent_key
+
+  @doc """
+  Remembers that `user_uuid` picked the `kind` (`"person"`, `"team"`,
+  `"department"`) with `uuid`: first in their list, once, at most
+  #{@recent_cap} kept. Written with `Auth.merge_user_custom_fields/3`, which
+  replaces this one key and leaves every other as it is. Never raises.
+  """
+  @spec remember_pick(String.t() | nil, String.t(), String.t()) :: :ok
+  def remember_pick(user_uuid, kind, uuid)
+      when is_binary(user_uuid) and kind in ~w(person team department) and is_binary(uuid) do
+    case PhoenixKit.Users.Auth.get_user(user_uuid) do
+      %User{} = user ->
+        entry = %{"kind" => kind, "uuid" => uuid}
+
+        picks =
+          [entry | Enum.reject(stored_picks(user), &(&1 == entry))]
+          |> Enum.take(@recent_cap)
+
+        _ =
+          PhoenixKit.Users.Auth.merge_user_custom_fields(
+            user,
+            %{@recent_key => picks},
+            ensure_definitions: false,
+            broadcast: false
+          )
+
+        :ok
+
+      _ ->
+        :ok
+    end
+  rescue
+    e ->
+      Logger.warning("[Assignees] remembering a pick failed: #{Exception.message(e)}")
+      :ok
+  end
+
+  def remember_pick(_user_uuid, _kind, _uuid), do: :ok
+
+  @doc "The viewer's remembered picks as `{kind, uuid}`, newest first."
+  @spec remembered_picks(User.t() | String.t() | nil) :: [{String.t(), String.t()}]
+  def remembered_picks(%User{} = user),
+    do: for(%{"kind" => k, "uuid" => u} <- stored_picks(user), do: {k, u})
+
+  def remembered_picks(user_uuid) when is_binary(user_uuid) do
+    case PhoenixKit.Users.Auth.get_user(user_uuid) do
+      %User{} = user -> remembered_picks(user)
+      _ -> []
+    end
+  rescue
+    _ -> []
+  end
+
+  def remembered_picks(_), do: []
+
+  defp stored_picks(%User{custom_fields: %{@recent_key => picks}}) when is_list(picks),
+    do:
+      Enum.filter(picks, fn
+        %{"kind" => k, "uuid" => u} when k in ~w(person team department) and is_binary(u) -> true
+        _ -> false
+      end)
+
+  defp stored_picks(_), do: []
+
+  @doc """
+  The "Recent" chips of an assignee picker for `user_uuid` on a project: the
+  viewer's own picks first (`remember_pick/3`), then whom this project's
+  tasks went to lately, then whom tasks went to lately anywhere — each
+  listed once, at most `limit`, a pick that no longer resolves (a trashed
+  person, a deleted team) left out. `[]` on a failed read.
+  """
+  @spec recent_for_viewer(String.t() | nil, String.t() | nil, pos_integer(), String.t() | nil) ::
+          [map()]
+  def recent_for_viewer(user_uuid, project_uuid, limit \\ 8, lang \\ nil) do
+    own = remembered_picks(user_uuid)
+    project = if is_binary(project_uuid), do: recent_keys(project_uuid), else: []
+    site = recent_keys(nil)
+
+    (own ++ project ++ site)
+    |> Enum.uniq()
+    |> Enum.reduce_while([], fn {kind, uuid}, acc ->
+      if length(acc) >= limit do
+        {:halt, acc}
+      else
+        case live_row(kind, uuid, lang) do
+          nil -> {:cont, acc}
+          row -> {:cont, [row | acc]}
+        end
+      end
+    end)
+    |> Enum.reverse()
+  rescue
+    e in [Postgrex.Error, DBConnection.ConnectionError, Ecto.QueryError] ->
+      Logger.warning("[Assignees] recent picks failed: #{Exception.message(e)}")
+      []
+  end
+
+  # A remembered person who has been trashed since is no choice any more.
+  defp live_row("person", uuid, lang) do
+    case repo().one(from(p in Person, where: p.uuid == ^uuid, select: p.status)) do
+      "trashed" -> nil
+      nil -> nil
+      _ -> row_for("person", uuid, lang)
+    end
+  end
+
+  defp live_row(kind, uuid, lang), do: row_for(kind, uuid, lang)
+
   defp in_project(nil), do: dynamic(true)
   defp in_project(uuid), do: dynamic([a], a.project_uuid == ^uuid)
 
   defp recent_assignees(project_uuid, limit, lang) do
+    project_uuid
+    |> recent_keys()
+    |> Enum.take(limit)
+    |> Enum.map(fn {kind, uuid} -> row_for(kind, uuid, lang) end)
+    |> Enum.reject(&is_nil/1)
+  rescue
+    e in [Postgrex.Error, DBConnection.ConnectionError, Ecto.QueryError] ->
+      Logger.warning("[Assignees] recent assignees failed: #{Exception.message(e)}")
+      []
+  end
+
+  # `{kind, uuid}` of whom a project's (nil: any project's) tasks went to
+  # lately, newest first, each once.
+  defp recent_keys(project_uuid) do
     from(a in Assignment,
       where: ^in_project(project_uuid),
       where:
@@ -486,13 +611,6 @@ defmodule PhoenixKitProjects.Assignees do
       {_, _, d} -> {"department", d}
     end)
     |> Enum.uniq()
-    |> Enum.take(limit)
-    |> Enum.map(fn {kind, uuid} -> row_for(kind, uuid, lang) end)
-    |> Enum.reject(&is_nil/1)
-  rescue
-    e in [Postgrex.Error, DBConnection.ConnectionError, Ecto.QueryError] ->
-      Logger.warning("[Assignees] recent assignees failed: #{Exception.message(e)}")
-      []
   end
 
   @doc "The assignment field that holds an assignee of `kind`."
@@ -501,7 +619,7 @@ defmodule PhoenixKitProjects.Assignees do
   def assignee_field("team"), do: :assigned_team_uuid
   def assignee_field("department"), do: :assigned_department_uuid
 
-  defp row_for("person", uuid, _lang) do
+  defp row_for("person", uuid, lang) do
     from(p in Person,
       left_join: u in assoc(p, :user),
       where: p.uuid == ^uuid,
@@ -510,7 +628,7 @@ defmodule PhoenixKitProjects.Assignees do
     |> repo().one()
     |> case do
       nil -> nil
-      r -> person_row(r)
+      r -> [person_row(r)] |> with_places(lang) |> hd()
     end
   end
 
@@ -528,14 +646,111 @@ defmodule PhoenixKitProjects.Assignees do
     end
   end
 
+  # A person as the pickers list them: the name (the email when there is
+  # none), and under it the email and where they work. `email` and `place`
+  # stay on the row for `sublabel/1` to rebuild it.
   defp person_row(r) do
+    email = if r.name not in [nil, ""], do: r.email
+
     %{
       kind: "person",
       uuid: r.uuid,
-      label: r.name || r.email || "?",
-      sublabel: if(r.name && r.email, do: r.email),
+      label: if(r.name not in [nil, ""], do: r.name, else: r.email || "?"),
+      sublabel: email,
+      email: email,
+      place: nil,
       icon: "hero-user"
     }
+  end
+
+  @doc """
+  The second line of a person in the pickers (the boss, 2026-10-30: "show
+  their name, email, department, whatever makes the choice easier"):
+  `"ann@firm.ee · Tootmine › Paigaldus"`, either part alone, or nil. Core's
+  `<.search_picker>` draws one line under the label, so the two share it.
+  """
+  @spec sublabel(String.t() | nil, String.t() | nil) :: String.t() | nil
+  def sublabel(email, place) do
+    case Enum.reject([email, place], &(&1 in [nil, ""])) do
+      [] -> nil
+      parts -> Enum.join(parts, " · ")
+    end
+  end
+
+  # Where each listed person works — their primary department, else the
+  # first team they are on (with its department) — in two reads for the
+  # whole page, folded into the row's second line.
+  defp with_places([], _lang), do: []
+
+  defp with_places(rows, lang) do
+    uuids = for %{kind: "person", uuid: u} <- rows, do: u
+    places = places_by_person(uuids, lang)
+
+    Enum.map(rows, fn
+      %{kind: "person", uuid: u} = row ->
+        place = Map.get(places, u)
+        %{row | place: place, sublabel: sublabel(row.email, place)}
+
+      row ->
+        row
+    end)
+  rescue
+    e in [Postgrex.Error, DBConnection.ConnectionError, Ecto.QueryError] ->
+      Logger.warning("[Assignees] places lookup failed: #{Exception.message(e)}")
+      rows
+  end
+
+  defp places_by_person([], _lang), do: %{}
+
+  defp places_by_person(uuids, lang) do
+    primary =
+      from(p in Person,
+        join: d in Department,
+        on: d.uuid == p.primary_department_uuid,
+        where: p.uuid in ^uuids,
+        select: {p.uuid, d}
+      )
+      |> repo().all()
+      |> Map.new()
+
+    teams =
+      from(m in TeamMembership,
+        join: t in Team,
+        on: t.uuid == m.team_uuid,
+        left_join: d in Department,
+        on: d.uuid == t.department_uuid,
+        where: m.staff_person_uuid in ^uuids,
+        order_by: [asc: t.name],
+        select: {m.staff_person_uuid, t, d}
+      )
+      |> repo().all()
+      |> Enum.group_by(&elem(&1, 0), fn {_, t, d} -> {t, d} end)
+
+    Map.new(uuids, fn uuid ->
+      path =
+        case {Map.get(primary, uuid), Map.get(teams, uuid, [])} do
+          {nil, [{t, d} | _]} ->
+            [d, t]
+
+          {%Department{uuid: dept} = d, list} ->
+            [
+              d
+              | list
+                |> Enum.filter(fn {_t, td} -> match?(%{uuid: ^dept}, td) end)
+                |> Enum.map(&elem(&1, 0))
+                |> Enum.take(1)
+            ]
+
+          _ ->
+            []
+        end
+
+      {uuid,
+       case Enum.reject(path, &is_nil/1) do
+         [] -> nil
+         parts -> Enum.map_join(parts, " › ", &(People.localized_name(&1, lang) || "?"))
+       end}
+    end)
   end
 
   # How many of a matched team's or department's people the picker lists
@@ -622,7 +837,8 @@ defmodule PhoenixKitProjects.Assignees do
       |> Enum.reject(&is_nil/1)
       |> Enum.map_join(" › ", &(People.localized_name(&1, lang) || "?"))
 
-    %{person_row(r) | sublabel: where}
+    row = person_row(r)
+    %{row | place: where, sublabel: sublabel(row.email, where)}
   end
 
   # A user with no staff person yet: picking one makes the person

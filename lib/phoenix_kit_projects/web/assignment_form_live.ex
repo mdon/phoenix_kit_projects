@@ -24,11 +24,15 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   import PhoenixKitProjects.Web.Components.TimeInput, only: [datetime_input: 1, clock_input: 1]
   import PhoenixKitProjects.Web.Components.DurationInput, only: [duration_input: 1]
 
+  import PhoenixKitProjects.Web.Components.AssigneePicker,
+    only: [assignee_picker: 1, assignee_picker_outside: 1]
+
+  import PhoenixKitProjects.Web.Components.FormParts
+
   require Logger
 
   alias Phoenix.LiveView.JS
   alias PhoenixKit.Mentions
-  alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.User
   alias PhoenixKitAI.Components.AITranslate.FormGlue
 
@@ -48,8 +52,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   }
 
   alias PhoenixKitProjects.Schemas.{Assignment, Project, Task}
-  alias PhoenixKitProjects.Web.Components.AssignmentStatusBadge
-  alias PhoenixKitProjects.Web.Components.{DurationInput, TimeInput}
+  alias PhoenixKitProjects.Web.Components.{AssigneePicker, DurationInput, TimeInput}
   alias PhoenixKitProjects.Web.Components.WorkflowStatusFields, as: WSF
   alias PhoenixKitProjects.Web.Crumbs
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
@@ -61,7 +64,9 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   @default_wrapper_class "flex flex-col mx-auto max-w-xl px-4 py-6 gap-4"
 
   # The form's tabs (`@form_pane`).
-  @panes ~w(task planning connections more)
+  @panes ~w(task planning connections more subproject schedule settings)
+
+  @picker_events PhoenixKitProjects.Web.Components.AssigneePicker.events()
 
   @impl true
   def mount(params, session, socket) do
@@ -441,39 +446,15 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   # the form's own three assignee fields — posted as hidden inputs, so a
   # pick saves like any other field — and `@assignee_chip` shows it.
 
+  # The shared picker (`Web.Components.AssigneePicker`): the viewer's staff
+  # person, the Recent chips (their own picks first) and the right to assign.
   defp assign_assignee_picker(socket) do
-    project = socket.assigns[:project]
-    lang = L10n.current_content_lang()
-
-    {my_person, recent} =
-      case project do
-        %Project{uuid: uuid} when is_binary(uuid) ->
-          {my_person_uuid(socket), Assignees.recent_for_project(uuid, 6, lang)}
-
-        _ ->
-          {nil, []}
-      end
-
     socket
-    |> assign(
-      my_person_uuid: my_person,
-      recent_assignees: recent,
-      can_assign?: can_assign?(socket)
+    |> AssigneePicker.init(socket.assigns[:project],
+      can_assign?: can_assign?(socket),
+      source: "task_form"
     )
-    |> assign_new(:staff_confirm, fn -> nil end)
-    |> assign_new(:assignee_notice, fn -> nil end)
-  end
-
-  # The viewer's own staff person — what "Assign to me" assigns — or nil
-  # (nil also when it is trashed: then there is no one to assign as them).
-  defp my_person_uuid(socket) do
-    with uuid when is_binary(uuid) <- Activity.actor_uuid(socket),
-         %{uuid: person_uuid, status: status} when status != "trashed" <-
-           PhoenixKitProjects.People.get_person_by_user_uuid(uuid) do
-      person_uuid
-    else
-      _ -> nil
-    end
+    |> refresh_assignee_chip()
   end
 
   defp can_assign?(%{assigns: %{project: %Project{uuid: uuid} = project}} = socket)
@@ -488,124 +469,62 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   defp can_assign?(_socket), do: false
 
   # `{kind, uuid}` of the assignee the form holds now, or nil.
-  defp form_assignee(form) do
-    Enum.find_value(~w(person team department), fn kind ->
-      case form[Assignees.assignee_field(kind)].value do
-        uuid when is_binary(uuid) and uuid != "" -> {kind, uuid}
-        _ -> nil
-      end
-    end)
-  end
+  defp form_assignee(form),
+    do: AssigneePicker.key_of(&form[Assignees.assignee_field(Atom.to_string(&1))].value)
 
   # The chip of the chosen assignee (label and faces), looked up only when
-  # the choice changed.
-  defp refresh_assignee_chip(socket) do
-    key = form_assignee(socket.assigns.form)
+  # the choice changed. The sub-project form holds its own (`@sp_form`).
+  defp refresh_assignee_chip(
+         %{assigns: %{kind: "subproject", sp_form: %Phoenix.HTML.Form{} = f}} = socket
+       ),
+       do: AssigneePicker.refresh_chip(socket, form_assignee(f))
 
-    case socket.assigns[:assignee_chip] do
-      %{key: ^key} ->
-        socket
+  defp refresh_assignee_chip(%{assigns: %{form: %Phoenix.HTML.Form{} = f}} = socket),
+    do: AssigneePicker.refresh_chip(socket, form_assignee(f))
 
-      _ ->
-        chip =
-          case key do
-            {kind, uuid} -> Assignees.describe(kind, uuid, L10n.current_content_lang())
-            nil -> nil
-          end
-
-        assign(socket, :assignee_chip, %{key: key, row: chip})
-    end
-  end
+  defp refresh_assignee_chip(socket), do: socket
 
   # The three assignee fields for one choice: exactly one set, the other
   # two cleared (the changeset refuses two at once).
-  defp assignee_attrs(kind, uuid) do
-    Map.new(~w(person team department), fn k ->
-      {Atom.to_string(Assignees.assignee_field(k)), if(k == kind, do: uuid)}
-    end)
+  @assignee_names %{
+    person: "assigned_person_uuid",
+    team: "assigned_team_uuid",
+    department: "assigned_department_uuid"
+  }
+
+  @doc false
+  # `AssigneePicker` callback: the choice into the form being shown — the
+  # task's (saved as it is changed) or the sub-project's.
+  def picker_choose(%{assigns: %{kind: "subproject"}} = socket, kind, uuid) do
+    attrs = AssigneePicker.field_attrs(@assignee_names, kind, uuid)
+    sp_attrs = Map.merge(socket.assigns.sp_form.params || %{}, attrs)
+
+    socket
+    |> assign(
+      sp_form: to_form(Projects.change_project(sp_source(socket), sp_attrs), as: :subproject)
+    )
+    |> assign(:assign_type, kind || "")
+    |> WebHelpers.mark_dirty()
+    |> refresh_assignee_chip()
   end
 
-  defp choose_assignee(socket, kind, uuid) do
-    if may_assign?(socket) do
-      socket
-      |> assign(:assignee_notice, nil)
-      |> put_form_attrs(assignee_attrs(kind, uuid), %{"assign_type" => kind || ""})
-      |> assign(:assign_type, kind || "")
-    else
-      socket
-    end
+  def picker_choose(socket, kind, uuid) do
+    socket
+    |> put_form_attrs(AssigneePicker.field_attrs(@assignee_names, kind, uuid), %{
+      "assign_type" => kind || ""
+    })
+    |> assign(:assign_type, kind || "")
   end
 
-  defp may_assign?(socket) do
+  @doc false
+  # `AssigneePicker` callback: asked of the project as it is now.
+  def picker_allowed?(socket) do
     with %Project{uuid: uuid} <- socket.assigns[:project],
          %Project{} = project <- Projects.get_project(uuid) do
       Features.on?(project, "assignees") and
         Authz.can?(socket.assigns[:phoenix_kit_current_scope], project, :assign_tasks)
     else
       _ -> false
-    end
-  end
-
-  # Assigns a user through their staff person: straight away when they
-  # have one; asking first when assigning would create it (Max: nothing is
-  # made until the person confirms); refused, with a line saying where to
-  # restore it, when it is trashed. `who` is `:self` (Assign to me) or
-  # `:other` (a picked user, re-looked up so a forged uuid assigns nobody).
-  defp assign_user(socket, user_uuid, who) do
-    if may_assign?(socket) do
-      case PhoenixKitProjects.People.get_person_by_user_uuid(user_uuid) do
-        %{status: "trashed"} ->
-          assign(socket, :assignee_notice, {:trashed, who})
-
-        %{uuid: person_uuid} ->
-          choose_assignee(socket, "person", person_uuid)
-
-        nil ->
-          ask_staff_create(socket, user_uuid, who)
-      end
-    else
-      socket
-    end
-  end
-
-  defp ask_staff_create(socket, user_uuid, who) do
-    name =
-      case who do
-        :self -> self_name(socket, user_uuid)
-        :other -> with %{label: label} <- Assignees.describe_user(user_uuid), do: label
-      end
-
-    if is_binary(name),
-      do: assign(socket, :staff_confirm, %{user_uuid: user_uuid, who: who, name: name}),
-      else: socket
-  end
-
-  defp self_name(socket, user_uuid) do
-    case Activity.actor_uuid(socket) == user_uuid && Auth.get_user(user_uuid) do
-      %User{} = user ->
-        if PhoenixKitProjects.People.assignable_user?(user),
-          do: PhoenixKitProjects.People.new_person_name(user)
-
-      _ ->
-        nil
-    end
-  end
-
-  defp create_and_assign(socket, user_uuid, who) do
-    case PhoenixKitProjects.People.ensure_person_for_user(user_uuid,
-           actor_uuid: Activity.actor_uuid(socket),
-           source: "task_form"
-         ) do
-      {:ok, %{uuid: person_uuid}} ->
-        socket
-        |> then(&if(who == :self, do: assign(&1, :my_person_uuid, person_uuid), else: &1))
-        |> choose_assignee("person", person_uuid)
-
-      {:error, :trashed_person} ->
-        assign(socket, :assignee_notice, {:trashed, who})
-
-      {:error, _} ->
-        put_flash(socket, :error, gettext("Could not create the staff record."))
     end
   end
 
@@ -1491,82 +1410,10 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
 
   def handle_event("set_form_pane", _params, socket), do: {:noreply, socket}
 
-  # The assignee picker (core `<.search_picker>`): people, teams and
-  # departments in one search, a page at a time.
-  def handle_event("assignee_search", %{"q" => q} = params, socket) when is_binary(q) do
-    limit =
-      case Integer.parse(to_string(params["limit"] || "")) do
-        {n, _} when n > 0 -> n
-        _ -> 20
-      end
-
-    {rows, more?} = Assignees.search_assignees(q, limit, L10n.current_content_lang())
-
-    {:noreply, push_event(socket, "assignee_results", %{q: q, results: rows, has_more: more?})}
-  end
-
-  # A query that is not text (a forged event) finds nobody.
-  def handle_event("assignee_search", _params, socket), do: {:noreply, socket}
-
-  # A pick names a row the search offered; it is looked up again, so a
-  # forged kind or uuid assigns nobody. A user with no staff person yet
-  # (`kind: "user"`): assigning them makes one, so the form asks first
-  # (`staff_confirm`).
-  def handle_event("assignee_pick", %{"kind" => "user", "uuid" => uuid}, socket) do
-    {:noreply, socket |> assign_user(uuid, :other) |> push_event("assignee_staged", %{})}
-  end
-
-  def handle_event("assignee_pick", %{"kind" => kind, "uuid" => uuid}, socket) do
-    socket =
-      case Assignees.describe(kind, uuid) do
-        %{kind: kind, uuid: uuid} -> choose_assignee(socket, kind, uuid)
-        nil -> socket
-      end
-
-    {:noreply, push_event(socket, "assignee_staged", %{})}
-  end
-
-  def handle_event("assignee_recent", %{"kind" => kind, "uuid" => uuid}, socket) do
-    offered? =
-      Enum.any?(socket.assigns[:recent_assignees] || [], &(&1.kind == kind and &1.uuid == uuid))
-
-    {:noreply, if(offered?, do: choose_assignee(socket, kind, uuid), else: socket)}
-  end
-
-  # The viewer themself — their staff person, made (after asking) when
-  # their account has none.
-  def handle_event("assign_to_me", _params, socket) do
-    case Activity.actor_uuid(socket) do
-      uuid when is_binary(uuid) -> {:noreply, assign_user(socket, uuid, :self)}
-      _ -> {:noreply, socket}
-    end
-  end
-
-  # "Create and assign": the question holds the user, re-checked here.
-  def handle_event("staff_create_confirm", _params, socket) do
-    case socket.assigns[:staff_confirm] do
-      %{user_uuid: user_uuid, who: who} ->
-        socket = assign(socket, :staff_confirm, nil)
-
-        if may_assign?(socket) do
-          {:noreply, create_and_assign(socket, user_uuid, who)}
-        else
-          {:noreply, socket}
-        end
-
-      _ ->
-        {:noreply, socket}
-    end
-  end
-
-  def handle_event("staff_create_cancel", _params, socket),
-    do: {:noreply, assign(socket, :staff_confirm, nil)}
-
-  # The assignee search box's own form: Enter there must submit nothing.
-  def handle_event("assignee_noop", _params, socket), do: {:noreply, socket}
-
-  def handle_event("assignee_clear", _params, socket),
-    do: {:noreply, choose_assignee(socket, nil, nil)}
+  # The assignee picker (`Web.Components.AssigneePicker`): its search, picks,
+  # Recent, "Assign to me" and the staff-record question.
+  def handle_event(event, params, socket) when event in @picker_events,
+    do: AssigneePicker.handle_event(event, params, socket, __MODULE__)
 
   def handle_event("deadline_preset", %{"preset" => preset}, socket) do
     case {socket.assigns.fx[:dates] != false, deadline_preset(preset)} do
@@ -1877,7 +1724,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   def handle_event("validate_subproject", %{"subproject" => attrs} = params, socket) do
     assign_type = Map.get(params, "assign_type", socket.assigns.assign_type)
     mode = Map.get(params, "status_translation_mode", socket.assigns.status_translation_mode)
-    attrs = clear_other_assignees(attrs, assign_type)
+    attrs = attrs |> clear_other_assignees(assign_type) |> sp_translations(socket)
     cs = Projects.change_project(sp_source(socket), attrs)
 
     {:noreply,
@@ -1887,6 +1734,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
        assign_type: assign_type,
        status_translation_mode: mode
      )
+     |> refresh_assignee_chip()
      |> refresh_status_preview()
      |> WebHelpers.mark_dirty()}
   end
@@ -1934,6 +1782,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
       attrs =
         attrs
         |> clear_other_assignees(assign_type)
+        |> sp_translations(socket)
         |> strip_gated_attrs(fx)
         |> then(fn a ->
           if fx.statuses, do: a, else: Map.drop(a, ~w(status_entity_uuid))
@@ -2289,6 +2138,14 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   # The base struct the sub-project form edits (a fresh `%Project{}` on :new,
   # the embedded child on :edit). Read off the form's changeset data.
   defp sp_source(socket), do: socket.assigns.sp_form.source.data
+
+  # The sub-project's name and description per language (its words block):
+  # what a secondary tab posted folded into the translations typed so far,
+  # the primary columns kept when that tab does not render them.
+  defp sp_translations(attrs, socket) do
+    in_flight = WebHelpers.in_flight_record(socket, :sp_form, :nothing) || sp_source(socket)
+    WebHelpers.merge_translations_attrs(attrs, in_flight, Project.translatable_fields())
+  end
 
   defp save_new_subproject(socket, attrs) do
     case Projects.create_subproject(socket.assigns.project.uuid, attrs) do
@@ -3703,145 +3560,197 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
 
   @impl true
   def render(%{kind: "subproject"} = assigns) do
+    assigns = prepare_subproject_render(assigns)
+
     ~H"""
     <div class={@wrapper_class}>
-      <.page_header title={@heading} embed_mode={@embed_mode}>
-        <:back_link>
-          <%!-- A page goes back to the project; inside a host's frame or the
-               page's drawer "back" is the way out of the sheet (a frame must
-               never push the project page as another frame). --%>
+      <%!-- The same header as the task's: where it sits, and the name as
+           it is typed (the boss: the project and sub-project popups should
+           look like the task's, with tabs). --%>
+      <.form_header
+        id="subproject-form-header"
+        title={subproject_title(assigns)}
+        mode={if @live_action == :edit, do: gettext("Editing"), else: gettext("Add sub-project")}
+        close_event={@embed_mode not in [:navigate, :emit] && "cancel"}
+        close_confirm={@dirty? && gettext("Discard your changes?")}
+      >
+        <:context>
           <.link
             :if={@embed_mode == :navigate}
             navigate={Paths.project(@project.uuid)}
-            class="link link-hover text-sm"
+            class="link link-hover text-base-content/70 inline-flex items-center gap-1 min-w-0"
           >
-            <.icon name="hero-arrow-left" class="w-4 h-4 inline" /> {@project.name}
+            <.icon name="hero-arrow-left" class="w-4 h-4 shrink-0" />
+            <span class="truncate">{@project.name}</span>
           </.link>
           <button
             :if={@embed_mode != :navigate}
             type="button"
             phx-click="cancel"
             data-confirm={@dirty? && gettext("Discard your changes?")}
-            class="link link-hover text-sm"
+            class="link link-hover text-base-content/70 inline-flex items-center gap-1 min-w-0"
           >
-            <.icon name="hero-arrow-left" class="w-4 h-4 inline" />
-            {if @from_view?, do: gettext("Back to task"), else: @project.name}
+            <.icon name="hero-arrow-left" class="w-4 h-4 shrink-0" />
+            <span class="truncate">{if @from_view?, do: gettext("Back to task"), else: @project.name}</span>
           </button>
-        </:back_link>
-        <:actions :if={assigns[:task_ref]}>
-          <.ref_chip ref={assigns[:task_ref]} size="md" />
-        </:actions>
-      </.page_header>
+          <.ref_chip :if={assigns[:task_ref]} ref={assigns[:task_ref]} />
+        </:context>
+      </.form_header>
 
-        <% sp_lang = L10n.current_content_lang() %>
-        <.form
-          for={@sp_form}
-          id="subproject-form"
-          phx-change="validate_subproject"
-          phx-submit="save_subproject"
-          phx-debounce="300"
-          class="flex flex-col gap-4"
-        >
-          <%!-- On :new a sub-project can either be created fresh or an existing
-               standalone project can be nested in place (V127). On :edit only
-               the create-new fields exist (you're editing the child itself). --%>
-          <%!-- Was a module-local TabsStrip duplicating core's <.nav_tabs>.
-               Its payload key was `value`, which needed a native value=
-               attribute to work around LiveView's extractMeta overwriting
-               meta.value with a button's own empty .value — the component
-               standardises on `tab` and the hack goes away with it. --%>
-          <.nav_tabs
-            :if={@live_action == :new}
-            on_change="set_sp_mode"
-            active_tab={@sp_mode}
-            tabs={[
-              %{id: "new", label: gettext("Create new"), icon: "hero-plus"},
-              %{id: "existing", label: gettext("Nest existing"), icon: "hero-rectangle-stack"}
-            ]}
+      <% sp_lang = L10n.current_content_lang() %>
+      <.form
+        for={@sp_form}
+        id="subproject-form"
+        phx-change="validate_subproject"
+        phx-submit="save_subproject"
+        phx-debounce="300"
+        class="flex flex-col gap-4"
+      >
+        <%!-- On :new a sub-project can either be created fresh or an existing
+             standalone project can be nested in place (V127). On :edit only
+             the create-new fields exist (you're editing the child itself). --%>
+        <.nav_tabs
+          :if={@live_action == :new}
+          on_change="set_sp_mode"
+          active_tab={@sp_mode}
+          tabs={[
+            %{id: "new", label: gettext("Create new"), icon: "hero-plus"},
+            %{id: "existing", label: gettext("Nest existing"), icon: "hero-rectangle-stack"}
+          ]}
+        />
+
+        <%= if @sp_mode == "existing" do %>
+          <div class="flex flex-col gap-3">
+            <p class="text-sm text-base-content/60">
+              {gettext("Nest a standalone project under this one. It keeps its own tasks and sub-projects; its progress rolls up here.")}
+            </p>
+            <%= if @link_options == [] do %>
+              <p class="text-sm text-base-content/50">
+                {gettext("No eligible standalone projects to nest.")}
+              </p>
+            <% else %>
+              <.select
+                name="link_child_uuid"
+                label={gettext("Project to nest")}
+                value=""
+                options={Enum.map(@link_options, &{&1.name, &1.uuid})}
+                prompt={gettext("Select a project")}
+                required
+              />
+            <% end %>
+          </div>
+        <% else %>
+          <.form_tabs
+            id="subproject-form-tabs"
+            prefix="subproject"
+            panes={@sp_panes}
+            active={@sp_pane}
+            errors={@sp_pane_errors}
           />
 
-          <%= if @sp_mode == "existing" do %>
-            <div class="card bg-base-100 shadow">
-              <div class="card-body flex flex-col gap-3">
-                <p class="text-sm text-base-content/60">
-                  {gettext("Nest a standalone project under this one. It keeps its own tasks and sub-projects; its progress rolls up here.")}
-                </p>
-                <%= if @link_options == [] do %>
-                  <p class="text-sm text-base-content/50">
-                    {gettext("No eligible standalone projects to nest.")}
-                  </p>
-                <% else %>
-                  <.select
-                    name="link_child_uuid"
-                    label={gettext("Project to nest")}
-                    value=""
-                    options={Enum.map(@link_options, &{&1.name, &1.uuid})}
-                    prompt={gettext("Select a project")}
-                    required
-                  />
-                <% end %>
-              </div>
-            </div>
-          <% else %>
-          <div class="card bg-base-100 shadow">
-            <div class="card-body flex flex-col gap-3">
-              <.input field={@sp_form[:name]} label={gettext("Sub-project name")} required />
-              <.textarea
-                field={@sp_form[:description]}
+          <%!-- ── Sub-project: what it is and whose it is ── --%>
+          <.form_pane prefix="subproject" pane="subproject" active={@sp_pane}>
+            <.words_block
+              id="subproject-words"
+              multilang_enabled={@multilang_enabled}
+              language_tabs={@language_tabs}
+              current_lang={@current_lang}
+            >
+              <.translatable_field
+                field_name="name"
+                form_prefix="subproject"
+                changeset={@sp_form.source}
+                schema_field={:name}
+                multilang_enabled={@multilang_enabled}
+                current_lang={@current_lang}
+                primary_language={@primary_language}
+                lang_data={WebHelpers.lang_data(@sp_form, @current_lang)}
+                secondary_name={"subproject[translations][#{@current_lang}][name]"}
+                lang_data_key="name"
+                label={gettext("Sub-project name")}
+                required
+              />
+              <.translatable_field
+                field_name="description"
+                form_prefix="subproject"
+                changeset={@sp_form.source}
+                schema_field={:description}
+                multilang_enabled={@multilang_enabled}
+                current_lang={@current_lang}
+                primary_language={@primary_language}
+                lang_data={WebHelpers.lang_data(@sp_form, @current_lang)}
+                secondary_name={"subproject[translations][#{@current_lang}][description]"}
+                lang_data_key="description"
                 label={gettext("Description")}
-                rows="2"
+                type="textarea"
+                rows={3}
                 mentions
                 data-mention-context={mention_context(@project)}
               />
-              <%!-- How it ends. A new sub-project copies the parent's
-                   answer; the value is folded into the child's settings on
-                   save, never posted as the settings map itself (a posted
-                   map replaces every other key). --%>
-              <.select
-                name="completion"
-                label={gettext("Ends")}
-                value={if @live_action == :new, do: Project.completion(@project), else: Project.completion(@sp_form.source.data)}
-                options={completion_options()}
-              />
+            </.words_block>
 
-              <div class="divider text-xs text-base-content/50 my-1">{gettext("Assignment")}</div>
-              <.select
-                name="assign_type"
-                label={gettext("Assign to")}
-                value={@assign_type}
-                options={[
-                  {gettext("Nobody"), ""},
-                  {gettext("Department"), "department"},
-                  {gettext("Team"), "team"},
-                  {gettext("Person"), "person"}
-                ]}
-              />
-              <.select :if={@assign_type == "department"} field={@sp_form[:assigned_department_uuid]} label={gettext("Department")} options={@department_options} prompt={gettext("Select department")} />
-              <.select :if={@assign_type == "team"} field={@sp_form[:assigned_team_uuid]} label={gettext("Team")} options={@team_options} prompt={gettext("Select team")} />
-              <.select :if={@assign_type == "person"} field={@sp_form[:assigned_person_uuid]} label={gettext("Person")} options={@person_options} prompt={gettext("Select person")} />
-            </div>
-          </div>
+            <%!-- The same picker as a task's (V128: the assignee lives on
+                 the child project). --%>
+            <.assignee_picker
+              :if={@fx.assignees}
+              id="subproject-assignee"
+              label={gettext("Assignee")}
+              search_form="subproject-assignee-form"
+              fields={[
+                {@sp_form[:assigned_person_uuid].name, @sp_form[:assigned_person_uuid].value},
+                {@sp_form[:assigned_team_uuid].name, @sp_form[:assigned_team_uuid].value},
+                {@sp_form[:assigned_department_uuid].name, @sp_form[:assigned_department_uuid].value}
+              ]}
+              chip={@assignee_chip}
+              can_assign?={@can_assign?}
+              my_person_uuid={@my_person_uuid}
+              recent={@recent_assignees}
+              notice={@assignee_notice}
+            />
+          </.form_pane>
 
-          <%!-- Dependencies — identical to a task's (this sub-project is a row in
-               the parent's timeline). Edit mode adds/removes live; new mode
-               collects pending selections applied on save. --%>
-          <.form_section :if={@fx.dependencies} title={gettext("Dependencies")}>
-              <:subtitle>
+          <%!-- ── Schedule: how it ends, what it waits on ── --%>
+          <.form_pane prefix="subproject" pane="schedule" active={@sp_pane}>
+            <%!-- How it ends. A new sub-project copies the parent's
+                 answer; the value is folded into the child's settings on
+                 save, never posted as the settings map itself (a posted
+                 map replaces every other key). --%>
+            <.select
+              name="completion"
+              label={gettext("Ends")}
+              value={if @live_action == :new, do: Project.completion(@project), else: Project.completion(@sp_form.source.data)}
+              options={completion_options()}
+            />
+
+            <%!-- Dependencies — identical to a task's (this sub-project is a
+                 row in the parent's timeline). Edit mode adds/removes live;
+                 new mode collects pending selections applied on save. --%>
+            <fieldset
+              :if={@fx.dependencies}
+              id="subproject-waits-on"
+              class="rounded-box border border-base-300 p-3 flex flex-col gap-2"
+            >
+              <legend class="px-1 text-sm font-semibold">{gettext("Waits on")}</legend>
+              <p class="text-xs text-base-content/60">
                 {gettext("Items in this project that must finish before this sub-project can start.")}
-              </:subtitle>
-
+              </p>
               <%= if @live_action == :edit do %>
-                <div :if={@assignment_deps != []} class="flex flex-wrap gap-2 mt-2">
-                  <%= for dep <- @assignment_deps do %>
-                    <span class="badge badge-outline gap-1">
-                      <.icon name="hero-arrow-right-circle" class="w-3 h-3" />
-                      {Assignment.label(dep.depends_on, sp_lang)}
-                      <button type="button" phx-click="remove_assignment_dep" phx-value-uuid={dep.depends_on_uuid} phx-disable-with={gettext("Removing…")} class="hover:text-error">
-                        <.icon name="hero-x-mark" class="w-3 h-3" />
-                      </button>
-                    </span>
-                  <% end %>
-                </div>
+                <ul :if={@assignment_deps != []} class="flex flex-col gap-1">
+                  <li :for={dep <- @assignment_deps} class="flex items-center gap-2 text-sm">
+                    <.assignment_status_badge status={dep.depends_on.status} size="xs" class="shrink-0" />
+                    <span class="truncate flex-1">{Assignment.label(dep.depends_on, sp_lang)}</span>
+                    <button
+                      type="button"
+                      phx-click="remove_assignment_dep"
+                      phx-value-uuid={dep.depends_on_uuid}
+                      phx-disable-with={gettext("Removing…")}
+                      class="btn btn-ghost btn-xs btn-circle hover:text-error"
+                      aria-label={gettext("Remove")}
+                    >
+                      <.icon name="hero-x-mark" class="w-3.5 h-3.5" />
+                    </button>
+                  </li>
+                </ul>
                 <.select
                   :if={@available_assignment_deps != []}
                   name="depends_on_uuid"
@@ -3851,22 +3760,27 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
                   prompt={gettext("Select")}
                   phx-change="add_assignment_dep"
                 />
-                <p :if={@assignment_deps == [] and @available_assignment_deps == []} class="text-sm text-base-content/50 mt-2">
+                <p :if={@assignment_deps == [] and @available_assignment_deps == []} class="text-sm text-base-content/50">
                   {gettext("No other items in this project to depend on.")}
                 </p>
               <% else %>
-                <div :if={@pending_dep_uuids != []} class="flex flex-wrap gap-2 mt-2">
-                  <% by_uuid = Map.new(@pending_dep_options, &{&1.uuid, &1}) %>
-                  <%= for dep_uuid <- @pending_dep_uuids, a = Map.get(by_uuid, dep_uuid), a do %>
-                    <span class="badge badge-outline gap-1">
-                      <.icon name="hero-arrow-right-circle" class="w-3 h-3" />
-                      {Assignment.label(a, sp_lang)}
-                      <button type="button" phx-click="remove_pending_dep" phx-value-uuid={dep_uuid} class="hover:text-error">
-                        <.icon name="hero-x-mark" class="w-3 h-3" />
-                      </button>
-                    </span>
-                  <% end %>
-                </div>
+                <% by_uuid = Map.new(@pending_dep_options, &{&1.uuid, &1}) %>
+                <% pending = for u <- @pending_dep_uuids, a = Map.get(by_uuid, u), a, do: {u, a} %>
+                <ul :if={pending != []} class="flex flex-col gap-1">
+                  <li :for={{dep_uuid, a} <- pending} class="flex items-center gap-2 text-sm">
+                    <.assignment_status_badge status={a.status} size="xs" class="shrink-0" />
+                    <span class="truncate flex-1">{Assignment.label(a, sp_lang)}</span>
+                    <button
+                      type="button"
+                      phx-click="remove_pending_dep"
+                      phx-value-uuid={dep_uuid}
+                      class="btn btn-ghost btn-xs btn-circle hover:text-error"
+                      aria-label={gettext("Remove")}
+                    >
+                      <.icon name="hero-x-mark" class="w-3.5 h-3.5" />
+                    </button>
+                  </li>
+                </ul>
                 <% remaining = Enum.reject(@pending_dep_options, fn a -> a.uuid in @pending_dep_uuids end) %>
                 <.select
                   :if={remaining != []}
@@ -3877,55 +3791,52 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
                   prompt={gettext("Select")}
                   phx-change="add_pending_dep"
                 />
-                <p :if={@pending_dep_options == []} class="text-sm text-base-content/50 mt-2">
+                <p :if={@pending_dep_options == []} class="text-sm text-base-content/50">
                   {gettext("No other items in this project to depend on.")}
                 </p>
               <% end %>
-          </.form_section>
+            </fieldset>
+          </.form_pane>
 
-          <%!-- Workflow status — a sub-project is a project, so it gets the same
-               status-source picker (V125). --%>
-          <div :if={@statuses_available} class="card bg-base-100 shadow">
-            <div class="card-body">
-              <.workflow_status_fields
-                statuses_available={@statuses_available}
-                field={@sp_form[:status_entity_uuid]}
-                status_entities={@status_entities}
-                status_preview={@status_preview}
-                status_translation_mode={@status_translation_mode}
-                locked={Statuses.started?(@sp_form.source.data)}
-              />
-            </div>
-          </div>
-          <% end %>
+          <%!-- ── Settings: its workflow statuses (V125) ── --%>
+          <.form_pane :if={@statuses_available} prefix="subproject" pane="settings" active={@sp_pane}>
+            <.workflow_status_fields
+              statuses_available={@statuses_available}
+              field={@sp_form[:status_entity_uuid]}
+              status_entities={@status_entities}
+              status_preview={@status_preview}
+              status_translation_mode={@status_translation_mode}
+              locked={Statuses.started?(@sp_form.source.data)}
+            />
+          </.form_pane>
+        <% end %>
 
-          <%!-- The same `cancel` as the task form: in a drawer it closes
-               the frame, on the page it navigates back. (It used to be a
-               link that, in emit mode, opened the project as a NEW frame.) --%>
-          <.form_actions
-            class="gap-2"
-            submit_label={
-              cond do
-                @live_action == :edit -> gettext("Save")
-                @sp_mode == "existing" -> gettext("Nest sub-project")
-                true -> gettext("Add sub-project")
-              end
-            }
-            submitting_label={gettext("Saving…")}
-            submit_disabled={@sp_mode == "existing" and @link_options == []}
+        <%!-- The same `cancel` as the task form: in a drawer it closes
+             the frame, on the page it navigates back. --%>
+        <div class="sticky bottom-0 z-10 flex flex-wrap items-center justify-end gap-2 mt-2 py-2 px-3 rounded-box border border-base-300 bg-base-100 shadow">
+          <button
+            type="button"
+            phx-click="cancel"
+            data-confirm={@dirty? && gettext("Discard your changes?")}
+            class="btn btn-ghost btn-sm mr-auto"
           >
-            <:cancel>
-              <button
-                type="button"
-                phx-click="cancel"
-                data-confirm={@dirty? && gettext("Discard your changes?")}
-                class="btn btn-ghost"
-              >
-                {gettext("Cancel")}
-              </button>
-            </:cancel>
-          </.form_actions>
-        </.form>
+            {gettext("Cancel")}
+          </button>
+          <button
+            type="submit"
+            phx-disable-with={gettext("Saving…")}
+            disabled={@sp_mode == "existing" and @link_options == []}
+            class="btn btn-primary btn-sm"
+          >
+            {cond do
+              @live_action == :edit -> gettext("Save")
+              @sp_mode == "existing" -> gettext("Nest sub-project")
+              true -> gettext("Add sub-project")
+            end}
+          </button>
+        </div>
+      </.form>
+      <.assignee_picker_outside search_form="subproject-assignee-form" staff_confirm={@staff_confirm} />
     </div>
     """
   end
@@ -3938,8 +3849,18 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
       <%!-- The header names the task as it is being typed (the boss: the
            name at the top did not follow the field below), with where it
            stands; it stays above the tabs. --%>
-      <header id="assignment-form-header" class="flex flex-col gap-1.5">
-        <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm min-w-0">
+      <.form_header
+        id="assignment-form-header"
+        title_id="assignment-form-title"
+        title={header_title(assigns)}
+        mode={if @live_action == :edit, do: gettext("Editing"), else: gettext("Add task")}
+        close_event={
+          @embed_mode not in [:navigate, :emit] and not @from_view? &&
+            if(@live_action == :edit, do: "close_form", else: "cancel")
+        }
+        close_confirm={@live_action != :edit && @dirty? && gettext("Discard your changes?")}
+      >
+        <:context>
           <.link
             :if={@embed_mode == :navigate and @project.uuid not in [nil, ""]}
             navigate={Paths.project(@project.uuid)}
@@ -3952,67 +3873,39 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
             {@project.name}
           </span>
           <.ref_chip :if={assigns[:task_ref]} ref={assigns[:task_ref]} />
-          <span class="text-base-content/50">{if @live_action == :edit, do: gettext("Editing"), else: gettext("Add task")}</span>
-          <div class="ml-auto flex items-center gap-1">
-            <button
-              :if={@from_view?}
-              type="button"
-              phx-click={if @live_action == :edit, do: "close_form", else: "cancel"}
-              data-confirm={@live_action != :edit && @dirty? && gettext("Discard your changes?")}
-              class="btn btn-ghost btn-sm gap-1"
-            >
-              <.icon name="hero-arrow-left" class="w-4 h-4" /> {gettext("Back to task")}
-            </button>
-            <button
-              :if={@embed_mode not in [:navigate, :emit] and not @from_view?}
-              type="button"
-              phx-click={if @live_action == :edit, do: "close_form", else: "cancel"}
-              data-confirm={@live_action != :edit && @dirty? && gettext("Discard your changes?")}
-              class="btn btn-ghost btn-sm btn-square"
-              aria-label={gettext("Close")}
-            >
-              <.icon name="hero-x-mark" class="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-        <div class="flex items-start gap-3">
-          <h2 id="assignment-form-title" class="flex-1 min-w-0 text-xl font-semibold leading-snug break-words text-balance">
-            {header_title(assigns)}
-          </h2>
+        </:context>
+        <:actions>
+          <button
+            :if={@from_view?}
+            type="button"
+            phx-click={if @live_action == :edit, do: "close_form", else: "cancel"}
+            data-confirm={@live_action != :edit && @dirty? && gettext("Discard your changes?")}
+            class="btn btn-ghost btn-sm gap-1"
+          >
+            <.icon name="hero-arrow-left" class="w-4 h-4" /> {gettext("Back to task")}
+          </button>
+        </:actions>
+        <:badge>
           <.assignment_status_badge
             :if={not Map.get(@project, :is_template, false)}
             status={to_string(@form[:status].value || "waiting")}
             size="md"
             class="mt-1 shrink-0"
           />
-        </div>
-      </header>
+        </:badge>
+      </.form_header>
 
       <.form for={@form} id="assignment-form" phx-change="validate" phx-submit="save" phx-debounce="300" class="flex flex-col gap-4">
         <%!-- The tabs. Every tab's fields stay in this one form and are only
              hidden, so switching loses nothing typed and a save posts them
              all; a tab holding an error the form shows carries a dot. --%>
-        <div :if={match?([_, _ | _], @panes)} role="tablist" class="tabs tabs-border" id="assignment-form-tabs">
-          <button
-            :for={{pane, label} <- @panes}
-            type="button"
-            role="tab"
-            id={"assignment-tab-#{pane}"}
-            aria-selected={to_string(@pane == pane)}
-            aria-controls={"assignment-pane-#{pane}"}
-            phx-click="set_form_pane"
-            phx-value-pane={pane}
-            class={["tab gap-1.5", @pane == pane && "tab-active"]}
-          >
-            {label}
-            <span
-              :if={MapSet.member?(@pane_errors, pane)}
-              class="inline-block w-2 h-2 rounded-full bg-error"
-              title={gettext("Something here needs fixing")}
-              data-pane-error={pane}
-            ></span>
-          </button>
-        </div>
+        <.form_tabs
+          id="assignment-form-tabs"
+          prefix="assignment"
+          panes={@panes}
+          active={@pane}
+          errors={@pane_errors}
+        />
 
         <%!-- ── Task: what it is, where it stands, whose it is, by when ── --%>
         <section id="assignment-pane-task" role="tabpanel" class={["flex flex-col gap-4", @pane != "task" && "hidden"]}>
@@ -4087,37 +3980,25 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
                tabs. Only these two sit inside the wrapper — it re-mounts
                on a language switch, so anything else in it would lose its
                value. --%>
-          <div id="assignment-words" class={["flex flex-col gap-3", @translated? && "rounded-box border border-base-300 p-3"]}>
-            <%!-- The tabs, with AI translate at the end of their row, without
-                 card padding of their own. No explanatory line above them:
-                 the tabs say it (the boss, 2026-10-30). --%>
-            <.ai_multilang_tabs
-              :if={@multilang_enabled}
-              multilang_enabled={@multilang_enabled}
-              language_tabs={@language_tabs}
-              current_lang={@current_lang}
-              class=""
-              ai_translate={FormGlue.ai_translate_config(assigns)}
-            />
-
-            <.multilang_fields_wrapper
-              multilang_enabled={@multilang_enabled}
-              current_lang={@current_lang}
-              skeleton_class="space-y-2"
-              fields_class="flex flex-col gap-3"
-            >
-              <:skeleton>
-                <%!-- Mirrors the fields the wrapper holds: the title (input
-                     height) above the description (textarea). --%>
-                <div :if={@title_field?} class="space-y-2 mb-3">
-                  <div class="bg-base-content/15 rounded h-4 w-20 animate-pulse"></div>
-                  <div class="bg-base-content/15 rounded h-10 w-full animate-pulse"></div>
-                </div>
-                <div class="space-y-2">
-                  <div class="bg-base-content/15 rounded h-4 w-24 animate-pulse"></div>
-                  <div class="bg-base-content/15 rounded h-16 w-full animate-pulse"></div>
-                </div>
-              </:skeleton>
+          <.words_block
+            id="assignment-words"
+            multilang_enabled={@multilang_enabled}
+            language_tabs={@language_tabs}
+            current_lang={@current_lang}
+            ai_translate={FormGlue.ai_translate_config(assigns)}
+          >
+            <:skeleton>
+              <%!-- Mirrors the fields the wrapper holds: the title (input
+                   height) above the description (textarea). --%>
+              <div :if={@title_field?} class="space-y-2 mb-3">
+                <div class="bg-base-content/15 rounded h-4 w-20 animate-pulse"></div>
+                <div class="bg-base-content/15 rounded h-10 w-full animate-pulse"></div>
+              </div>
+              <div class="space-y-2">
+                <div class="bg-base-content/15 rounded h-4 w-24 animate-pulse"></div>
+                <div class="bg-base-content/15 rounded h-16 w-full animate-pulse"></div>
+              </div>
+            </:skeleton>
 
               <%!-- Re-keyed by `form_seq` so "Add & next" mounts a fresh
                    wrapper and the cursor lands back in the title; the same
@@ -4165,145 +4046,38 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
                 mentions
                 data-mention-context={mention_context(@project)}
               />
-            </.multilang_fields_wrapper>
-          </div>
+          </.words_block>
 
           <%!-- Where it stands: the list's own status colours, one press each
                — a radio group, so the choice posts with the form. --%>
-          <fieldset id="assignment-status">
-            <legend class="text-sm font-semibold mb-1.5">{gettext("Status")}</legend>
-            <div class="flex flex-wrap gap-1.5">
-              <label
-                :for={{label, value} <- status_options(@fx, @assignment)}
-                id={"assignment-status-#{value}"}
-                class={status_choice_class(value, to_string(@form[:status].value) == value)}
-              >
-                <input
-                  type="radio"
-                  name={@form[:status].name}
-                  value={value}
-                  checked={to_string(@form[:status].value) == value}
-                  class="sr-only"
-                />
-                <.icon :if={to_string(@form[:status].value) == value} name="hero-check-mini" class="w-4 h-4 -ml-0.5" />
-                {label}
-              </label>
-            </div>
-          </fieldset>
+          <.status_choices
+            id="assignment-status"
+            name={@form[:status].name}
+            value={to_string(@form[:status].value)}
+            options={status_options(@fx, @assignment)}
+          />
 
           <%!-- Whose it is: one search over people, teams and departments,
                the person themselves one press away, and whoever this
                project's tasks went to lately. The choice is the form's
                three assignee fields, posted as hidden inputs. --%>
-          <div :if={@fx.assignees} id="assignment-assignee" class="flex flex-col gap-2">
-            <input type="hidden" name="assign_type" value={assignee_kind_of(@assignee_chip)} />
-            <input type="hidden" name={@form[:assigned_person_uuid].name} value={@form[:assigned_person_uuid].value} />
-            <input type="hidden" name={@form[:assigned_team_uuid].name} value={@form[:assigned_team_uuid].value} />
-            <input type="hidden" name={@form[:assigned_department_uuid].name} value={@form[:assigned_department_uuid].value} />
-            <div class="flex items-center justify-between gap-2">
-              <label for="assignment-assignee-search" class="text-sm font-semibold">{gettext("Assignee")}</label>
-              <%!-- Works for any account: one with no staff person gets
-                   one made, after the form asks (`staff_confirm`). --%>
-              <button
-                :if={@can_assign? and @assignee_chip.key != {"person", @my_person_uuid}}
-                type="button"
-                id="assignment-assign-me"
-                phx-click="assign_to_me"
-                class="btn btn-xs btn-outline gap-1"
-              >
-                <.icon name="hero-user-plus" class="w-3.5 h-3.5" /> {gettext("Assign to me")}
-              </button>
-            </div>
-            <p
-              :if={@can_assign? and match?({:trashed, _}, @assignee_notice)}
-              id="assignment-assignee-notice"
-              class="text-xs text-warning"
-            >
-              <%= if @assignee_notice == {:trashed, :self} do %>
-                {gettext("Your staff record is in the trash; restore it under Staff → People to be assigned.")}
-              <% else %>
-                {gettext("Their staff record is in the trash; restore it under Staff → People to assign them.")}
-              <% end %>
-            </p>
-
-            <div
-              :if={@assignee_chip.key}
-              id="assignment-assignee-chosen"
-              data-kind={assignee_kind_of(@assignee_chip)}
-              class="flex items-center gap-2 rounded-box border border-base-300 px-2.5 py-1.5"
-            >
-              <%= if @assignee_chip.row && @assignee_chip.row.faces do %>
-                <.assignee_faces faces={@assignee_chip.row.faces} size="sm" />
-              <% else %>
-                <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-base-200 shrink-0">
-                  <.icon name={(@assignee_chip.row && @assignee_chip.row.icon) || "hero-user"} class="w-4 h-4 text-base-content/60" />
-                </span>
-              <% end %>
-              <div class="min-w-0 flex-1">
-                <div class="truncate font-medium text-sm">
-                  {(@assignee_chip.row && @assignee_chip.row.label) || gettext("No longer listed")}
-                </div>
-                <div :if={@assignee_chip.row && @assignee_chip.row.sublabel} class="truncate text-xs text-base-content/60">
-                  {@assignee_chip.row.sublabel}
-                </div>
-              </div>
-              <button
-                :if={@can_assign?}
-                type="button"
-                id="assignment-assignee-clear"
-                phx-click="assignee_clear"
-                class="btn btn-ghost btn-xs btn-circle"
-                aria-label={gettext("Remove the assignee")}
-                title={gettext("Remove the assignee")}
-              >
-                <.icon name="hero-x-mark" class="w-4 h-4" />
-              </button>
-            </div>
-            <p :if={is_nil(@assignee_chip.key) and not @can_assign?} class="text-sm text-base-content/60">
-              {gettext("Unassigned")}
-            </p>
-
-            <%!-- Owned by a form of its own (`form=`, drawn after this one):
-                 Enter in the search must pick a row, never add the task. --%>
-            <.search_picker
-              :if={@can_assign?}
-              id="assignment-assignee-search"
-              dropdown_id="assignment-assignee-list"
-              form="assignment-assignee-form"
-              search_event="assignee_search"
-              results_event="assignee_results"
-              pick_event="assignee_pick"
-              staged_event="assignee_staged"
-              search_on_focus
-              close_on_pick
-              placeholder={
-                if @assignee_chip.key,
-                  do: gettext("Hand it to someone else — search a person, team or department"),
-                  else: gettext("Search a person, team or department")
-              }
-              class="input input-sm w-full"
-              searching_label={gettext("Searching…")}
-              more_label={gettext("Load more")}
-              loading_more_label={gettext("Loading…")}
-              no_matches_label={gettext("No matches")}
-            />
-
-            <% recent = Enum.reject(@recent_assignees, &({&1.kind, &1.uuid} == @assignee_chip.key)) %>
-            <div :if={@can_assign? and recent != []} id="assignment-assignee-recent" class="flex flex-wrap items-center gap-1.5">
-              <span class="text-xs text-base-content/60">{gettext("Recent:")}</span>
-              <button
-                :for={r <- recent}
-                type="button"
-                phx-click="assignee_recent"
-                phx-value-kind={r.kind}
-                phx-value-uuid={r.uuid}
-                class="btn btn-xs btn-ghost border-base-300 gap-1 font-normal"
-                title={r.sublabel || r.label}
-              >
-                <.icon name={r.icon} class="w-3.5 h-3.5 opacity-60" />{r.label}
-              </button>
-            </div>
-          </div>
+          <.assignee_picker
+            :if={@fx.assignees}
+            id="assignment-assignee"
+            me_id="assignment-assign-me"
+            label={gettext("Assignee")}
+            search_form="assignment-assignee-form"
+            fields={[
+              {@form[:assigned_person_uuid].name, @form[:assigned_person_uuid].value},
+              {@form[:assigned_team_uuid].name, @form[:assigned_team_uuid].value},
+              {@form[:assigned_department_uuid].name, @form[:assigned_department_uuid].value}
+            ]}
+            chip={@assignee_chip}
+            can_assign?={@can_assign?}
+            my_person_uuid={@my_person_uuid}
+            recent={@recent_assignees}
+            notice={@assignee_notice}
+          />
 
           <%!-- The deadline: by when it has to be done — the one date that
                makes a task overdue. The planned days are on Planning. --%>
@@ -4925,35 +4699,49 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
       <form id="assignment-log-form" phx-submit="log_time" class="hidden"></form>
       <%!-- Owns the "Add a subtask" line drawn inside the form above. --%>
       <form id="assignment-subtask-form" phx-submit="subtask_add" class="hidden"></form>
-      <%!-- Owns the assignee search box: Enter there submits nothing. --%>
-      <form id="assignment-assignee-form" phx-submit="assignee_noop" class="hidden"></form>
-      <%!-- Asks before an assignment makes a staff record. --%>
-      <%!-- In the drawer this dialog sits inside the drawer's own dialog,
-           and daisyUI's `modal-end` makes every modal box under it full
-           height (a descendant rule); a confirm keeps its own height. --%>
-      <style :if={@staff_confirm}>
-        #pk-modal-staff_create_cancel > .modal-box { height: auto; }
-      </style>
-      <.confirm_modal
-        :if={@staff_confirm}
-        show={true}
-        on_confirm="staff_create_confirm"
-        on_cancel="staff_create_cancel"
-        title={gettext("Create a staff record?")}
-        title_icon="hero-user-plus"
-        messages={[
-          {:info,
-           gettext(
-             "%{name} has no staff record yet. Assigning creates one (Staff → People) with their name and account; you can fill it in or remove it there later.",
-             name: @staff_confirm.name
-           )}
-        ]}
-        prompt=""
-        cancel_text={gettext("Cancel")}
-        confirm_text={gettext("Create and assign")}
-      />
+      <%!-- Owns the assignee search box, and asks before an assignment
+           makes a staff record. --%>
+      <.assignee_picker_outside search_form="assignment-assignee-form" staff_confirm={@staff_confirm} />
     </div>
     """
+  end
+
+  # The sub-project form's tabs, the open one, and the ones holding an error.
+  defp prepare_subproject_render(assigns) do
+    panes =
+      [
+        {"subproject", gettext("Sub-project")},
+        {"schedule", gettext("Schedule")},
+        assigns[:statuses_available] && {"settings", gettext("Settings")}
+      ]
+      |> Enum.filter(& &1)
+
+    assign(assigns,
+      sp_panes: panes,
+      sp_pane: open_pane(panes, assigns[:form_pane]),
+      sp_pane_errors:
+        error_panes([assigns.sp_form.source], %{
+          name: "subproject",
+          description: "subproject",
+          assigned_person_uuid: "subproject",
+          assigned_team_uuid: "subproject",
+          assigned_department_uuid: "subproject",
+          status_entity_uuid: "settings"
+        })
+    )
+  end
+
+  # The sub-project's name as typed, in the language whose tab is open.
+  defp subproject_title(assigns) do
+    typed =
+      assigns.sp_form.source
+      |> Ecto.Changeset.apply_changes()
+      |> Project.localized_name(assigns[:current_lang])
+
+    case typed && String.trim(typed) do
+      name when is_binary(name) and name != "" -> name
+      _ -> gettext("New sub-project")
+    end
   end
 
   # What the task form's template reads besides the assigns: which tabs it
@@ -4982,32 +4770,6 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
       pane_errors: error_panes(assigns)
     )
   end
-
-  # A status choice as the list's status badge (`AssignmentStatusBadge`):
-  # the chosen one filled, the others outlined in their own colour.
-  defp status_choice_class(status, true) do
-    [
-      "badge badge-lg h-auto py-1.5 px-3 gap-1 cursor-pointer select-none font-semibold",
-      "ring-2 ring-base-content/20 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2",
-      AssignmentStatusBadge.badge_class(status)
-    ]
-  end
-
-  defp status_choice_class(status, false) do
-    [
-      "badge badge-lg badge-outline h-auto py-1.5 px-3 gap-1 cursor-pointer select-none",
-      "opacity-80 hover:opacity-100 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2",
-      status_outline(status)
-    ]
-  end
-
-  defp status_outline("todo"), do: "badge-info"
-  defp status_outline("in_progress"), do: "badge-warning"
-  defp status_outline("done"), do: "badge-success"
-  defp status_outline(_), do: "text-base-content/70"
-
-  defp assignee_kind_of(%{key: {kind, _uuid}}), do: kind
-  defp assignee_kind_of(_chip), do: ""
 
   defp public_board?(project) do
     case PhoenixKitProjects.Portal.get_portal(project.uuid) do
