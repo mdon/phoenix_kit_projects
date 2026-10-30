@@ -455,11 +455,7 @@ defmodule PhoenixKitProjects.Web.AssignmentViewLive do
             <dt :if={@fx.assignees} class="text-base-content/60">{gettext("Assignee")}</dt>
             <dd :if={@fx.assignees} class="min-w-0 truncate">
               <%= if assignee_kind(@assignment) do %>
-                <span class="inline-flex items-center gap-1.5 max-w-full">
-                  <.assignee_faces faces={@faces} size="xs" />
-                  <.icon :if={is_nil(@faces)} name={assignee_icon(@assignment)} class="w-3.5 h-3.5 shrink-0 opacity-60" />
-                  <span class="truncate">{assignee_label(@assignment)}</span>
-                </span>
+                <.assignee_shown a={@assignment} faces={@faces} class="max-w-full" />
               <% else %>
                 <span class="text-base-content/60">{gettext("Unassigned")}</span>
               <% end %>
@@ -731,14 +727,6 @@ defmodule PhoenixKitProjects.Web.AssignmentViewLive do
   defp assignee_kind(%{assigned_team_uuid: t}) when is_binary(t), do: :team
   defp assignee_kind(%{assigned_department_uuid: d}) when is_binary(d), do: :department
   defp assignee_kind(_), do: nil
-
-  defp assignee_icon(a) do
-    case assignee_kind(a) do
-      :team -> "hero-users"
-      :department -> "hero-building-office"
-      _ -> "hero-user"
-    end
-  end
 
   defp priority_label("urgent"), do: gettext("Urgent")
   defp priority_label("high"), do: gettext("High")

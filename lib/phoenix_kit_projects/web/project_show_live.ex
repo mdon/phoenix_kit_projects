@@ -92,7 +92,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   # Schedule/assignee helpers shared with ProjectGanttLive — imported so the
   # template's bare calls resolve. See PhoenixKitProjects.Web.Helpers.
   import PhoenixKitProjects.Web.Helpers,
-    only: [assignee_label: 1, task_counts_weekends?: 2, assignment_hours: 2]
+    only: [task_counts_weekends?: 2, assignment_hours: 2]
 
   import PhoenixKitWeb.Components.Core.TimeDisplay, only: [time_ago: 1]
   import PhoenixKitProjects.Web.Components.TaskTimes, only: [deadline_chip: 1, planned_chip: 1]
@@ -925,9 +925,6 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   defp board_orphans(assignments),
     do: Enum.count(assignments, &(&1.status not in ["waiting", "todo", "in_progress", "done"]))
 
-  # From the FIELDS, never from `assignee_type/1` — that returns a
-  # translated label ("Person"/"Team"/"Dept"), so matching on it would pick
-  # the right icon in English and the fallback in every other language.
   # The board's columns. With the in-progress step off the middle column
   # goes — unless a row still sits there (legacy or flipped mid-flight),
   # so nothing ever disappears from the board.
@@ -1082,13 +1079,6 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         </.table_row_menu>
     """
   end
-
-  defp assignee_icon(%{assigned_team_uuid: uuid}) when is_binary(uuid), do: "hero-users"
-
-  defp assignee_icon(%{assigned_department_uuid: uuid}) when is_binary(uuid),
-    do: "hero-building-office"
-
-  defp assignee_icon(_assignment), do: "hero-user"
 
   defp clamp_pct(pct) when is_integer(pct), do: pct |> max(0) |> min(100)
   defp clamp_pct(_pct), do: 0
@@ -2096,13 +2086,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
               <.icon name="hero-cpu-chip" class="w-3 h-3" /> {gettext("AI %{amount}", amount: format_minutes(ai_logged))}
             </button>
 
-            <% atype = assignee_type(@a) %>
-            <span :if={@fx.assignees and atype} class="inline-flex items-center gap-1">
-              <.assignee_faces faces={@faces[@a.uuid]} size="xs" />
-              <span class="badge badge-outline badge-sm gap-1">
-                <.icon name="hero-user" class="w-3 h-3" /> {atype}: {assignee_label(@a)}
-              </span>
-            </span>
+            <.assignee_shown :if={@fx.assignees} a={@a} faces={@faces[@a.uuid]} />
 
             <%!-- Priority: only non-normal wears a badge (calm cards). --%>
             <span
@@ -4098,11 +4082,13 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     end
   end
 
+  # Which kind of assignee a row has, from the fields — only ever asked
+  # whether there is one; the name is shown by `assignee_shown/1`.
   defp assignee_type(a) do
     cond do
-      a.assigned_person_uuid -> gettext("Person")
-      a.assigned_team_uuid -> gettext("Team")
-      a.assigned_department_uuid -> gettext("Department")
+      a.assigned_person_uuid -> :person
+      a.assigned_team_uuid -> :team
+      a.assigned_department_uuid -> :department
       true -> nil
     end
   end
@@ -5583,10 +5569,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                           <progress class="progress progress-primary w-20" value={a.progress_pct} max="100"></progress>
                           <span class="text-base-content/60 w-8">{a.progress_pct}%</span>
                         </div>
-                        <span :if={assignee_type(child)} class="badge badge-outline badge-sm gap-1">
-                          <.icon name="hero-user" class="w-3 h-3" />
-                          {assignee_type(child)}: {assignee_label(child)}
-                        </span>
+                        <.assignee_shown a={child} />
                       </div>
 
                       <%!-- This sub-project's own dependencies (on siblings) --%>
@@ -5887,17 +5870,14 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                        hidden — on a board that is the most actionable thing
                        a card can say. --%>
                   <div class="flex flex-wrap items-center justify-between gap-2">
-                    <% b_atype = assignee_type(a) %>
+                    <.assignee_shown
+                      :if={@fx.assignees}
+                      a={a}
+                      faces={faces[a.uuid]}
+                      class="text-xs opacity-80"
+                    />
                     <span
-                      :if={@fx.assignees and b_atype}
-                      class="inline-flex items-center gap-1.5 text-xs min-w-0 opacity-80"
-                    >
-                      <.assignee_faces faces={faces[a.uuid]} size="xs" />
-                      <.icon :if={faces[a.uuid] == nil} name={assignee_icon(a)} class="w-3.5 h-3.5 shrink-0" />
-                      <span class="truncate">{assignee_label(a)}</span>
-                    </span>
-                    <span
-                      :if={@fx.assignees and is_nil(b_atype)}
+                      :if={@fx.assignees and is_nil(assignee_type(a))}
                       class="inline-flex items-center gap-1 text-xs text-warning/80"
                     >
                       <.icon name="hero-user-circle" class="w-3.5 h-3.5 shrink-0" />
@@ -6178,11 +6158,10 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
 
             <%!-- Who it is assigned to, and who the notice reaches. --%>
             <div class={["flex items-center gap-1.5 text-xs text-base-content/70", not release? && "opacity-50"]}>
-              <.icon name={assignee_icon(a)} class="w-3.5 h-3.5 shrink-0" />
               <%= if assignee_type(a) do %>
-                <span>{assignee_type(a)}:</span>
-                <span class="font-medium text-base-content">{assignee_label(a)}</span>
+                <.assignee_shown a={a} faces={(assigns[:assignee_faces] || %{})[a.uuid]} class="font-medium text-base-content" />
               <% else %>
+                <.icon name="hero-user" class="w-3.5 h-3.5 shrink-0" />
                 <span>{gettext("Nobody is assigned")}</span>
               <% end %>
             </div>
