@@ -330,6 +330,24 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
 
   defp take_task_params(socket, _params), do: socket
 
+  # The library's tasks whose title matches what is being typed as a new
+  # task's title (the boss's "suggest tasks, auto-complete style"; library
+  # tasks only, never another project's). Ignored, the typed task is
+  # created as before.
+  defp assign_title_suggestions(
+         %{assigns: %{live_action: :new, fx: %{library: true}}} = socket,
+         params
+       ) do
+    suggestions =
+      if Map.get(params, "task_mode", socket.assigns.task_mode) == "new",
+        do: PhoenixKitProjects.LibrarySearch.suggest(socket.assigns[:new_task_title], limit: 6),
+        else: []
+
+    assign(socket, :title_suggestions, suggestions)
+  end
+
+  defp assign_title_suggestions(socket, _params), do: assign(socket, :title_suggestions, [])
+
   defp task_form_for(socket, attrs),
     do: to_form(Projects.change_task(socket.assigns[:title_task] || %Task{}, attrs), as: :task)
 
@@ -1257,6 +1275,25 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   # the hidden form input picks up the new value on the next
   # `phx-change` so `validate`/`save` see it via params (no separate
   # socket-assign read path needed).
+  # A library suggestion under the new task's title, picked: the task is
+  # added from the library as the "From library" tab adds it — its title,
+  # description, estimate and default assignee. Only a row the form offered.
+  def handle_event("pick_title_suggestion", %{"uuid" => uuid}, socket) do
+    offered? = Enum.any?(socket.assigns[:title_suggestions] || [], &(&1.uuid == uuid))
+
+    if offered? and socket.assigns.fx.library and socket.assigns.live_action == :new do
+      attrs = socket.assigns.form.params || %{}
+
+      {:noreply,
+       socket
+       |> assign(task_mode: "existing", title_suggestions: [])
+       |> prefill_from_template(uuid, attrs)
+       |> WebHelpers.mark_dirty()}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("set_task_mode", %{"tab" => mode}, socket)
       when mode in ~w(existing new) do
     # The library tab only exists while the project's library flag is on;
@@ -1427,7 +1464,11 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
 
   def handle_event("validate", %{"assignment" => attrs} = params, socket) do
     socket =
-      socket |> take_task_params(params) |> take_times_params(params) |> maybe_move(params)
+      socket
+      |> take_task_params(params)
+      |> take_times_params(params)
+      |> maybe_move(params)
+      |> assign_title_suggestions(params)
 
     attrs = form_attrs(attrs, socket)
     assign_type = Map.get(params, "assign_type", socket.assigns.assign_type)
@@ -4026,6 +4067,25 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
                   hint={if(@title_shared?, do: gettext("This task is in the task library: renaming it here renames it in every project that uses it."))}
                   required
                 />
+                <%!-- Library tasks matching the title as typed: a press adds
+                     that one, as from the library tab. --%>
+                <div
+                  :if={@live_action == :new and assigns[:title_suggestions] not in [nil, []]}
+                  id="assignment-title-suggestions"
+                  class="mt-1.5 flex flex-wrap items-center gap-1.5"
+                >
+                  <span class="text-xs text-base-content/60">{gettext("From the library:")}</span>
+                  <button
+                    :for={t <- @title_suggestions}
+                    type="button"
+                    phx-click="pick_title_suggestion"
+                    phx-value-uuid={t.uuid}
+                    class="btn btn-xs btn-ghost border-base-300 gap-1 font-normal"
+                  >
+                    <.icon name="hero-rectangle-stack" class="w-3.5 h-3.5 opacity-60" />
+                    {Task.localized_title(t, @current_lang)}
+                  </button>
+                </div>
               </div>
 
               <.translatable_field
