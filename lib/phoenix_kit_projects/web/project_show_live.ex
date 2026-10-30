@@ -302,8 +302,8 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
             socket.assigns[:live_action]
             |> tab_for_action(Map.get(params, "tab"), is_template, ext_tabs)
             |> gate_tab(fx)
-            |> gate_comments_tab(comments?)
-            |> resolve_landing_tab(fx, ext_tabs, comments?)
+            |> gate_comments_tab(comments? and fx.project_comments, comments? and fx.all_comments)
+            |> resolve_landing_tab(fx, ext_tabs, comments? and fx.project_comments)
 
           # Resolve the workflow-status list once (read-only — nothing is
           # provisioned or seeded here; an unset shared default simply yields
@@ -371,6 +371,14 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
               notes_summary_preview: nil,
               # Availability ∧ the per-project "discussions" bridge toggle.
               comments_enabled: comments?,
+              # The two comment tabs, each its own switch (the boss,
+              # 2026-10-30): the project's own thread, and every comment on
+              # its tasks in one list.
+              project_thread?: comments? and fx.project_comments,
+              all_comments?: comments? and fx.all_comments,
+              all_comments: [],
+              all_comments_task: "",
+              all_comments_project?: false,
               # The task view the Tasks top tab reopens (the last one shown).
               task_view: (top_tab_of(active_tab) == :tasks && active_tab) || :list,
               project_comment_count: 0,
@@ -555,6 +563,11 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       comments_resource: nil,
       notes_summary_preview: nil,
       comments_enabled: false,
+      project_thread?: false,
+      all_comments?: false,
+      all_comments: [],
+      all_comments_task: "",
+      all_comments_project?: false,
       task_view: :list,
       project_comment_count: 0,
       assignment_comment_counts: %{},
@@ -660,10 +673,11 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     active =
       case gate_tab(socket.assigns.active_tab, fx) do
         "ext:" <> _ = id -> if Enum.any?(ext_tabs, &(&1.id == id)), do: id, else: :list
-        :comments -> if comments?, do: :comments, else: :list
+        :comments -> if comments? and fx.project_comments, do: :comments, else: :list
+        :all_comments -> if comments? and fx.all_comments, do: :all_comments, else: :list
         tab -> tab
       end
-      |> resolve_landing_tab(fx, ext_tabs, comments?)
+      |> resolve_landing_tab(fx, ext_tabs, comments? and fx.project_comments)
 
     socket =
       socket
@@ -672,7 +686,9 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         fx: fx,
         fx_files: Extensions.enabled?(project, "files"),
         ext_tabs: ext_tabs,
-        comments_enabled: comments?
+        comments_enabled: comments?,
+        project_thread?: comments? and fx.project_comments,
+        all_comments?: comments? and fx.all_comments
       )
       |> activate_tab(active)
 
@@ -695,7 +711,12 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   # query each, and the message carries an `action` (`:created |
   # :deleted`) that we don't need to discriminate on here.
   def handle_info({:comments_updated, _payload}, socket) do
-    {:noreply, load_comment_counts(socket)}
+    socket = load_comment_counts(socket)
+
+    socket =
+      if socket.assigns[:active_tab] == :all_comments, do: load_all_comments(socket), else: socket
+
+    {:noreply, socket}
   end
 
   # Ledger writes — this session's or anyone's (the AI attribution seam
@@ -2769,6 +2790,22 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
      |> apply_list_lens()}
   end
 
+  # The All comments filter — a read: which task, and whether the project's
+  # own thread is mixed in.
+  defp gated_handle_event("all_comments_filter", params, socket) do
+    task = params["task"] || ""
+
+    task =
+      if task == "" or Enum.any?(socket.assigns.assignments, &(&1.uuid == task)),
+        do: task,
+        else: ""
+
+    {:noreply,
+     socket
+     |> assign(all_comments_task: task, all_comments_project?: params["project"] == "true")
+     |> load_all_comments()}
+  end
+
   defp gated_handle_event("switch_tab", %{"tab" => tab}, socket) do
     # The URL follows on its own: the page carries the canonical address
     # of the active tab in `data-url` and core's PkUrlMirror hook replaces
@@ -3794,6 +3831,55 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     end
   end
 
+  # Every comment on the project's tasks, newest first (the All comments
+  # tab): one read over the rows' uuids, narrowed to one task when the
+  # filter names one, with the project's own thread when asked. Capped —
+  # the tab is for reading what was said lately; each task's view holds
+  # its whole thread.
+  @all_comments_limit 200
+
+  defp load_all_comments(socket) do
+    if socket.assigns[:all_comments?] do
+      %{assignments: rows, project: project} = socket.assigns
+      task = socket.assigns[:all_comments_task] || ""
+      uuids = if task == "", do: Enum.map(rows, & &1.uuid), else: [task]
+      project? = socket.assigns[:all_comments_project?] == true and task == ""
+
+      comments =
+        from(c in PhoenixKitComments.Comment,
+          where: c.status == "published",
+          where:
+            (c.resource_type == "assignment" and c.resource_uuid in ^uuids) or
+              (^project? and c.resource_type == "project" and c.resource_uuid == ^project.uuid),
+          # uuid second: v7, so it keeps the order within one second.
+          order_by: [desc: c.inserted_at, desc: c.uuid],
+          limit: @all_comments_limit,
+          preload: [:user]
+        )
+        |> PhoenixKit.RepoHelper.repo().all()
+
+      assign(socket, all_comments: comments)
+    else
+      assign(socket, all_comments: [])
+    end
+  rescue
+    e in [Postgrex.Error, DBConnection.ConnectionError, UndefinedFunctionError] ->
+      Logger.warning("[ProjectShowLive] all comments failed: #{Exception.message(e)}")
+      assign(socket, all_comments: [])
+  end
+
+  # A comment's words for the list: plain text (a rich comment's tags
+  # dropped); the task's view shows it as written.
+  defp comment_text(content) when is_binary(content) do
+    content
+    |> String.replace(~r/<br\s*\/?>|<\/p>/i, "\n")
+    |> String.replace(~r/<[^>]*>/, "")
+    |> String.replace(~r/&nbsp;/, " ")
+    |> String.trim()
+  end
+
+  defp comment_text(_), do: ""
+
   # Label chips per displayed assignment (Phase C). Loaded only when the
   # labels flag resolves on; keyed by assignment uuid over the displayed
   # set (parent rows + expanded children), like the ledger chips.
@@ -3894,8 +3980,9 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
 
   # A `/comments` deep link on a project whose Discussions extension is off
   # (or without the comments package) lands like the bare page.
-  defp gate_comments_tab(:comments, false), do: :list
-  defp gate_comments_tab(tab, _comments?), do: tab
+  defp gate_comments_tab(:comments, false, _all?), do: :list
+  defp gate_comments_tab(:all_comments, _thread?, false), do: :list
+  defp gate_comments_tab(tab, _thread?, _all?), do: tab
 
   # With tasks OFF the :list landing has no task surface — land on the first
   # contributed extension tab instead, or on Comments when that is the only
@@ -4003,21 +4090,41 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     |> assign(gantt_mounted?: socket.assigns.gantt_mounted? or active == :gantt)
     |> assign(calendar_mounted?: socket.assigns.calendar_mounted? or active == :calendar)
     |> assign(history_mounted?: socket.assigns.history_mounted? or active == :history)
+    |> then(&if(active == :all_comments, do: load_all_comments(&1), else: &1))
   end
 
   defp resolve_switch_target(tab, socket) do
-    %{fx: fx, ext_tabs: ext_tabs, comments_enabled: comments?} = socket.assigns
+    %{fx: fx, ext_tabs: ext_tabs} = socket.assigns
+    comments? = socket.assigns[:project_thread?] == true
 
     target =
       case tab do
-        "tasks" -> gate_tab(socket.assigns.task_view, fx)
-        "board" when :erlang.map_get(:view_board, fx) -> :board
-        "gantt" when :erlang.map_get(:view_timeline, fx) -> :gantt
-        "calendar" when :erlang.map_get(:view_calendar, fx) -> :calendar
-        "comments" when comments? -> :comments
-        "history" when not socket.assigns.is_template and :erlang.map_get(:tasks, fx) -> :history
-        "ext:" <> _ -> if valid_ext_tab?(socket, tab), do: tab, else: :list
-        _ -> :list
+        "tasks" ->
+          gate_tab(socket.assigns.task_view, fx)
+
+        "board" when :erlang.map_get(:view_board, fx) ->
+          :board
+
+        "gantt" when :erlang.map_get(:view_timeline, fx) ->
+          :gantt
+
+        "calendar" when :erlang.map_get(:view_calendar, fx) ->
+          :calendar
+
+        "comments" when comments? ->
+          :comments
+
+        "all_comments" ->
+          if socket.assigns[:all_comments?] == true, do: :all_comments, else: :list
+
+        "history" when not socket.assigns.is_template and :erlang.map_get(:tasks, fx) ->
+          :history
+
+        "ext:" <> _ ->
+          if valid_ext_tab?(socket, tab), do: tab, else: :list
+
+        _ ->
+          :list
       end
 
     # The same landing rule as mount (codex, 2026-09-05): with tasks off a
@@ -5130,7 +5237,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       <% top_tabs =
         if(@fx.tasks, do: [%{id: "tasks", label: gettext("Tasks"), icon: "hero-clipboard-document-list"}], else: []) ++
           Enum.map(@ext_tabs, &%{id: &1.id, label: &1.label, icon: &1.icon}) ++
-          if(@comments_enabled,
+          if(@project_thread?,
             do: [
               %{
                 id: "comments",
@@ -5139,6 +5246,10 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                 badge: if(@project_comment_count > 0, do: @project_comment_count)
               }
             ],
+            else: []
+          ) ++
+          if(@all_comments?,
+            do: [%{id: "all_comments", label: gettext("All comments"), icon: "hero-chat-bubble-bottom-center-text"}],
             else: []
           ) ++
           if(@is_template or not @fx.tasks,
@@ -6143,8 +6254,8 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       <%!-- ── The Comments tab ── the project's own thread, inline (task
            threads keep the drawer the row icons open). Switched by the
            project's Discussions extension. --%>
-      <div :if={@comments_enabled} class={[top_tab != :comments && "hidden"]}>
-        <%= if @comments_enabled and top_tab == :comments and comments_available?() do %>
+      <div :if={@project_thread?} class={[top_tab != :comments && "hidden"]}>
+        <%= if @project_thread? and top_tab == :comments and comments_available?() do %>
           <.live_component
             module={PhoenixKitComments.Web.CommentsComponent}
             id={"comments-tab-project-#{@project.uuid}"}
@@ -6155,6 +6266,69 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
             show_likes={true}
           />
         <% end %>
+      </div>
+
+      <%!-- ── The All comments tab ── every comment on the project's tasks,
+           newest first, each under its task (which opens the task's
+           view); a task can be picked, the project's own thread mixed in. --%>
+      <div :if={@all_comments?} class={[top_tab != :all_comments && "hidden"]} id={"project-all-comments-#{@project.uuid}"}>
+        <form
+          id={"all-comments-filter-#{@project.uuid}"}
+          phx-change="all_comments_filter"
+          class="flex flex-wrap items-center gap-3 mb-3"
+        >
+          <.select
+            id={"all-comments-task-#{@project.uuid}"}
+            name="task"
+            value={@all_comments_task}
+            class="select-sm w-auto max-w-xs"
+            aria-label={gettext("Task")}
+            options={
+              [{gettext("All tasks"), ""}] ++
+                Enum.map(@assignments, &{Assignment.label(&1, L10n.current_content_lang()), &1.uuid})
+            }
+          />
+          <.checkbox
+            :if={@all_comments_task == ""}
+            id={"all-comments-project-#{@project.uuid}"}
+            name="project"
+            value="true"
+            checked={@all_comments_project?}
+            label={gettext("Include the project's own comments")}
+            class="checkbox-sm"
+            wrapper_class="gap-2"
+          />
+        </form>
+        <% by_uuid = Map.new(@assignments, &{&1.uuid, &1}) %>
+        <p :if={@all_comments == []} class="text-sm text-base-content/60 py-6 text-center">
+          {gettext("No comments yet.")}
+        </p>
+        <ul class="flex flex-col gap-3">
+          <li :for={c <- @all_comments} class="rounded-box border border-base-200 p-3 flex flex-col gap-1.5">
+            <div class="flex flex-wrap items-center gap-2 text-xs text-base-content/60">
+              <span class="font-medium text-base-content">
+                {c.author_display_name || (c.user && PhoenixKit.Users.Auth.User.display_name(c.user)) || gettext("Someone")}
+              </span>
+              <.time_ago datetime={c.inserted_at} />
+              <% task = c.resource_type == "assignment" && by_uuid[c.resource_uuid] %>
+              <%= if task do %>
+                <.smart_link
+                  navigate={Paths.view_assignment(task.project_uuid, task.uuid)}
+                  emit={{PhoenixKitProjects.Web.AssignmentViewLive, view_session(task)}}
+                  embed_mode={@embed_mode}
+                  class="inline-flex items-center gap-1.5 min-w-0 link link-hover"
+                  title={gettext("View the task")}
+                >
+                  <.ref_chip :if={Refs.task_ref(@project.key, task.number)} ref={Refs.task_ref(@project.key, task.number)} />
+                  <span class="truncate">{Assignment.label(task, L10n.current_content_lang())}</span>
+                </.smart_link>
+              <% else %>
+                <span class="badge badge-ghost badge-sm">{gettext("Project")}</span>
+              <% end %>
+            </div>
+            <p class="text-sm whitespace-pre-line break-words line-clamp-6">{comment_text(c.content)}</p>
+          </li>
+        </ul>
       </div>
 
       <%!-- ── The History tab ── the project told as it happened

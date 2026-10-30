@@ -306,6 +306,74 @@ defmodule PhoenixKitProjects.Web.ProjectShowBossReviewTest do
     end
   end
 
+  describe "the comment tabs (item 25)" do
+    setup do
+      :ok = PhoenixKitProjects.DataCase.with_comments_module()
+      :ok
+    end
+
+    defp comment!(type, uuid, user, text) do
+      {:ok, c} = PhoenixKitComments.create_comment(type, uuid, user, %{content: text})
+      c
+    end
+
+    test "All comments lists every task's comments, newest first, under its task",
+         %{conn: conn, actor_uuid: actor} do
+      project = started_project()
+      {:ok, project} = Features.set_flags(project, %{"all_comments" => true})
+      a = assignment!(project)
+      b = assignment!(project)
+      comment!("assignment", a.uuid, actor, "First on A")
+      Process.sleep(5)
+      comment!("assignment", b.uuid, actor, "Then on B")
+      comment!("project", project.uuid, actor, "On the project itself")
+
+      {:ok, view, html} = live(conn, "/en/admin/projects/#{project.uuid}")
+      assert html =~ ~s(phx-value-tab="all_comments")
+
+      html = render_click(view, "switch_tab", %{"tab" => "all_comments"})
+      pane = Regex.run(~r/id="project-all-comments-.*?<\/ul>/s, html) |> hd()
+      assert pane =~ "Then on B"
+      assert pane =~ "First on A"
+      refute pane =~ "On the project itself"
+      {b_at, _} = :binary.match(pane, "Then on B")
+      {a_at, _} = :binary.match(pane, "First on A")
+      assert b_at < a_at
+      b_label = PhoenixKitProjects.Schemas.Assignment.label(Projects.get_assignment(b.uuid))
+      assert pane =~ b_label
+
+      html =
+        view
+        |> element("#all-comments-filter-#{project.uuid}")
+        |> render_change(%{"task" => a.uuid})
+
+      pane = Regex.run(~r/id="project-all-comments-.*?<\/ul>/s, html) |> hd()
+      assert pane =~ "First on A"
+      refute pane =~ "Then on B"
+
+      html =
+        view
+        |> element("#all-comments-filter-#{project.uuid}")
+        |> render_change(%{"task" => "", "project" => "true"})
+
+      assert html =~ "On the project itself"
+    end
+
+    test "each tab has its own switch", %{conn: conn} do
+      project = started_project()
+      {:ok, _view, html} = live(conn, "/en/admin/projects/#{project.uuid}")
+      assert html =~ ~s(phx-value-tab="comments")
+      refute html =~ ~s(phx-value-tab="all_comments")
+
+      {:ok, project} =
+        Features.set_flags(project, %{"project_comments" => false, "all_comments" => true})
+
+      {:ok, _view, html} = live(conn, "/en/admin/projects/#{project.uuid}")
+      refute html =~ ~s(phx-value-tab="comments")
+      assert html =~ ~s(phx-value-tab="all_comments")
+    end
+  end
+
   describe "the assignee (item 5)" do
     test "a row names its team with no \"Team:\" before it", %{conn: conn} do
       n = System.unique_integer([:positive])
