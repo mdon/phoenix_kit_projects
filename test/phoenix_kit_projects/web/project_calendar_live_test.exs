@@ -126,6 +126,38 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLiveTest do
     assert_redirect(view, Paths.view_assignment(project.uuid, a1.uuid))
   end
 
+  test "a task's deadline is a marker that opens the task, a subtask's too", %{
+    conn: conn,
+    actor_uuid: actor
+  } do
+    {project, a1, a2} = started_project_with_tasks()
+    {_items, layout} = ScheduleLayout.tree(Projects.get_project_with_assignee(project.uuid))
+    %{start: s} = Map.fetch!(layout, a1.uuid)
+    deadline = DateTime.new!(NaiveDateTime.to_date(s), ~T[14:00:00])
+
+    {:ok, _} = Projects.update_assignment_form(a1, %{"deadline" => deadline})
+
+    sub_task = fixture_task(%{"title" => "Sub with a deadline"})
+
+    {:ok, sub} =
+      Projects.create_assignment(%{
+        "project_uuid" => project.uuid,
+        "task_uuid" => sub_task.uuid,
+        "parent_uuid" => a2.uuid,
+        "deadline" => deadline
+      })
+
+    {:ok, view, _html} =
+      live_isolated(conn, ProjectCalendarLive, session: view_session(project.uuid, actor))
+
+    html = render(view)
+    assert html =~ "Deadline: #{Projects.get_assignment(a1.uuid).task.title}"
+    assert html =~ "Deadline: Sub with a deadline"
+
+    send(view.pid, {:calendar_event_click, "deadline:" <> sub.uuid})
+    assert_redirect(view, Paths.view_assignment(project.uuid, sub.uuid))
+  end
+
   test "clicking a sub-project bar drills into the child project", %{
     conn: conn,
     actor_uuid: actor

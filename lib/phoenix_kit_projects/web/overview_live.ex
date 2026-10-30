@@ -261,21 +261,16 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
   # count (over ALL items — it's a triage signal, not a filtered view), and
   # the viewer's own assignee scope (once per mount).
   defp load_task_calendar(socket, active, upcoming, completed, offset) do
+    # Every task with a chip of its own, and every task with a deadline to
+    # mark (a subtask's deadline included — its chip is its parent's).
     items_with_spans =
       (active ++ upcoming ++ completed)
       |> Enum.uniq_by(& &1.uuid)
       |> ScheduleLayout.trees()
-      |> Enum.flat_map(fn {items, layout} ->
-        items
-        |> Enum.reject(&Assignment.subproject?(&1.assignment))
-        # A subtask has a chip of its own only with a date of its own.
-        |> Enum.filter(
-          &(is_nil(&1.assignment.parent_uuid) or ScheduleLayout.dated?(&1.assignment))
-        )
-        |> Enum.map(&{&1, Map.fetch!(layout, &1.uuid)})
-      end)
+      |> CalendarDisplay.calendar_items()
 
     now = DateTime.utc_now() |> DateTime.to_naive()
+    bars = Enum.filter(items_with_spans, fn {it, _} -> CalendarDisplay.bar_item?(it) end)
 
     socket
     |> AssigneeFilter.resolve_me()
@@ -283,11 +278,11 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
       task_calendar_items: items_with_spans,
       task_calendar_loaded?: true,
       tz_offset: offset,
-      unassigned_count:
-        Enum.count(items_with_spans, fn {it, _} -> Assignees.unassigned?(it.assignment) end),
+      unassigned_count: Enum.count(bars, fn {it, _} -> Assignees.unassigned?(it.assignment) end),
       overdue_count:
         Enum.count(items_with_spans, fn {it, span} ->
-          CalendarDisplay.task_late?(it.assignment, span, now)
+          (CalendarDisplay.bar_item?(it) and CalendarDisplay.task_late?(it.assignment, span, now)) or
+            CalendarDisplay.deadline_missed?(it.assignment, DateTime.utc_now())
         end)
     )
     |> apply_task_filter()
@@ -336,8 +331,8 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
     # Provenance ("via <team>") rides the meta so popup rows can show WHY a
     # task is in a person's view without implying personal ownership.
     meta =
-      Map.new(meta, fn {uuid, entry} ->
-        {uuid, Map.put(entry, :via, Map.get(provenance, uuid))}
+      Map.new(meta, fn {id, entry} ->
+        {id, Map.put(entry, :via, Map.get(provenance, entry.assignment_uuid))}
       end)
 
     {events, meta} =
@@ -826,6 +821,7 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                       id={"overview-tasks-calendar-#{@sfx}"}
                       events={@task_calendar_events}
                       views={[:month, :agenda]}
+                      time_format={CalendarDisplay.time_format()}
                       date={@today}
                       today={@today}
                       week_start={@overdue_anim.week_start}
@@ -899,6 +895,7 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                         id={"projects-overview-calendar-#{@sfx}"}
                         events={@calendar_events}
                         views={[:month]}
+                        time_format={CalendarDisplay.time_format()}
                         date={@today}
                         today={@today}
                         week_start={@overdue_anim.week_start}
