@@ -351,6 +351,68 @@ defmodule PhoenixKitProjects.Web.OutlineListTest do
       assert titles(p) == ["Old"]
     end
 
+    test "the library's tasks are offered as a title is typed, and one is taken",
+         %{conn: conn} do
+      p = project()
+      {:ok, _} = Outline.sync(p.uuid, [%{"text" => "First"}, %{"text" => "Last"}], [])
+      [first, _] = Projects.list_assignments(p.uuid)
+      tag = "Vq#{System.unique_integer([:positive])}"
+
+      library =
+        fixture_task(%{
+          "title" => "#{tag} fit the worktop",
+          "description" => "Bring the clamps",
+          "estimated_duration" => 3,
+          "estimated_duration_unit" => "hours"
+        })
+
+      # Someone else's one-off of the same words is never offered.
+      fixture_task(%{"title" => "#{tag} elsewhere", "ad_hoc" => true})
+
+      {:ok, view, _} = live(conn, "/en/admin/projects/#{p.uuid}")
+      render_hook(view, "outline_add", %{"after" => first.uuid, "text" => ""})
+      key = page_assigns(view).outline_draft.key
+
+      reply =
+        view
+        |> render_hook("outline_draft_suggest", %{"key" => key, "q" => tag})
+
+      assert is_binary(reply)
+
+      # The reply carries the items (read straight from the handler).
+      socket = :sys.get_state(view.pid).socket
+
+      {:reply, %{items: items}, _} =
+        OutlineList.handle_event(
+          "outline_draft_suggest",
+          %{"key" => key, "q" => tag},
+          socket,
+          & &1
+        )
+
+      assert [%{uuid: uuid, title: title, hint: "Bring the clamps"}] = items
+      assert uuid == library.uuid
+      assert title =~ "fit the worktop"
+
+      render_hook(view, "outline_draft_pick", %{
+        "key" => key,
+        "task" => library.uuid,
+        "next" => true
+      })
+
+      [_, picked, _] = Projects.list_assignments(p.uuid)
+      assert picked.task_uuid == library.uuid
+      assert picked.description == "Bring the clamps"
+      assert picked.estimated_duration == 3
+      # The next draft waits below it.
+      assert page_assigns(view).outline_draft.slot == picked.uuid
+
+      # A one-off or a stranger's uuid is not taken.
+      key = page_assigns(view).outline_draft.key
+      render_hook(view, "outline_draft_pick", %{"key" => key, "task" => "not-a-uuid"})
+      assert length(Projects.list_assignments(p.uuid)) == 3
+    end
+
     test "the draft row is drawn only at its own place" do
       draft = %{key: "d1", slot: "row-a", depth: 1, text: "Typed"}
 

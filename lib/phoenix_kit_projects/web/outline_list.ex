@@ -24,7 +24,17 @@ defmodule PhoenixKitProjects.Web.OutlineList do
 
   import PhoenixKitWeb.Components.Core.Icon
 
-  alias PhoenixKitProjects.{Activity, Authz, Outline, Paths, Projects, Refs}
+  alias PhoenixKitProjects.{
+    Activity,
+    Authz,
+    L10n,
+    LibrarySearch,
+    Outline,
+    Paths,
+    Projects,
+    Refs
+  }
+
   alias PhoenixKitProjects.Schemas.{Assignment, Project, Task}
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
   alias PhoenixKitProjects.Web.ProjectShowLive
@@ -381,6 +391,60 @@ defmodule PhoenixKitProjects.Web.OutlineList do
     end
   end
 
+  # The library's tasks matching what the draft holds so far, for the
+  # dropdown under it (`LibrarySearch.suggest/2`).
+  def handle_event("outline_draft_suggest", %{"key" => key, "q" => q}, socket, _reload) do
+    with true <- socket.assigns.outline_can.edit,
+         %{key: ^key} <- socket.assigns[:outline_draft] do
+      lang = L10n.current_content_lang()
+
+      items =
+        q
+        |> to_string()
+        |> LibrarySearch.suggest()
+        |> Enum.map(fn t ->
+          %{uuid: t.uuid, title: Task.localized_title(t, lang), hint: suggestion_hint(t, lang)}
+        end)
+
+      {:reply, %{key: key, items: items}, socket}
+    else
+      _ -> {:reply, %{key: key, items: []}, socket}
+    end
+  end
+
+  # A library task taken from the dropdown: added the way the task form adds
+  # one from the library (its description, estimate and default assignee
+  # come with it), where the draft stands; Enter opens the next draft.
+  def handle_event(
+        "outline_draft_pick",
+        %{"key" => key, "task" => task_uuid} = params,
+        socket,
+        reload
+      )
+      when is_binary(task_uuid) do
+    with true <- socket.assigns.outline_can.edit,
+         %{key: ^key} = draft <- socket.assigns[:outline_draft],
+         {:ok, _} <- Ecto.UUID.cast(task_uuid),
+         %Task{ad_hoc: false} <- Projects.get_task(task_uuid) do
+      result =
+        case Projects.create_assignment_from_template(task_uuid, %{
+               "project_uuid" => socket.assigns.project.uuid
+             }) do
+          {:ok, a} ->
+            after_row = if draft[:at_end], do: :last, else: draft.after
+            placed(socket, a, draft.parent, after_row)
+
+          error ->
+            audit_failed(socket, "projects.assignment_created", nil)
+            error
+        end
+
+      saved_draft(socket, draft, result, params["next"] == true, reload)
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
   # Esc, Enter on an empty draft, or clicking away from one: nothing is kept.
   def handle_event("outline_draft_cancel", %{"key" => key} = params, socket, _reload) do
     case socket.assigns[:outline_draft] do
@@ -595,6 +659,18 @@ defmodule PhoenixKitProjects.Web.OutlineList do
 
   defp saved_draft(socket, _draft, _error, _next?, _reload) do
     {:noreply, put_flash(socket, :error, gettext("The task could not be added."))}
+  end
+
+  # A second line for a suggestion, to tell like titles apart: the start
+  # of its description.
+  defp suggestion_hint(%Task{} = t, lang) do
+    case Task.localized_description(t, lang) do
+      text when is_binary(text) and text != "" ->
+        text |> String.replace(~r/\s+/u, " ") |> String.trim() |> String.slice(0, 90)
+
+      _ ->
+        ""
+    end
   end
 
   defp remember_created(socket, uuids) do
@@ -946,8 +1022,25 @@ defmodule PhoenixKitProjects.Web.OutlineList do
             maxlength="500"
             autocomplete="off"
             aria-label={gettext("New task title")}
+            aria-autocomplete="list"
+            aria-controls={"outline-draft-#{@draft.key}-menu"}
+            data-menu={"outline-draft-#{@draft.key}-menu"}
             class="w-full bg-transparent border-0 border-b border-primary px-0 py-0.5 font-medium focus:outline-none"
           />
+          <%!-- Filled by the hook as the title is typed: the library's
+               tasks that match. ↓/↑ and Enter or a click take one; typing
+               on and Enter makes a new task as before. The rows it draws
+               wear `menu-title` (the heading) and `menu-active` (the one
+               the arrows are on) — named here so the host's Tailwind scan
+               sees them. --%>
+          <ul
+            id={"outline-draft-#{@draft.key}-menu"}
+            phx-update="ignore"
+            role="listbox"
+            data-label={gettext("From the library")}
+            class="hidden absolute left-4 right-4 top-full z-30 -mt-1 menu menu-sm bg-base-100 rounded-box shadow-lg border border-base-200 p-1"
+          >
+          </ul>
         </div>
       </div>
     </div>

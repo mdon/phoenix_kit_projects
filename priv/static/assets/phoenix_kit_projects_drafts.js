@@ -7,6 +7,11 @@
  * level; Esc, Enter on an empty draft, or leaving it empty drop it; leaving
  * it with text writes it. A pasted list goes in where the draft stands.
  *
+ * As the title is typed, the library's matching tasks are offered in a small
+ * list under the row (`outline_draft_suggest`, never another project's
+ * tasks): ↓/↑ and Enter, or a click, take one (`outline_draft_pick`); typing
+ * on and pressing Enter makes a new task as before.
+ *
  * Every draft is a new input with a key of its own (`data-key`); the server
  * acts on an event only while that key is the open draft's, so a blur that
  * fires as the row is replaced cannot write a task twice.
@@ -56,15 +61,28 @@
       // Set once this draft has been handed to the server: nothing after
       // that (the blur as the row goes) may hand it over again.
       this.done = false;
+      this.menu = document.getElementById(el.dataset.menu);
+      this.items = [];
+      this.active = -1;
+      this.seq = 0;
 
       el.addEventListener("keydown", function (e) {
         if (self.done) return;
-        if (e.key === "Enter") {
+        var open = self.items.length > 0;
+        if (open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
           e.preventDefault();
-          self.finish(true);
+          var n = self.items.length;
+          self.active = e.key === "ArrowDown" ? (self.active + 1) % n : (self.active - 1 + n) % n;
+          self.paint();
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          if (open && self.active >= 0) self.pick(self.items[self.active], true);
+          else self.finish(true);
         } else if (e.key === "Escape") {
           e.preventDefault();
-          self.drop(true);
+          // The list first; Esc again drops the draft.
+          if (open) self.close();
+          else self.drop(true);
         } else if (e.key === "Tab") {
           e.preventDefault();
           self.done = true;
@@ -84,7 +102,24 @@
         self.pushEvent("outline_draft_paste", { key: self.key, text: el.value, lines: rows });
       });
 
+      el.addEventListener("input", function () {
+        clearTimeout(self.timer);
+        self.timer = setTimeout(function () { self.suggest(); }, 160);
+      });
+
+      if (this.menu) {
+        // A click on the list must not blur the title first (the blur would
+        // write the typed text as a task of its own).
+        this.menu.addEventListener("mousedown", function (e) { e.preventDefault(); });
+        this.menu.addEventListener("click", function (e) {
+          var li = e.target.closest("[data-index]");
+          if (!li || self.done) return;
+          self.pick(self.items[Number(li.dataset.index)], true);
+        });
+      }
+
       el.addEventListener("blur", function () {
+        self.close();
         if (self.done || self.gone) return;
         self.finish(false);
       });
@@ -92,6 +127,77 @@
       el.focus();
       var end = el.value.length;
       el.setSelectionRange(end, end);
+    },
+
+    suggest: function () {
+      var self = this;
+      if (this.done || this.gone || !this.menu) return;
+      var q = this.el.value.trim();
+      var seq = ++this.seq;
+      if (q.length < 2) { this.close(); return; }
+      this.pushEvent("outline_draft_suggest", { key: this.key, q: q }, function (reply) {
+        // Only the answer to the latest keystroke counts.
+        if (seq !== self.seq || self.done || self.gone) return;
+        self.items = (reply && reply.items) || [];
+        self.active = -1;
+        self.render();
+      });
+    },
+
+    render: function () {
+      var menu = this.menu;
+      if (!menu) return;
+      menu.textContent = "";
+      if (this.items.length === 0) { menu.classList.add("hidden"); return; }
+      var head = document.createElement("li");
+      head.className = "menu-title text-xs";
+      head.textContent = menu.dataset.label || "";
+      menu.appendChild(head);
+      this.items.forEach(function (item, i) {
+        var li = document.createElement("li");
+        li.setAttribute("role", "option");
+        li.dataset.index = String(i);
+        var a = document.createElement("a");
+        a.className = "flex flex-col items-start gap-0";
+        var title = document.createElement("span");
+        title.className = "font-medium";
+        title.textContent = item.title;
+        a.appendChild(title);
+        if (item.hint) {
+          var hint = document.createElement("span");
+          hint.className = "text-xs text-base-content/60 truncate max-w-full";
+          hint.textContent = item.hint;
+          a.appendChild(hint);
+        }
+        li.appendChild(a);
+        menu.appendChild(li);
+      });
+      menu.classList.remove("hidden");
+      this.paint();
+    },
+
+    paint: function () {
+      var self = this;
+      if (!this.menu) return;
+      this.menu.querySelectorAll("[data-index]").forEach(function (li) {
+        var on = Number(li.dataset.index) === self.active;
+        li.setAttribute("aria-selected", on ? "true" : "false");
+        li.firstChild.classList.toggle("menu-active", on);
+      });
+    },
+
+    close: function () {
+      this.seq++;
+      this.items = [];
+      this.active = -1;
+      if (this.menu) { this.menu.textContent = ""; this.menu.classList.add("hidden"); }
+    },
+
+    pick: function (item, next) {
+      if (!item) return;
+      this.done = true;
+      this.close();
+      this.pushEvent("outline_draft_pick", { key: this.key, task: item.uuid, next: next });
     },
 
     // Enter (next = true: the next draft opens below) or leaving the row.
@@ -111,6 +217,7 @@
 
     destroyed: function () {
       this.gone = true;
+      clearTimeout(this.timer);
     }
   };
 
