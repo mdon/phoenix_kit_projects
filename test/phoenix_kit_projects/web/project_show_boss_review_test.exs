@@ -63,6 +63,23 @@ defmodule PhoenixKitProjects.Web.ProjectShowBossReviewTest do
     end
   end
 
+  describe "no \"(optional)\" (item 17)" do
+    test "the log-time and reopen dialogs carry no \"(optional)\"", %{conn: conn} do
+      project = started_project()
+      a = assignment!(project, %{"status" => "done"})
+      {:ok, view, _html} = live(conn, "/en/admin/projects/#{project.uuid}")
+
+      html = render_click(view, "open_log_time", %{"uuid" => a.uuid})
+      assert html =~ ~s(id="work-entry-form-#{project.uuid}")
+      refute html =~ "(optional)"
+
+      render_click(view, "close_log_time", %{})
+      html = render_click(view, "ask_reopen", %{"uuid" => a.uuid})
+      assert html =~ ~s(id="reopen-form-#{project.uuid}")
+      refute html =~ ~r/optional/i
+    end
+  end
+
   describe "the assignee (item 5)" do
     test "a row names its team with no \"Team:\" before it", %{conn: conn} do
       n = System.unique_integer([:positive])

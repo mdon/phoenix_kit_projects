@@ -4800,7 +4800,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                 id={"health-note-#{@project.uuid}"}
                 name="note"
                 value={@health && @health["note"]}
-                label={gettext("Note (optional)")}
+                label={gettext("Note")}
                 rows="2"
                 class="textarea-sm"
                 placeholder={gettext("What's behind this call?")}
@@ -4857,7 +4857,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                 id={"log-time-note-#{@project.uuid}"}
                 name="note"
                 value=""
-                label={gettext("Note (optional)")}
+                label={gettext("Note")}
                 class="input-sm"
                 placeholder={gettext("What was the time spent on?")}
               />
@@ -6076,7 +6076,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         <.form for={%{}} id={"reopen-form-#{@project.uuid}"} phx-submit="reopen" class="flex flex-col gap-3">
           <input type="hidden" name="uuid" value={reopening.uuid} />
           <p class="text-sm text-base-content/70">
-            {gettext("What is wrong or missing? Optional — whoever works on it is told, with your words.")}
+            {gettext("What is wrong or missing? Whoever works on it is told, with your words.")}
           </p>
           <%!-- Optional: a reopen without a reason is still a reopen. --%>
           <textarea
@@ -6199,7 +6199,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
               name={"notes[#{a.uuid}]"}
               rows="2"
               class="textarea textarea-bordered textarea-sm w-full"
-              placeholder={gettext("Comment for whoever does it (optional)")}
+              placeholder={gettext("Comment for whoever does it")}
             ></textarea>
           </div>
           <p :if={next_rows != [] and not @comments_enabled} class="text-xs text-base-content/60">
@@ -6334,7 +6334,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
             id={"redirect-content-#{@comments_resource.uuid}"}
             name="content"
             value=""
-            label={gettext("Why (optional)")}
+            label={gettext("Why")}
             rows={2}
             class="textarea-sm"
           />
