@@ -374,6 +374,84 @@ defmodule PhoenixKitProjects.Web.ProjectShowBossReviewTest do
     end
   end
 
+  describe "sub-project rows like task rows (item 26)" do
+    defp subproject!(parent, attrs \\ %{}) do
+      {:ok, %{child_project: child, assignment: link}} =
+        Projects.create_subproject(parent.uuid, Map.merge(%{"name" => "Phase"}, attrs))
+
+      {child, link}
+    end
+
+    test "a waiting sub-project is released through the same dialog as a task",
+         %{conn: conn} do
+      parent = started_project()
+      {child, link} = subproject!(parent)
+      {:ok, link} = Projects.update_assignment_status(link, %{status: "waiting"})
+      _ = child
+
+      {:ok, view, _html} = live(conn, "/en/admin/projects/#{parent.uuid}")
+
+      assert has_element?(
+               view,
+               ~s(#assignment-menu-#{link.uuid} [phx-click="open_status_change"])
+             )
+
+      assert has_element?(view, ~s([data-pkp-card="#{link.uuid}"]))
+
+      html = render_click(view, "set_status", %{"uuid" => link.uuid, "status" => "todo"})
+      assert html =~ ~s(id="next-up-form-#{parent.uuid}")
+
+      render_submit(view, "next_up_confirm", %{"uuid" => link.uuid})
+      assert Projects.get_assignment(link.uuid).status == "todo"
+    end
+
+    test "following its tasks: waiting until released, in progress once one starts, done when all are" do
+      parent = started_project()
+      {child, link} = subproject!(parent)
+      {:ok, link} = Projects.update_assignment_status(link, %{status: "waiting"})
+      task = assignment!(child)
+
+      Projects.recompute_project_completion(child.uuid)
+      assert Projects.get_assignment(link.uuid).status == "waiting"
+
+      {:ok, task} = Projects.update_assignment_status(task, %{status: "in_progress"})
+      Projects.recompute_project_completion(child.uuid)
+      assert Projects.get_assignment(link.uuid).status == "in_progress"
+
+      {:ok, _} = Projects.update_assignment_status(task, %{status: "done"})
+      Projects.recompute_project_completion(child.uuid)
+      assert Projects.get_assignment(link.uuid).status == "done"
+    end
+
+    test "with the setting off its status is set by hand and stays", %{conn: conn} do
+      parent = started_project()
+      {:ok, parent} = Features.set_flags(parent, %{"subproject_auto" => false})
+      {child, link} = subproject!(parent)
+      task = assignment!(child)
+
+      {:ok, view, _html} = live(conn, "/en/admin/projects/#{parent.uuid}")
+      html = render_click(view, "open_status_change", %{"uuid" => link.uuid})
+      assert html =~ ~s(phx-value-status="done")
+
+      render_click(view, "set_status", %{"uuid" => link.uuid, "status" => "in_progress"})
+      assert Projects.get_assignment(link.uuid).status == "in_progress"
+
+      {:ok, _} = Projects.update_assignment_status(task, %{status: "done"})
+      Projects.recompute_project_completion(child.uuid)
+      assert Projects.get_assignment(link.uuid).status == "in_progress"
+    end
+
+    test "with the setting on, the popup offers only release and hold", %{conn: conn} do
+      parent = started_project()
+      {_child, link} = subproject!(parent)
+      {:ok, view, _html} = live(conn, "/en/admin/projects/#{parent.uuid}")
+
+      html = render_click(view, "open_status_change", %{"uuid" => link.uuid})
+      assert html =~ ~s(phx-value-status="waiting")
+      refute html =~ ~s(phx-value-status="done")
+    end
+  end
+
   describe "the assignee (item 5)" do
     test "a row names its team with no \"Team:\" before it", %{conn: conn} do
       n = System.unique_integer([:positive])

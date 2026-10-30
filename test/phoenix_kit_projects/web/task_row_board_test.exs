@@ -305,21 +305,23 @@ defmodule PhoenixKitProjects.Web.TaskRowBoardTest do
 
     test "a drop the step refuses goes back, said in red", %{conn: conn} do
       project = fixture_project(%{"start_mode" => "immediate"})
+      # A sub-project that follows its tasks is only released or held back
+      # by hand; done is its tasks' doing.
       {:ok, %{assignment: row}} = Projects.create_subproject(project.uuid, %{"name" => "Inner"})
-      row = row |> Ecto.Changeset.change(status: "waiting") |> Repo.update!()
+      row = row |> Ecto.Changeset.change(status: "todo") |> Repo.update!()
 
       {:ok, view, _html} = show(conn, project)
 
       html =
         render_hook(view, "board_move", %{
           "moved_id" => row.uuid,
-          "status" => "todo",
+          "status" => "done",
           "ordered_ids" => [row.uuid]
         })
 
       assert_push_event(view, "sortable:flash", %{status: "error"})
       assert html =~ "This task cannot move there."
-      assert Projects.get_assignment(row.uuid).status == "waiting"
+      assert Projects.get_assignment(row.uuid).status == "todo"
       # The client moved the card already and nothing on the server
       # changed, so no patch would move it back: the hook is told to.
       uuid = row.uuid

@@ -840,6 +840,13 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       # read for the rows and the expanded children's, refreshed with them.
       assignee_faces:
         Assignees.faces(assignments ++ Enum.flat_map(Map.values(subproject_child_tasks), & &1)),
+      # A sub-project's assignee is its own project's.
+      child_faces:
+        assignments
+        |> Enum.filter(&Assignment.subproject?/1)
+        |> Enum.map(& &1.child_project)
+        |> Enum.filter(&match?(%Project{}, &1))
+        |> Assignees.faces(),
       below_counts:
         below_counts(assignments ++ Enum.flat_map(Map.values(subproject_child_tasks), & &1)),
       move_locks: load_move_locks(socket.assigns.project, assignments)
@@ -1363,8 +1370,9 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     }
   end
 
+  # A sub-project row is released like a task (the boss, 2026-10-30).
   defp may_release_next_up?(scope, project, row),
-    do: is_nil(row.child_project_uuid) and Authz.can?(scope, project, :update_status, row)
+    do: Authz.can?(scope, project, :update_status, row)
 
   defp may_comment_next_up?(socket, scope, project, row),
     do: socket.assigns.comments_enabled and Authz.can?(scope, project, :comment, row)
@@ -1380,7 +1388,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
 
     by_row =
       Map.new(rows, fn row ->
-        {row.uuid, PhoenixKitProjects.People.assignee_user_uuids(row) -- [actor]}
+        {row.uuid, PhoenixKitProjects.People.assignee_user_uuids(assignee_holder(row)) -- [actor]}
       end)
 
     visible =
@@ -1401,6 +1409,10 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       {uuid, Enum.sort_by(people, &String.downcase(&1.name))}
     end)
   end
+
+  # Whose a row is: a task's own fields, a sub-project's project's.
+  defp assignee_holder(%Assignment{child_project: %Project{} = child}), do: child
+  defp assignee_holder(row), do: row
 
   defp user_names([]), do: %{}
 
@@ -2603,8 +2615,14 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   # The statuses the popup offers a row: the vocabulary, the middle step
   # only while the in-progress step is on (or the row sits there).
   defp status_choices(socket, %Assignment{} = a) do
-    middle? = socket.assigns.fx[:in_progress] == true or a.status == "in_progress"
-    ["waiting", "todo"] ++ if(middle?, do: ["in_progress"], else: []) ++ ["done"]
+    if Assignment.subproject?(a) and socket.assigns.fx[:subproject_auto] == true do
+      # Its tasks move it from "can be started" on: what is left to a
+      # person is releasing it, or holding it back before it starts.
+      if a.status in ["waiting", "todo"], do: ["waiting", "todo"], else: []
+    else
+      middle? = socket.assigns.fx[:in_progress] == true or a.status == "in_progress"
+      ["waiting", "todo"] ++ if(middle?, do: ["in_progress"], else: []) ++ ["done"]
+    end
   end
 
   # Through `handle_event/3`, not straight to the handler: the step's own
@@ -2678,10 +2696,15 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         # Status first, through the very handlers the buttons use rather
         # than a naked `status` write: completing also sets progress to
         # 100, the actor and the timestamp; reopening clears all three.
+        # Only where the status popup would let it go: a sub-project that
+        # follows its tasks is released or held back by hand, the rest is
+        # its tasks' doing.
         socket =
-          if assignment.status == status,
-            do: socket,
-            else: delegate_board_move(socket, assignment, status)
+          cond do
+            assignment.status == status -> socket
+            status not in status_choices(socket, assignment) -> socket
+            true -> delegate_board_move(socket, assignment, status)
+          end
 
         case board_outcome(socket, uuid, status) do
           :ok ->
@@ -2972,7 +2995,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   # is told, a comment — and nothing written until it is confirmed.
   defp gated_handle_event("ask_ready", %{"uuid" => uuid}, socket) do
     case scoped_assignment(socket, uuid) do
-      %Assignment{status: "waiting", child_project_uuid: nil} = a ->
+      %Assignment{status: "waiting"} = a ->
         {:noreply, assign(socket, next_up: build_next_up(socket, :release, a, [a], false))}
 
       _ ->
@@ -2999,8 +3022,9 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       %Assignment{status: "todo"} = a ->
         {:noreply, readiness_reload(socket, set_readiness(socket, a, "waiting"))}
 
-      %Assignment{status: status, child_project_uuid: nil} = a
-      when status in ["in_progress", "done"] ->
+      %Assignment{status: status} = a
+      when status in ["in_progress", "done"] and
+             (is_nil(a.child_project_uuid) or socket.assigns.fx.subproject_auto != true) ->
         attrs = %{status: "waiting", progress_pct: 0, completed_by_uuid: nil, completed_at: nil}
 
         socket
@@ -5632,7 +5656,13 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                   assigns[:focus_task] == a.uuid && "ring-2 ring-primary"
                 ]}>
                   <%= if Assignment.subproject?(a) do %>
-                    <div class="card-body py-3 px-4 gap-2">
+                    <%!-- A sub-project row has what a task row has (the boss,
+                         2026-10-30): the statuses, Waiting included, the
+                         connections (hover and trace, `PkpLinks`), the
+                         deadline, the assignee's faces, ⋮ Change status… and
+                         next up on done. --%>
+                    <div class="card-body relative py-3 px-4 gap-2 rounded-[inherit]" data-pkp-card={a.uuid}>
+                      <span data-pkp-rel={a.uuid}></span>
                       <% sp_lang = L10n.current_content_lang() %>
                       <% child = a.child_project %>
                       <% sp_summary = Map.get(@subproject_summaries, a.uuid) %>
@@ -5674,6 +5704,17 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                         </div>
 
                         <div class="flex items-center gap-1 shrink-0">
+                          <button
+                            :if={not @is_template and @fx.dependencies and MapSet.member?(@linked_uuids, a.uuid)}
+                            type="button"
+                            data-pkp-trace={a.uuid}
+                            aria-pressed="false"
+                            class="btn btn-ghost btn-xs btn-square text-base-content/50"
+                            aria-label={gettext("Trace the chain of “%{task}”", task: Project.localized_name(child, sp_lang))}
+                            title={gettext("Trace everything before and after it")}
+                          >
+                            <.icon name="hero-share" class="w-4 h-4" />
+                          </button>
                           <.smart_link
                             navigate={Paths.project(child.uuid)}
                             emit={{PhoenixKitProjects.Web.ProjectShowLive, %{"id" => child.uuid}}}
@@ -5684,6 +5725,15 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                             <.icon name="hero-arrow-right-circle" class="w-3.5 h-3.5" /> {gettext("Open")}
                           </.smart_link>
                           <.table_row_menu id={"assignment-menu-#{a.uuid}"}>
+                            <%= if not @is_template and a.status in ~w(waiting todo in_progress done) do %>
+                              <.table_row_menu_button
+                                phx-click="open_status_change"
+                                phx-value-uuid={a.uuid}
+                                icon="hero-arrows-right-left"
+                                label={pgettext("task action", "Change status…")}
+                              />
+                              <.table_row_menu_divider />
+                            <% end %>
                             <.smart_menu_link
                               navigate={Paths.project(child.uuid)}
                               emit={{PhoenixKitProjects.Web.ProjectShowLive, %{"id" => child.uuid}}}
@@ -5744,6 +5794,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
 
                       <%!-- Rolled-up meta (read-only — driven by the child) --%>
                       <div :if={sp_summary} class="flex flex-wrap items-center gap-2 text-xs">
+                        <.deadline_chip :if={@fx[:dates] != false} a={a} />
                         <span class="badge badge-outline badge-sm gap-1">
                           <.icon name="hero-rectangle-stack" class="w-3 h-3" />
                           {gettext("%{done}/%{total} tasks", done: sp_summary.done, total: sp_summary.total)}
@@ -5764,7 +5815,11 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                           <progress class="progress progress-primary w-20" value={a.progress_pct} max="100"></progress>
                           <span class="text-base-content/60 w-8">{a.progress_pct}%</span>
                         </div>
-                        <.assignee_shown a={child} />
+                        <.assignee_shown
+                          :if={@fx.assignees}
+                          a={child}
+                          faces={(assigns[:child_faces] || %{})[child.uuid]}
+                        />
                       </div>
 
                       <%!-- This sub-project's own dependencies (on siblings) --%>
@@ -6096,7 +6151,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                         <.icon name="hero-arrows-right-left" class="w-3.5 h-3.5" />
                       </button>
                       <%= cond do %>
-                        <% a.status == "waiting" and a.child_project_uuid == nil -> %>
+                        <% a.status == "waiting" -> %>
                           <button
                             phx-click="ask_ready"
                             phx-value-uuid={a.uuid}
@@ -6105,11 +6160,14 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                           >
                             {gettext("Ready to start")}
                           </button>
+                        <%!-- A sub-project that follows its tasks moves by
+                             them once released. --%>
+                        <% Assignment.subproject?(a) and @fx.subproject_auto -> %>
                         <% a.status == "todo" and @fx.in_progress -> %>
                           <button phx-click="start_task" phx-value-uuid={a.uuid} phx-disable-with="…" class="btn btn-warning btn-xs">
                             {gettext("Start")}
                           </button>
-                        <% a.status in ["todo", "in_progress"] or (a.status == "waiting" and a.child_project_uuid != nil) -> %>
+                        <% a.status in ["todo", "in_progress"] -> %>
                           <button
                             phx-click="complete"
                             phx-value-uuid={a.uuid}

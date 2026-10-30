@@ -2797,7 +2797,7 @@ defmodule PhoenixKitProjects.Projects do
         :ok
 
       link ->
-        case child_project_rollup(child_project_uuid) do
+        case child_project_rollup(child_project_uuid, link) do
           nil ->
             :ok
 
@@ -2824,11 +2824,25 @@ defmodule PhoenixKitProjects.Projects do
   # progress/hours/completion into the shape `subproject_changeset/2` casts.
   # Hours are stored in MINUTES (`round(total_hours * 60)`) so sub-hour child
   # totals survive the integer `estimated_duration` column without drift.
-  defp child_project_rollup(child_project_uuid) do
+  # Without a linking row yet (one being made): nothing to keep.
+  defp child_project_rollup(child_project_uuid), do: child_project_rollup(child_project_uuid, nil)
+
+  defp child_project_rollup(child_project_uuid, link) do
     case get_project(child_project_uuid) do
       nil -> nil
-      child -> build_child_rollup(child, project_summary(child))
+      child -> child |> build_child_rollup(project_summary(child), link) |> keep_hand_status(link)
     end
+  end
+
+  # "Sub-project status follows its tasks" (`subproject_auto`, on by
+  # default — Max, 2026-10-30) is the PARENT's switch: off, the row's status
+  # is set by hand like a task's and only the figures follow the child.
+  defp keep_hand_status(rollup, nil), do: rollup
+
+  defp keep_hand_status(rollup, link) do
+    if PhoenixKitProjects.Features.on?(link.project_uuid, "subproject_auto"),
+      do: rollup,
+      else: Map.drop(rollup, [:status, :completed_at])
   end
 
   # The linking row's `estimated_duration` is an int4 of MINUTES; a child whose
@@ -2836,9 +2850,9 @@ defmodule PhoenixKitProjects.Projects do
   # ceiling rather than raising from the database and leaving the parent stale.
   @max_rollup_minutes 2_147_483_647
 
-  defp build_child_rollup(child, summary) do
+  defp build_child_rollup(child, summary, link) do
     total_hours = rollup_val(summary, :total_hours, 0.0)
-    status = rollup_status(child, summary)
+    status = rollup_status(child, summary, link)
 
     # A completed sub-project reads as 100% even though the module's
     # `progress_pct` is the average of the per-task sliders (completing a task
@@ -2863,11 +2877,15 @@ defmodule PhoenixKitProjects.Projects do
     }
   end
 
-  # A sub-project's denormalized status: "done" once the child is completed,
-  # "in_progress" once any work exists/has started, else "todo".
-  defp rollup_status(%{completed_at: %DateTime{}}, _summary), do: "done"
+  # A sub-project's denormalized status, the way a task's moves: "done" once
+  # the child is completed or every one of its tasks is done (an ongoing
+  # child never finishes), "in_progress" once any work has started, and
+  # before that it stays where its row is — "waiting" until someone
+  # releases it, then "can be started" (the boss, 2026-10-30: sub-projects
+  # get the same statuses as tasks, Waiting included).
+  defp rollup_status(%{completed_at: %DateTime{}}, _summary, _link), do: "done"
 
-  defp rollup_status(child, summary) do
+  defp rollup_status(child, summary, link) do
     total = rollup_val(summary, :total, 0)
     done = rollup_val(summary, :done, 0)
     in_progress = rollup_val(summary, :in_progress, 0)
@@ -2877,9 +2895,12 @@ defmodule PhoenixKitProjects.Projects do
     # a task begun (a template's row describes nothing live).
     under_way? = Project.ongoing?(child) and Map.get(child, :is_template) != true
 
-    if under_way? or (total > 0 and (done > 0 or in_progress > 0 or progress > 0)),
-      do: "in_progress",
-      else: "todo"
+    cond do
+      not Project.ongoing?(child) and total > 0 and done == total -> "done"
+      under_way? or (total > 0 and (done > 0 or in_progress > 0 or progress > 0)) -> "in_progress"
+      match?(%{status: "waiting"}, link) -> "waiting"
+      true -> "todo"
+    end
   end
 
   @doc "Whether an ongoing project has every task done — nothing open, nothing ended."
