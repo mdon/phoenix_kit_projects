@@ -4097,18 +4097,15 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
                on a language switch, so anything else in it would lose its
                value. --%>
           <div id="assignment-words" class={["flex flex-col gap-3", @translated? && "rounded-box border border-base-300 p-3"]}>
-            <div :if={@translated?} id="assignment-translated-hint" class="flex items-center gap-1.5 text-xs text-base-content/60">
-              <.icon name="hero-language" class="w-4 h-4 shrink-0" />
-              <span>{gettext("Title and description are translated per language: pick a language to write its version.")}</span>
-            </div>
-            <%!-- Bundled tabs + AI row, without card padding of their own. --%>
+            <%!-- The tabs, with AI translate at the end of their row, without
+                 card padding of their own. No explanatory line above them:
+                 the tabs say it (the boss, 2026-10-30). --%>
             <.ai_multilang_tabs
               :if={@multilang_enabled}
               multilang_enabled={@multilang_enabled}
               language_tabs={@language_tabs}
               current_lang={@current_lang}
-              class="pb-0"
-              ai_row_class="flex items-center gap-3 -mt-3"
+              class=""
               ai_translate={FormGlue.ai_translate_config(assigns)}
             />
 
