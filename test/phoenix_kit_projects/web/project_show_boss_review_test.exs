@@ -45,6 +45,24 @@ defmodule PhoenixKitProjects.Web.ProjectShowBossReviewTest do
     a
   end
 
+  defp embed(conn, project, actor_uuid, extra \\ %{}) do
+    {:ok, _} = PhoenixKitProjects.Members.add_member(project, actor_uuid, role: "member")
+
+    live_isolated(conn, PhoenixKitProjects.Web.ProjectShowLive,
+      session: Map.merge(%{"id" => project.uuid, "current_user_uuid" => actor_uuid}, extra)
+    )
+  end
+
+  describe "no lone words on a row (item 8)" do
+    test "an embed has no \"Projects\" link above its title", %{conn: conn, actor_uuid: actor} do
+      project = started_project()
+      {:ok, _view, html} = embed(conn, project, actor)
+
+      refute html =~ "hero-arrow-left"
+      assert html =~ project.name
+    end
+  end
+
   describe "the assignee (item 5)" do
     test "a row names its team with no \"Team:\" before it", %{conn: conn} do
       n = System.unique_integer([:positive])

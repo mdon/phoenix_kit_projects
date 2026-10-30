@@ -529,11 +529,10 @@ defmodule PhoenixKitProjects.Web.AssignmentViewLive do
             {gettext("Add a description")}
           </button>
 
-          <%!-- Connections, in words: the cards no longer carry them. --%>
+          <%!-- Connections, in words: the cards no longer carry them. No
+               "Connections" heading on a line of its own: "Waits on" and
+               "Unlocks" already say what each list is. --%>
           <section :if={@waits_on != [] or @unlocks != []} class="flex flex-col gap-3">
-            <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
-              {gettext("Connections")}
-            </h3>
             <.task_rows :if={@waits_on != []} title={gettext("Waits on")} rows={@waits_on} lang={@lang} project={@project} />
             <.task_rows :if={@unlocks != []} title={gettext("Unlocks")} rows={@unlocks} lang={@lang} project={@project} />
           </section>

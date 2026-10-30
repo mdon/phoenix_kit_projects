@@ -4565,22 +4565,12 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
            right under the site header. Embedded mounts have no admin
            breadcrumb, so they keep the full original header. --%>
       <% desc = Project.localized_description(@project, L10n.current_content_lang()) %>
+      <%!-- No "← Projects" line above an embed's title (the boss,
+           2026-10-30): on the host's page (an order) it was one word on a
+           row of its own, and the module's list is not where that page
+           leads. --%>
       <div :if={not @router_mounted? or header_face?(assigns, desc)}>
-        <.smart_link
-          :if={not @router_mounted?}
-          navigate={if @is_template, do: Paths.templates(), else: Paths.projects()}
-          emit={
-            if @is_template,
-              do: {PhoenixKitProjects.Web.TemplatesLive, %{}},
-              else: {PhoenixKitProjects.Web.ProjectsLive, %{}}
-          }
-          embed_mode={@embed_mode}
-          class="link link-hover text-sm"
-        >
-          <.icon name="hero-arrow-left" class="w-4 h-4 inline" />
-          {if @is_template, do: gettext("Templates"), else: gettext("Projects")}
-        </.smart_link>
-        <div class={["flex flex-col gap-2", not @router_mounted? && "mt-1"]}>
+        <div class="flex flex-col gap-2">
           <%!-- Title (embeds only) + lifecycle/status badges. Min-width: 0
                lets the h1 truncate instead of pushing siblings around. --%>
           <div class="flex flex-wrap items-center gap-2 min-w-0">
@@ -6296,9 +6286,11 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         placement={:end}
         max_width="md"
       >
+        <%!-- What the thread is on, beside its title rather than a word
+             on a line of its own above it. --%>
         <:title>
-          <span class="flex flex-col min-w-0">
-            <span class="text-xs font-normal uppercase tracking-wide text-base-content/60">
+          <span class="flex items-center gap-2 min-w-0">
+            <span class="badge badge-ghost badge-sm shrink-0">
               <%= case @comments_resource.type do %>
                 <% "project" -> %>
                   {gettext("Project")}
