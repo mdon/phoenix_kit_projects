@@ -86,7 +86,6 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   alias PhoenixKitProjects.Schemas.{Assignment, Project}
   alias PhoenixKitProjects.Schemas.Task, as: TaskSchema
   alias PhoenixKitProjects.TaskNotes
-  alias PhoenixKitProjects.Web.Components.AssignmentStatusBadge
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
   alias PhoenixKitProjects.Web.OutlineList
 
@@ -858,14 +857,6 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       visible_assignments: visible,
       assignment_counts: counts,
       list_controls?: controls?,
-      # Numbered against the WHOLE project, in its manual order — never
-      # against the rows on screen. A counter over the visible set renumbers
-      # the same task every time the lens moves, so "task 3" means one thing
-      # under Active and another under All, which makes the number useless
-      # for referring to anything. Under a filter the sequence shows gaps
-      # (3, 7, 12) and that is the honest reading: you are looking at part
-      # of a longer plan.
-      assignment_numbers: assignment_numbers(all),
       # Dragging needs the MANUAL order on screen — under "Newest first" a
       # drop would mean nothing — but not the whole project: a drop made
       # under a lens is merged back into the full plan by
@@ -914,14 +905,6 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       end)
 
     merged
-  end
-
-  # `list_assignments/1` already returns position order, so the index here
-  # IS the position rank — resolved once per load rather than per row.
-  defp assignment_numbers(all) do
-    all
-    |> Enum.with_index(1)
-    |> Map.new(fn {a, idx} -> {a.uuid, idx} end)
   end
 
   defp assign_pending_reviews(socket, project_uuid) do
@@ -5445,25 +5428,19 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                    page mounts, which is what scrolls it into view: the
                    URL's fragment is gone by then (the tab sync rewrites
                    the address) and LiveView has no scroll command. --%>
+              <%!-- No numbered circle beside the card (the boss,
+                   2026-10-30): the number changed with every reorder, so
+                   it named nothing, and nothing could be done with it.
+                   The ref chip is the task's name; the status badge says
+                   where it is. --%>
               <div
                 id={"task-#{a.uuid}"}
-                class="relative flex gap-4 py-3 scroll-mt-24 focus:outline-none sortable-item"
+                class="relative flex py-3 scroll-mt-24 focus:outline-none sortable-item"
                 style={"margin-left: #{Map.get(ol_depths, a.uuid, 0) * 2}rem"}
                 data-id={a.uuid}
                 tabindex={assigns[:focus_task] == a.uuid && "-1"}
                 phx-mounted={assigns[:focus_task] == a.uuid && Phoenix.LiveView.JS.focus()}
               >
-                <%!-- Status dot on the timeline --%>
-                <div class="relative z-10 shrink-0 flex flex-col items-center">
-                  <div class={"w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold #{AssignmentStatusBadge.color(a.status)} #{AssignmentStatusBadge.text_color(a.status)} #{AssignmentStatusBadge.ring(a.status)}"}>
-                    <%= if a.status == "done" do %>
-                      <.icon name="hero-check" class="w-5 h-5" />
-                    <% else %>
-                      {Map.get(@assignment_numbers, a.uuid)}
-                    <% end %>
-                  </div>
-                </div>
-
                 <%!-- Card --%>
                 <%!-- `min-w-0`: a flex child is as wide as its content unless told
                      otherwise, and one long line inside (an expanded
@@ -5649,7 +5626,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                           </p>
                         <% else %>
                           <div class="flex flex-col gap-2">
-                            <%= for {ct, ci} <- Enum.with_index(child_tasks) do %>
+                            <%= for ct <- child_tasks do %>
                               <%= if Assignment.subproject?(ct) do %>
                                 <%!-- A nested sub-project: a compact link (open it to drill in). --%>
                                 <div class="flex items-center gap-2 text-xs">
@@ -5668,16 +5645,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                                 </div>
                               <% else %>
                                 <%!-- Same task card as the top-level timeline, just inset. --%>
-                                <div class="relative flex gap-3 min-w-0">
-                                  <div class="relative z-10 shrink-0 flex flex-col items-center">
-                                    <div class={"w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold #{AssignmentStatusBadge.color(ct.status)} #{AssignmentStatusBadge.text_color(ct.status)} #{AssignmentStatusBadge.ring(ct.status)}"}>
-                                      <%= if ct.status == "done" do %>
-                                        <.icon name="hero-check" class="w-4 h-4" />
-                                      <% else %>
-                                        {ci + 1}
-                                      <% end %>
-                                    </div>
-                                  </div>
+                                <div class="relative flex min-w-0">
                                   <div class={"flex-1 min-w-0 card bg-base-100 shadow-sm border #{if ct.status == "done", do: "border-success/30 opacity-75", else: "border-base-200"}"}>
                                     <.task_body
                                       a={ct}

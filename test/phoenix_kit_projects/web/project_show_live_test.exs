@@ -881,30 +881,19 @@ defmodule PhoenixKitProjects.Web.ProjectShowLiveTest do
       assert odd.uuid in list_rows(html)
     end
 
-    test "a task keeps its number when the lens moves", %{
+    # The numbered circle beside each row is gone (the boss, 2026-10-30):
+    # it renumbered with every reorder, so it named nothing.
+    test "a row has no numbered circle beside it", %{
       conn: conn,
       project: project,
       done: done,
       active: active
     } do
-      # A finished row shows a check rather than a number, so `active` is
-      # the one whose digit can be compared across lenses.
-      # `done` was created first, so in manual order it is 1 and `active` is
-      # 2. Numbering the rows on screen instead of the project made `active`
-      # render as "1" under the default lens and "2" under All — the same
-      # task, two numbers, depending on what else you happened to be
-      # looking at.
-      {:ok, view, html} = live(conn, "/en/admin/projects/#{project.uuid}")
-
-      # Under the default lens `active` is the only row on screen, so a
-      # counter over the visible rows would call it 1.
-      assert list_rows(html) == [active.uuid]
-      assert number_for(html, active.uuid) == "2"
-
+      {:ok, view, _html} = live(conn, "/en/admin/projects/#{project.uuid}")
       all = view |> element("button[phx-value-tab=all]") |> render_click()
 
       assert list_rows(all) == [done.uuid, active.uuid]
-      assert number_for(all, active.uuid) == "2"
+      refute timeline_fragment(all) =~ "rounded-full flex items-center justify-center"
     end
 
     test "a submission is not in the project until somebody accepts it", %{
@@ -1143,17 +1132,6 @@ defmodule PhoenixKitProjects.Web.ProjectShowLiveTest do
       })
 
       assert ordered_uuids(project) == [active.uuid, done.uuid]
-    end
-
-    # The number rendered in a row's timeline dot.
-    defp number_for(html, uuid) do
-      case Regex.run(
-             ~r/data-id="#{uuid}".*?rounded-full[^>]*>\s*(?:<span[^>]*><\/span>\s*)?([0-9]+)/s,
-             html
-           ) do
-        [_, number] -> number
-        _ -> nil
-      end
     end
 
     # The uuids the LIST tab is drawing, in order.
