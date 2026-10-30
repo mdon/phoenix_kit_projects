@@ -28,7 +28,10 @@ defmodule PhoenixKitProjects.Web.TimeLive do
   alias PhoenixKitProjects.{L10n, Paths, TimeBoard}
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Schemas.{Assignment, Project}
+  alias PhoenixKitProjects.Web.Components.TimeInput
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
+
+  import PhoenixKitProjects.Web.Components.TimeInput, only: [datetime_input: 1]
 
   @default_wrapper_class "flex flex-col w-full px-4 pt-2 pb-4 gap-4"
   # Lines shown per row before "+N more".
@@ -253,7 +256,14 @@ defmodule PhoenixKitProjects.Web.TimeLive do
   def handle_event("save_deadline", %{"uuid" => uuid} = params, socket) when is_binary(uuid) do
     scope = socket.assigns[:phoenix_kit_current_scope]
 
-    case TimeBoard.set_deadline(scope, uuid, params["deadline"],
+    # The deadline picker posts its parts (`TimeInput`).
+    deadline =
+      case params["deadline"] do
+        %{} = parts -> TimeInput.fold(parts)
+        other -> other
+      end
+
+    case TimeBoard.set_deadline(scope, uuid, deadline,
            actor_uuid: PhoenixKitProjects.Activity.actor_uuid(socket)
          ) do
       {:ok, _} ->
@@ -703,12 +713,12 @@ defmodule PhoenixKitProjects.Web.TimeLive do
           class="flex flex-wrap items-center gap-1 mt-1"
         >
           <input type="hidden" name="uuid" value={@a.uuid} />
-          <input
-            type="datetime-local"
+          <.datetime_input
+            id={"time-deadline-at-#{@dom}"}
             name="deadline"
             value={deadline_value(@line)}
-            class="input input-xs"
-            aria-label={gettext("Deadline")}
+            size="xs"
+            default_hour={17}
           />
           <button
             type="submit"

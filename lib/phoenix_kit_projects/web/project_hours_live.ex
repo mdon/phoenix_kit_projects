@@ -33,6 +33,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
   import PhoenixKitWeb.Components.Core.Chart, only: [bar_chart: 1]
   import PhoenixKitWeb.Components.Core.DateNav, only: [date_nav: 1]
   import PhoenixKitWeb.Components.Core.SearchPicker, only: [search_picker: 1]
+  import PhoenixKitProjects.Web.Components.TimeInput, only: [clock_input: 1]
 
   alias PhoenixKit.Users.Auth.User
   alias PhoenixKit.Utils.Date, as: KitDate
@@ -55,6 +56,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Schemas.{Project, WorkEntry}
   alias PhoenixKitProjects.Web.Components.ConfirmAction
+  alias PhoenixKitProjects.Web.Components.TimeInput
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
   alias PhoenixKitWeb.Components.Core.FormFieldLabel
 
@@ -667,12 +669,16 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
   # Keeps what was typed and, on the site-wide page, re-reads the tasks and
   # people of the project just chosen.
   def handle_event("log_change", params, socket) do
+    params = log_params(params)
+
     if socket.assigns.log_form,
       do: {:noreply, assign(socket, log_form: log_form(socket, params))},
       else: {:noreply, socket}
   end
 
   def handle_event("save_log", params, socket) do
+    params = log_params(params)
+
     with %{} <- socket.assigns.log_form || :closed,
          {:ok, project_uuid} <- log_project(socket, params),
          {:ok, minutes} <- minutes(params["duration"]),
@@ -876,6 +882,10 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
   defp custom_when_dated(changes, _params), do: changes
 
   # ── Log-time helpers ────────────────────────────────────────────
+
+  # The start-time picker posts its parts (`TimeInput`): folded back into
+  # `HH:MM` (or `""`, no time).
+  defp log_params(params), do: TimeInput.normalize(params, ["time"])
 
   # The projects the viewer may log time on, as `{name, uuid}`: the tab's
   # own project, or on the site-wide page every listed project that allows
@@ -1998,14 +2008,12 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
             class="input-sm"
             wrapper_class="flex-1"
           />
-          <.input
+          <.clock_input
             id={"#{@dom}-log-time"}
-            type="time"
             name="time"
             label={gettext("Started at")}
             value={@form.values["time"]}
-            class="input-sm"
-            wrapper_class="flex-1"
+            class="flex-1"
           />
         </div>
         <.input

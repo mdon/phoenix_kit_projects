@@ -15,6 +15,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
   use PhoenixKitProjects.Web.Mentions
 
   import PhoenixKitWeb.Components.MultilangForm
+  import PhoenixKitProjects.Web.Components.TimeInput, only: [datetime_input: 1]
 
   alias PhoenixKit.Mentions
   alias PhoenixKit.Utils.Values
@@ -25,6 +26,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
   alias PhoenixKitProjects.Schemas.Project
   alias PhoenixKitProjects.Web.Components.AccessPanel
   alias PhoenixKitProjects.Web.Components.ConfirmAction
+  alias PhoenixKitProjects.Web.Components.TimeInput
   alias PhoenixKitProjects.Web.Crumbs
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
   alias PhoenixKitProjects.Web.OutlineList
@@ -1271,6 +1273,8 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
     in_flight = WebHelpers.in_flight_record(socket, :form, :project)
 
     attrs
+    # The start picker posts its parts (`TimeInput`).
+    |> TimeInput.normalize(["scheduled_start_date"])
     |> WebHelpers.normalize_datetime_local_attrs(["scheduled_start_date"])
     |> WebHelpers.merge_translations_attrs(in_flight, Project.translatable_fields())
   end
@@ -2056,11 +2060,11 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
         ]}
       />
       <div class="hidden group-has-[option[value=scheduled]:checked]/start:block">
-        <.input
+        <.datetime_input
+          id="project-scheduled-start"
           field={@form[:scheduled_start_date]}
           value={local_input_value(@form[:scheduled_start_date].value)}
           label={gettext("Start date and time")}
-          type="datetime-local"
         />
       </div>
     </div>

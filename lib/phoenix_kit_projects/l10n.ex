@@ -12,10 +12,13 @@ defmodule PhoenixKitProjects.L10n do
   """
 
   use Gettext, backend: PhoenixKitWeb.Gettext
+  require Gettext.Macros
 
+  alias PhoenixKit.Settings
   alias PhoenixKit.Utils.TimeZone
 
   @zone_key :phoenix_kit_projects_viewer_zone
+  @clock_key :phoenix_kit_projects_twelve_hour
 
   @doc """
   Settles the time zone this process prints instants in — the viewer's
@@ -28,6 +31,9 @@ defmodule PhoenixKitProjects.L10n do
   @spec put_viewer_zone(term()) :: :ok
   def put_viewer_zone(viewer) do
     Process.put(@zone_key, TimeZone.for_viewer(viewer))
+    # The clock is settled with the zone, once per LiveView: every time on
+    # the page is printed and typed the same way (`twelve_hour?/0`).
+    Process.put(@clock_key, read_twelve_hour())
     :ok
   end
 
@@ -38,7 +44,36 @@ defmodule PhoenixKitProjects.L10n do
   @spec reset_viewer_zone() :: :ok
   def reset_viewer_zone do
     Process.delete(@zone_key)
+    Process.delete(@clock_key)
     :ok
+  end
+
+  @doc """
+  Whether times are shown on a 12-hour clock with AM/PM — core's
+  `time_format` setting (`"h:i A"`; `"H:i"`, the default, is 24-hour; see
+  `PhoenixKit.Utils.Date`). Every time this module prints goes through
+  `format_time/1` and every time it asks for goes through the
+  `TimeInput` picker, and both read this — so the site's choice holds on
+  every device, whatever clock the device itself uses (an iPad's native
+  time field showed AM/PM on a 24-hour site; the boss, 2026-10-30).
+
+  Read once per LiveView with the viewer's zone (`put_viewer_zone/1`);
+  elsewhere (a job, the API) from the cached setting on each call.
+  """
+  @spec twelve_hour?() :: boolean()
+  def twelve_hour? do
+    case Process.get(@clock_key) do
+      nil -> read_twelve_hour()
+      value -> value
+    end
+  end
+
+  defp read_twelve_hour do
+    Settings.get_setting_cached("time_format", "H:i") == "h:i A"
+  rescue
+    _ -> false
+  catch
+    :exit, _ -> false
   end
 
   @doc "A UTC `DateTime` as the viewer's wall clock (unchanged when no zone is set)."
@@ -61,7 +96,7 @@ defmodule PhoenixKitProjects.L10n do
   @spec local_date(DateTime.t()) :: Date.t()
   def local_date(%DateTime{} = dt), do: dt |> local() |> DateTime.to_date()
 
-  @doc "The viewer's `HH:MM` of an instant."
+  @doc "The viewer's clock time of an instant (`format_time/1`)."
   @spec local_time(DateTime.t()) :: String.t()
   def local_time(%DateTime{} = dt), do: dt |> local() |> format_time()
 
@@ -109,10 +144,59 @@ defmodule PhoenixKitProjects.L10n do
     )
   end
 
-  @doc "24-hour time string as `HH:MM` (locale-neutral)."
-  @spec format_time(DateTime.t()) :: String.t()
-  def format_time(%DateTime{hour: h, minute: m}),
-    do: :io_lib.format("~2..0B:~2..0B", [h, m]) |> IO.iodata_to_binary()
+  @doc """
+  A clock time as the site shows times (`twelve_hour?/0`): `15:30`, or
+  `3:30 PM` on a 12-hour site. Takes anything with an hour and a minute
+  (`Time`, `DateTime`, `NaiveDateTime`) and prints it as it is — shift an
+  instant into the viewer's zone first (`local_time/1`).
+  """
+  @spec format_time(Time.t() | DateTime.t() | NaiveDateTime.t()) :: String.t()
+  def format_time(%{hour: h, minute: m}), do: format_clock(h, m)
+
+  @doc "`format_time/1` from an hour (0–23) and a minute."
+  @spec format_clock(0..23, 0..59) :: String.t()
+  def format_clock(h, m) when is_integer(h) and is_integer(m) do
+    if twelve_hour?() do
+      {h12, suffix} = to_twelve_hour(h)
+      # The module's own catalogue (the month names above are core's).
+      Gettext.Macros.gettext_with_backend(
+        PhoenixKitProjects.Gettext,
+        "%{hour}:%{minute} %{suffix}",
+        hour: h12,
+        minute: pad2(m),
+        suffix: suffix
+      )
+    else
+      pad2(h) <> ":" <> pad2(m)
+    end
+  end
+
+  @doc """
+  An hour of the day (0–23) on the 12-hour clock: `{1..12, "AM" | "PM"}`,
+  the suffix translated (`day_half_label/1`).
+  """
+  @spec to_twelve_hour(0..23) :: {1..12, String.t()}
+  def to_twelve_hour(h) when h in 0..23 do
+    half = if h < 12, do: "am", else: "pm"
+
+    h12 =
+      case rem(h, 12) do
+        0 -> 12
+        n -> n
+      end
+
+    {h12, day_half_label(half)}
+  end
+
+  @doc "The translated `AM` / `PM` of `\"am\"` / `\"pm\"`."
+  @spec day_half_label(String.t()) :: String.t()
+  def day_half_label("am"),
+    do: Gettext.Macros.pgettext_with_backend(PhoenixKitProjects.Gettext, "time of day", "AM")
+
+  def day_half_label("pm"),
+    do: Gettext.Macros.pgettext_with_backend(PhoenixKitProjects.Gettext, "time of day", "PM")
+
+  defp pad2(n), do: n |> Integer.to_string() |> String.pad_leading(2, "0")
 
   @doc """
   The current content-display language code.

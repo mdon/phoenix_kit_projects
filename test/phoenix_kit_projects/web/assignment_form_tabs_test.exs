@@ -480,7 +480,9 @@ defmodule PhoenixKitProjects.Web.AssignmentFormTabsTest do
       {:ok, view, _} = edit(conn, project, a)
 
       view
-      |> form("#assignment-form", assignment: %{deadline: "2027-07-01T10:00"})
+      |> form("#assignment-form",
+        assignment: %{deadline: %{date: "2027-07-01", hour: "10", minute: "0"}}
+      )
       |> render_submit()
 
       assert Projects.get_assignment(a.uuid).deadline == ~U[2027-07-01 07:00:00Z]
@@ -544,17 +546,21 @@ defmodule PhoenixKitProjects.Web.AssignmentFormTabsTest do
       assert %DateTime{} = done.completed_at
 
       {:ok, view, _} = edit(ctx.conn, ctx.project, done)
-      assert has_element?(view, "input[name='times[completed_at]']")
+      assert has_element?(view, "input[name='times[completed_at][date]']")
 
       view
-      |> form("#assignment-form", times: %{completed_at: "2026-10-01T15:30"})
+      |> form("#assignment-form",
+        times: %{completed_at: %{date: "2026-10-01", hour: "15", minute: "30"}}
+      )
       |> render_submit()
 
       assert Projects.get_assignment(ctx.a.uuid).completed_at == ~U[2026-10-01 15:30:00Z]
 
       html =
         view
-        |> form("#assignment-form", times: %{completed_at: "2099-01-01T09:00"})
+        |> form("#assignment-form",
+          times: %{completed_at: %{date: "2099-01-01", hour: "9", minute: "0"}}
+        )
         |> render_submit()
 
       assert html =~ "cannot be in the future"

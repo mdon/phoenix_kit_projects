@@ -21,6 +21,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
 
   import PhoenixKitWeb.Components.Core.SearchPicker, only: [search_picker: 1]
   import PhoenixKitWeb.Components.MultilangForm
+  import PhoenixKitProjects.Web.Components.TimeInput, only: [datetime_input: 1, clock_input: 1]
 
   require Logger
 
@@ -48,6 +49,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   alias PhoenixKitProjects.Hours.Format
   alias PhoenixKitProjects.Schemas.{Assignment, Project, Task}
   alias PhoenixKitProjects.Web.Components.AssignmentStatusBadge
+  alias PhoenixKitProjects.Web.Components.TimeInput
   alias PhoenixKitProjects.Web.Components.WorkflowStatusFields, as: WSF
   alias PhoenixKitProjects.Web.Crumbs
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
@@ -1214,6 +1216,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
     attrs =
       times
       |> Map.take(["started_at", "completed_at"])
+      |> TimeInput.normalize(["started_at", "completed_at"])
       |> drop_unchanged_wall(a, ["started_at", "completed_at"])
       |> WebHelpers.normalize_datetime_local_attrs(["started_at", "completed_at"])
 
@@ -1242,6 +1245,9 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   # to a save of some other field.
   defp form_attrs(attrs, socket) do
     attrs
+    # The time pickers post their parts (`TimeInput`); folded back into the
+    # values the browser's own inputs posted.
+    |> TimeInput.normalize(~w(deadline start_time end_time))
     |> drop_unchanged_wall(socket.assigns[:assignment], ["deadline"])
     |> normalize_form_attrs()
   end
@@ -1280,10 +1286,6 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   end
 
   defp local_input_value(other), do: other
-
-  # A `<input type="time">` value: `HH:MM`.
-  defp time_input_value(%Time{} = t), do: t |> Time.to_iso8601() |> String.slice(0, 5)
-  defp time_input_value(other), do: other
 
   defp assign_form(socket, cs),
     do: socket |> assign(form: to_form(cs)) |> refresh_assignee_chip()
@@ -4317,11 +4319,12 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
           <%!-- The deadline: by when it has to be done — the one date that
                makes a task overdue. The planned days are on Planning. --%>
           <div :if={@fx[:dates] != false} id="assignment-deadline" class="flex flex-col gap-1.5">
-            <.input
+            <.datetime_input
+              id="assignment-deadline-at"
               field={@form[:deadline]}
               value={local_input_value(@form[:deadline].value)}
-              type="datetime-local"
               label={gettext("Deadline")}
+              default_hour={17}
             />
             <div class="flex flex-wrap items-center gap-1.5 text-xs">
               <span class="text-base-content/60">{gettext("By when it has to be done.")}</span>
@@ -4329,10 +4332,10 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
                 {gettext("In 1 hour")}
               </button>
               <button type="button" phx-click="deadline_preset" phx-value-preset="today" class="btn btn-xs btn-ghost border-base-300 font-normal">
-                {gettext("Today 17:00")}
+                {gettext("Today %{time}", time: L10n.format_clock(17, 0))}
               </button>
               <button type="button" phx-click="deadline_preset" phx-value-preset="tomorrow" class="btn btn-xs btn-ghost border-base-300 font-normal">
-                {gettext("Tomorrow 9:00")}
+                {gettext("Tomorrow %{time}", time: L10n.format_clock(9, 0))}
               </button>
               <button
                 :if={@form[:deadline].value not in [nil, ""]}
@@ -4387,12 +4390,12 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
             <fieldset id="assignment-planned-start" class="rounded-box border border-base-300 p-3 flex flex-col gap-2">
               <legend class="px-1 text-sm font-semibold">{gettext("Planned start")}</legend>
               <.input field={@form[:start_date]} type="date" label={gettext("Day")} />
-              <.input field={@form[:start_time]} value={time_input_value(@form[:start_time].value)} type="time" label={gettext("Time")} />
+              <.clock_input id="assignment-start-time" field={@form[:start_time]} label={gettext("Time")} />
             </fieldset>
             <fieldset id="assignment-planned-end" class="rounded-box border border-base-300 p-3 flex flex-col gap-2">
               <legend class="px-1 text-sm font-semibold">{gettext("Planned end")}</legend>
               <.input field={@form[:end_date]} type="date" label={gettext("Day")} />
-              <.input field={@form[:end_time]} value={time_input_value(@form[:end_time].value)} type="time" label={gettext("Time")} />
+              <.clock_input id="assignment-end-time" field={@form[:end_time]} label={gettext("Time")} />
             </fieldset>
             <p class="sm:col-span-2 -mt-1 text-xs text-base-content/60">
               {gettext("The plan: when the work is meant to happen. A time belongs to its day. Only the deadline makes a task overdue.")}
@@ -4734,16 +4737,16 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
           <fieldset :if={@show_times?} id="assignment-real-times" class="rounded-box border border-base-300 p-3 flex flex-col gap-2">
             <legend class="px-1 text-sm font-semibold">{gettext("When it really happened")}</legend>
             <div class="grid gap-3 sm:grid-cols-2">
-              <.input
+              <.datetime_input
+                id="assignment-started-at"
                 field={@times_form[:started_at]}
                 value={local_input_value(@times_form[:started_at].value)}
-                type="datetime-local"
                 label={gettext("Started at")}
               />
-              <.input
+              <.datetime_input
+                id="assignment-completed-at"
                 field={@times_form[:completed_at]}
                 value={local_input_value(@times_form[:completed_at].value)}
-                type="datetime-local"
                 label={gettext("Finished at")}
               />
             </div>

@@ -84,8 +84,8 @@ defmodule PhoenixKitProjects.Web.Components.TaskTimes do
     end
   end
 
-  defp hm(%Time{hour: h, minute: m}),
-    do: :io_lib.format("~2..0B:~2..0B", [h, m]) |> IO.iodata_to_binary()
+  # On the site's clock (`L10n.format_time/1`: 24-hour or AM/PM).
+  defp hm(%Time{} = t), do: L10n.format_time(t)
 
   @doc """
   The deadline chip: red once it has passed (and the task is not done),
