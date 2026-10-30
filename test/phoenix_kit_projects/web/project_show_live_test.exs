@@ -147,9 +147,10 @@ defmodule PhoenixKitProjects.Web.ProjectShowLiveTest do
           session: embed_session(project, actor_uuid, %{"locale" => "et"})
         )
 
-      # The back-link breadcrumb renders "Projects" translated.
-      assert html =~ "Projektid"
-      refute html =~ "Projects"
+      # The ⋮ menu renders translated (the "← Projects" link above the
+      # title is gone — item 8 of the boss's list).
+      assert html =~ "Muuda"
+      refute html =~ ">Edit<"
     end
   end
 

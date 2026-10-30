@@ -815,11 +815,28 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       # read for the rows and the expanded children's, refreshed with them.
       assignee_faces:
         Assignees.faces(assignments ++ Enum.flat_map(Map.values(subproject_child_tasks), & &1)),
+      below_counts:
+        below_counts(assignments ++ Enum.flat_map(Map.values(subproject_child_tasks), & &1)),
       move_locks: load_move_locks(socket.assigns.project, assignments)
     )
     |> assign_pending_reviews(project_uuid)
     |> apply_list_lens()
     |> OutlineList.assign_outline()
+  end
+
+  # How many rows sit under each row, at any depth — they are deleted with
+  # it (`Projects.delete_assignment/1`), which its delete question says.
+  defp below_counts(rows) do
+    by_parent = Enum.group_by(rows, & &1.parent_uuid)
+    Map.new(rows, &{&1.uuid, count_below(by_parent, &1.uuid, 0)})
+  end
+
+  defp count_below(_by_parent, _uuid, depth) when depth > 100, do: 0
+
+  defp count_below(by_parent, uuid, depth) do
+    by_parent
+    |> Map.get(uuid, [])
+    |> Enum.reduce(0, fn child, n -> n + 1 + count_below(by_parent, child.uuid, depth + 1) end)
   end
 
   # ── The list lens ───────────────────────────────────────────────────
@@ -1067,8 +1084,8 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
             <% else %>
               <.table_row_menu_button
                 {ConfirmAction.ask("archive_project",
-                  title: gettext("Archive project"),
-                  message: gettext("Archive this project? It will be hidden from the main lists but kept in the database."),
+                  title: gettext("Archive project “%{name}”?", name: Project.localized_name(@project, L10n.current_content_lang())),
+                  message: gettext("It is hidden from the main lists and kept in the database."),
                   confirm: gettext("Archive")
                 )}
                 icon="hero-archive-box"
@@ -1795,6 +1812,8 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   attr(:assignment_labels, :map, default: %{})
   # Who has each task, as faces (`Assignees.faces/2`), keyed by uuid.
   attr(:faces, :map, default: %{})
+  # How many rows sit under it (deleted with it — the delete question says so).
+  attr(:below, :integer, default: 0)
   # The outline bits of a row (`OutlineList`): permissions, the "3 of 7" of
   # a task with subtasks, folded or not, and whether its title takes the
   # cursor (a row just added). Nil on rows drawn outside the list.
@@ -1995,15 +2014,19 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                   label={ai_notes_label(a_note_count, a_tokens)}
                 />
                 <.table_row_menu_divider />
+                <%!-- Deleting, so "Delete" — "Remove" is for taking
+                     something off without deleting it. --%>
                 <.table_row_menu_button
                   {ConfirmAction.ask("remove_assignment",
                     uuid: @a.uuid,
-                    title: gettext("Remove task"),
-                    message: gettext("Remove \"%{title}\"?", title: TaskSchema.localized_title(@a.task, L10n.current_content_lang())),
-                    confirm: gettext("Remove")
+                    title: gettext("Delete task “%{title}”?", title: Assignment.label(@a, L10n.current_content_lang())),
+                    message:
+                      @below > 0 &&
+                        ngettext("Its subtask is deleted too.", "Its %{count} subtasks are deleted too.", @below),
+                    confirm: gettext("Delete")
                   )}
                   icon="hero-trash"
-                  label={gettext("Remove")}
+                  label={gettext("Delete")}
                   variant="error"
                 />
               </.table_row_menu>
@@ -3006,12 +3029,12 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
           {:ok, socket} ->
             {:noreply,
              socket
-             |> put_flash(:info, gettext("Task removed."))
+             |> put_flash(:info, gettext("Task deleted."))
              |> sync_project_completion()
              |> load_assignments()}
 
           {:error, socket} ->
-            {:noreply, put_flash(socket, :error, gettext("Could not remove task."))}
+            {:noreply, put_flash(socket, :error, gettext("Could not delete task."))}
         end
     end
   end
@@ -4705,8 +4728,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                       {ConfirmAction.ask("review_submission",
                         uuid: a.uuid,
                         decision: "rejected",
-                        title: gettext("Reject submission"),
-                        message: gettext("Reject this submission?"),
+                        title: gettext("Reject “%{title}”?", title: TaskSchema.localized_title(a.task, L10n.current_content_lang())),
                         confirm: gettext("Reject")
                       )}
                       class="btn btn-ghost btn-xs"
@@ -5515,12 +5537,12 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                             <.table_row_menu_button
                               {ConfirmAction.ask("remove_assignment",
                                 uuid: a.uuid,
-                                title: gettext("Remove sub-project"),
-                                message: gettext("Remove sub-project \"%{name}\" and everything inside it?", name: Project.localized_name(child, sp_lang)),
-                                confirm: gettext("Remove")
+                                title: gettext("Delete sub-project “%{name}”?", name: Project.localized_name(child, sp_lang)),
+                                message: gettext("Its tasks are deleted too."),
+                                confirm: gettext("Delete")
                               )}
                               icon="hero-trash"
-                              label={gettext("Remove")}
+                              label={gettext("Delete")}
                               variant="error"
                             />
                           </.table_row_menu>
@@ -5637,6 +5659,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                                       assignment_note_counts={@assignment_note_counts}
                                       assignment_labels={@assignment_labels}
                                       faces={assigns[:assignee_faces] || %{}}
+                                      below={Map.get(assigns[:below_counts] || %{}, ct.uuid, 0)}
                                       deps_by_assignment={@deps_by_assignment}
                                       held_by={@held_by}
                                       linked={@linked_uuids}
@@ -5676,6 +5699,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                       assignment_note_counts={@assignment_note_counts}
                       assignment_labels={@assignment_labels}
                       faces={assigns[:assignee_faces] || %{}}
+                      below={Map.get(assigns[:below_counts] || %{}, a.uuid, 0)}
                       deps_by_assignment={@deps_by_assignment}
                       held_by={@held_by}
                       linked={@linked_uuids}

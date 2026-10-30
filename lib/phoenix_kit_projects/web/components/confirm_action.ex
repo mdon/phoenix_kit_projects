@@ -108,7 +108,15 @@ defmodule PhoenixKitProjects.Web.Components.ConfirmAction do
 
   attr(:confirm, :map, default: nil, doc: "The pending question (`request/3`), or nil.")
 
-  @doc "Core's confirm modal for the pending question; nothing when there is none."
+  @doc """
+  Core's confirm modal for the pending question; nothing when there is
+  none. The title IS the question ("Delete task “Measure”?"); `message`
+  is only for a real consequence ("Its 3 subtasks are deleted too.") and
+  shows as a plain line under it. No warning box repeating the question
+  and no "Do you want to continue?" — it said the same thing three times
+  (the boss, 2026-10-30). `prompt=""` keeps core's default line away on a
+  core that still has one.
+  """
   def confirm_action_modal(assigns) do
     ~H"""
     <.confirm_modal
@@ -119,10 +127,12 @@ defmodule PhoenixKitProjects.Web.Components.ConfirmAction do
       title={@confirm.title || gettext("Are you sure?")}
       title_icon="hero-exclamation-triangle"
       title_icon_class="w-5 h-5 text-error"
-      messages={if @confirm.message, do: [{:warning, @confirm.message}], else: []}
+      prompt=""
       confirm_text={@confirm.confirm || gettext("Confirm")}
       danger={true}
-    />
+    >
+      <p :if={@confirm.message} class="text-sm text-base-content/70">{@confirm.message}</p>
+    </.confirm_modal>
     """
   end
 end

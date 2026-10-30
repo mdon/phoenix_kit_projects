@@ -80,6 +80,50 @@ defmodule PhoenixKitProjects.Web.ProjectShowBossReviewTest do
     end
   end
 
+  describe "confirm dialogs (item 10)" do
+    test "deleting a task asks one question, names it, and says its subtasks go too",
+         %{conn: conn} do
+      project = started_project()
+      parent = assignment!(project)
+      child = assignment!(project)
+      grandchild = assignment!(project)
+      {:ok, _} = PhoenixKitProjects.Outline.move(child, parent.uuid, :last)
+      {:ok, _} = PhoenixKitProjects.Outline.move(grandchild, child.uuid, :last)
+      label = PhoenixKitProjects.Schemas.Assignment.label(Projects.get_assignment(parent.uuid))
+
+      {:ok, view, _html} = live(conn, "/en/admin/projects/#{project.uuid}")
+
+      html =
+        view
+        |> element(~s(#assignment-menu-#{parent.uuid} [phx-value-event="remove_assignment"]))
+        |> render_click()
+
+      assert html =~ "Delete task “#{label}”?"
+      assert html =~ "Its 2 subtasks are deleted too."
+      refute html =~ "Do you want to continue?"
+      # No warning box repeating the question.
+      refute html =~ "bg-warning/10"
+
+      html = render_click(view, "confirm_action_ok", %{})
+      assert html =~ "Task deleted."
+      assert Projects.get_assignment(parent.uuid) == nil
+    end
+
+    test "a task with nothing under it gets no body line", %{conn: conn} do
+      project = started_project()
+      a = assignment!(project)
+      {:ok, view, _html} = live(conn, "/en/admin/projects/#{project.uuid}")
+
+      html =
+        view
+        |> element(~s(#assignment-menu-#{a.uuid} [phx-value-event="remove_assignment"]))
+        |> render_click()
+
+      assert html =~ "Delete task “"
+      refute html =~ "deleted too"
+    end
+  end
+
   describe "the assignee (item 5)" do
     test "a row names its team with no \"Team:\" before it", %{conn: conn} do
       n = System.unique_integer([:positive])
