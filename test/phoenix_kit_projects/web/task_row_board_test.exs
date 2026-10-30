@@ -197,14 +197,21 @@ defmodule PhoenixKitProjects.Web.TaskRowBoardTest do
                Projects.get_assignment(a.uuid)
     end
 
-    test "the row menu's Done step reads Mark done", %{conn: conn} do
+    # The row menu names no next step any more: "Change status…" opens the
+    # status popup, whose choices are the statuses' own names (the boss,
+    # 2026-10-30), each guarded against a double click.
+    test "the row menu changes the status through the popup", %{conn: conn} do
       project = fixture_project(%{"start_mode" => "immediate"})
       a = task(project, "Ready one", %{"status" => "todo"})
 
       {:ok, view, _html} = show(conn, project)
       menu = view |> element("#assignment-menu-#{a.uuid}") |> render()
-      assert menu =~ "Mark done"
-      assert menu =~ "phx-disable-with"
+      assert menu =~ "Change status…"
+      refute menu =~ "Mark done"
+
+      html = render_click(view, "open_status_change", %{"uuid" => a.uuid})
+      assert html =~ ~r/phx-value-status="done"[^>]*>|phx-value-status="done"/
+      assert html =~ ~r/<button[^>]*phx-click="set_status"[^>]*phx-disable-with/s
     end
   end
 

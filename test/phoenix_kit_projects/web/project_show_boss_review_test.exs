@@ -233,6 +233,79 @@ defmodule PhoenixKitProjects.Web.ProjectShowBossReviewTest do
     end
   end
 
+  describe "Change status… (item 4)" do
+    test "the ⋮ menu opens the status popup with the current status marked", %{conn: conn} do
+      project = started_project()
+      a = assignment!(project)
+      {:ok, view, _html} = live(conn, "/en/admin/projects/#{project.uuid}")
+
+      html =
+        view
+        |> element(~s(#assignment-menu-#{a.uuid} [phx-click="open_status_change"]))
+        |> render_click()
+
+      assert html =~ ~s(id="status-change-choices-#{a.uuid}")
+
+      assert html =~ ~r/phx-value-status="todo"[^>]*disabled/s or
+               html =~ ~r/disabled[^>]*phx-value-status="todo"/s
+
+      render_click(view, "set_status", %{"uuid" => a.uuid, "status" => "in_progress"})
+      assert Projects.get_assignment(a.uuid).status == "in_progress"
+    end
+
+    test "Can be started from Waiting opens the release dialog, nothing written yet",
+         %{conn: conn} do
+      project = started_project()
+      a = assignment!(project, %{"status" => "waiting"})
+      {:ok, view, _html} = live(conn, "/en/admin/projects/#{project.uuid}")
+
+      render_click(view, "open_status_change", %{"uuid" => a.uuid})
+      html = render_click(view, "set_status", %{"uuid" => a.uuid, "status" => "todo"})
+
+      assert html =~ ~s(id="next-up-form-#{project.uuid}")
+      assert Projects.get_assignment(a.uuid).status == "waiting"
+    end
+
+    test "Done on a task that unlocks another asks next up first", %{conn: conn} do
+      project = started_project()
+      first = assignment!(project)
+      second = assignment!(project, %{"status" => "waiting"})
+      {:ok, _} = Projects.add_dependency(second.uuid, first.uuid)
+      {:ok, view, _html} = live(conn, "/en/admin/projects/#{project.uuid}")
+
+      html = render_click(view, "set_status", %{"uuid" => first.uuid, "status" => "done"})
+      assert html =~ ~s(id="next-up-form-#{project.uuid}")
+      assert Projects.get_assignment(first.uuid).status == "todo"
+    end
+
+    test "a status changed meanwhile is not overwritten", %{conn: conn} do
+      project = started_project()
+      a = assignment!(project)
+      {:ok, view, _html} = live(conn, "/en/admin/projects/#{project.uuid}")
+
+      # Written behind the page's back (no broadcast), so the page still
+      # holds the old status when the pick arrives.
+      a |> Ecto.Changeset.change(status: "done") |> PhoenixKitProjects.Test.Repo.update!()
+
+      html =
+        render_click(view, "set_status", %{
+          "uuid" => a.uuid,
+          "status" => "in_progress",
+          "from" => "todo"
+        })
+
+      assert html =~ "This task changed meanwhile"
+      assert Projects.get_assignment(a.uuid).status == "done"
+    end
+
+    test "a board card has the same entry", %{conn: conn} do
+      project = started_project()
+      a = assignment!(project)
+      {:ok, view, _html} = live(conn, "/en/admin/projects/#{project.uuid}")
+      assert has_element?(view, ~s(#board-card-#{a.uuid} [phx-click="open_status_change"]))
+    end
+  end
+
   describe "the assignee (item 5)" do
     test "a row names its team with no \"Team:\" before it", %{conn: conn} do
       n = System.unique_integer([:positive])

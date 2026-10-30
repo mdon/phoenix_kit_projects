@@ -86,6 +86,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   alias PhoenixKitProjects.Schemas.{Assignment, Project}
   alias PhoenixKitProjects.Schemas.Task, as: TaskSchema
   alias PhoenixKitProjects.TaskNotes
+  alias PhoenixKitProjects.Web.Components.AssignmentStatusBadge
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
   alias PhoenixKitProjects.Web.OutlineList
 
@@ -415,6 +416,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
               reopen_uuid: nil,
               reopen_task: nil,
               next_up: nil,
+              status_change: nil,
               assignment_labels: %{},
               invoice_ready?: false
             )
@@ -572,6 +574,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       reopen_uuid: nil,
       reopen_task: nil,
       next_up: nil,
+      status_change: nil,
       assignment_labels: %{},
       invoice_ready?: false
     ]
@@ -1989,49 +1992,19 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                    status outside the vocabulary (legacy or hand-edited data)
                    gets no step. --%>
               <.table_row_menu id={"assignment-menu-#{@a.uuid}"}>
-                <%= if not @is_template do %>
-                  <%= cond do %>
-                    <% @a.status == "waiting" and @a.child_project_uuid == nil -> %>
-                      <.table_row_menu_button
-                        phx-click="ask_ready"
-                        phx-value-uuid={@a.uuid}
-                        icon="hero-play-circle"
-                        label={gettext("Ready to start")}
-                        title={gettext("Release it: its people are told they can start")}
-                      />
-                    <% @a.status == "todo" and @fx.in_progress -> %>
-                      <.table_row_menu_button
-                        phx-click="start_task"
-                        phx-value-uuid={@a.uuid}
-                        phx-disable-with={gettext("Starting…")}
-                        icon="hero-play"
-                        label={gettext("Start")}
-                      />
-                      <.table_row_menu_button
-                        phx-click="complete"
-                        phx-value-uuid={@a.uuid}
-                        phx-disable-with={gettext("Saving…")}
-                        icon="hero-check"
-                        label={gettext("Mark done")}
-                      />
-                    <% @a.status in ["todo", "in_progress"] or (@a.status == "waiting" and @a.child_project_uuid != nil) -> %>
-                      <.table_row_menu_button
-                        phx-click="complete"
-                        phx-value-uuid={@a.uuid}
-                        phx-disable-with={gettext("Saving…")}
-                        icon="hero-check"
-                        label={gettext("Mark done")}
-                      />
-                    <% @a.status == "done" -> %>
-                      <.table_row_menu_button
-                        phx-click="ask_reopen"
-                        phx-value-uuid={@a.uuid}
-                        icon="hero-arrow-uturn-left"
-                        label={gettext("Reopen")}
-                      />
-                    <% true -> %>
-                  <% end %>
-                  <.table_row_menu_divider :if={@a.status in ~w(waiting todo in_progress done)} />
+                <%!-- One way to move a task: the status popup, the same
+                     coloured choices as the task's form (the boss,
+                     2026-10-30 — a menu item naming the next step read
+                     unlike the status it led to). Done still asks "next
+                     up", a release still asks who to tell. --%>
+                <%= if not @is_template and @a.status in ~w(waiting todo in_progress done) do %>
+                  <.table_row_menu_button
+                    phx-click="open_status_change"
+                    phx-value-uuid={@a.uuid}
+                    icon="hero-arrows-right-left"
+                    label={pgettext("task action", "Change status…")}
+                  />
+                  <.table_row_menu_divider />
                 <% end %>
                 <.smart_menu_link
                   navigate={Paths.edit_assignment(@a.project_uuid, @a.uuid)}
@@ -2313,6 +2286,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   # switched off (in another session) while its dialog is open would
   # otherwise refuse every Cancel, Escape and backdrop click.
   @gated_events %{
+    "set_status" => :tasks,
     "complete" => :tasks,
     "next_up_confirm" => :tasks,
     "make_ready" => :tasks,
@@ -2361,6 +2335,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   # Events NOT listed here are reads, UI state (tabs, modals, filters)
   # or already guard themselves with a record — see :log_time below.
   @event_actions %{
+    "set_status" => :update_status,
     "complete" => :update_status,
     "next_up_confirm" => :update_status,
     "make_ready" => :update_status,
@@ -2406,7 +2381,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   # their own task even when the floor is higher. Resolving the record
   # here (rather than passing nil) is what keeps "assignees can update
   # their own status" true through the interceptor.
-  @record_param_events ~w(complete next_up_confirm make_ready ask_ready make_idle start_task reopen ask_reopen change_workflow_status
+  @record_param_events ~w(set_status complete next_up_confirm make_ready ask_ready make_idle start_task reopen ask_reopen change_workflow_status
                           update_progress toggle_tracking remove_assignment save_duration)
 
   @impl true
@@ -2587,6 +2562,29 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   defp board_step(_assignment, "waiting"), do: "make_idle"
   defp board_step(_assignment, "in_progress"), do: "start_task"
   defp board_step(_assignment, "done"), do: "complete"
+
+  # The step a status picked in the popup is. Into "can be started": a
+  # waiting task is released (who to tell), a done one reopened (why), a
+  # started one put back. A done task picked back into "in progress" is
+  # started again (`start_task` clears its completion).
+  defp status_step(%Assignment{status: same}, same), do: nil
+  defp status_step(_a, "done"), do: "complete"
+  defp status_step(%Assignment{status: "waiting"}, "todo"), do: "ask_ready"
+  defp status_step(%Assignment{status: "done"}, "todo"), do: "ask_reopen"
+  defp status_step(_a, "todo"), do: "reopen"
+  defp status_step(_a, "in_progress"), do: "start_task"
+  defp status_step(_a, "waiting"), do: "make_idle"
+
+  defp same_status(_a, nil), do: :ok
+  defp same_status(%Assignment{status: status}, status), do: :ok
+  defp same_status(_a, _from), do: :stale
+
+  # The statuses the popup offers a row: the vocabulary, the middle step
+  # only while the in-progress step is on (or the row sits there).
+  defp status_choices(socket, %Assignment{} = a) do
+    middle? = socket.assigns.fx[:in_progress] == true or a.status == "in_progress"
+    ["waiting", "todo"] ++ if(middle?, do: ["in_progress"], else: []) ++ ["done"]
+  end
 
   # Through `handle_event/3`, not straight to the handler: the step's own
   # feature gate and permission apply to a drag as to its button — with
@@ -2803,11 +2801,66 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
           started_by_key_uuid: nil
         }
 
+        # Done work started again is no longer done.
+        attrs =
+          if a.status == "done",
+            do: Map.merge(attrs, %{completed_by_uuid: nil, completed_at: nil}),
+            else: attrs
+
         socket
         |> update_assignment_with_activity(a, attrs, "projects.assignment_started",
           metadata: %{"task" => Assignment.label(a)}
         )
         |> maybe_sync_and_reload()
+    end
+  end
+
+  # ── Change status… (the boss, 2026-10-30) ─────────────────────────
+  #
+  # The popup is UI state; the pick runs as the step that status is, through
+  # `handle_event/3` again — that step's own feature gate, permission and
+  # `expect:` stale guard apply, and its dialogs still ask first: Done opens
+  # "next up", Can be started from Waiting the release ("who to tell"), Can
+  # be started from Done the reopen's "why".
+  defp gated_handle_event("open_status_change", %{"uuid" => uuid}, socket) do
+    case scoped_assignment(socket, uuid) do
+      %Assignment{status: status} = a when status in ~w(waiting todo in_progress done) ->
+        {:noreply,
+         assign(socket,
+           status_change: %{
+             uuid: a.uuid,
+             status: status,
+             label: Assignment.label(a, L10n.current_content_lang()),
+             choices: status_choices(socket, a)
+           }
+         )}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  defp gated_handle_event("close_status_change", _params, socket),
+    do: {:noreply, assign(socket, status_change: nil)}
+
+  # `from` is the status the popup showed: a pick made against a status the
+  # task has since left is refused (said, and the page reloaded), not
+  # replayed from wherever the task is now.
+  defp gated_handle_event("set_status", %{"uuid" => uuid, "status" => to} = params, socket)
+       when to in ~w(waiting todo in_progress done) do
+    socket = assign(socket, status_change: nil)
+
+    with %Assignment{} = a <- scoped_assignment(socket, uuid),
+         :ok <- same_status(a, params["from"]),
+         true <- to in status_choices(socket, a),
+         step when is_binary(step) <- status_step(a, to) do
+      case handle_event(step, %{"uuid" => uuid}, socket) do
+        {:noreply, socket} -> {:noreply, socket}
+        {:reply, _reply, socket} -> {:noreply, socket}
+      end
+    else
+      :stale -> {:noreply, socket |> put_stale_flash() |> load_assignments()}
+      _ -> {:noreply, socket}
     end
   end
 
@@ -4496,6 +4549,34 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
 
   # ── Priority display (Phase C) ───────────────────────────────────
 
+  # The status as it is named (`pgettext "task status"`): the same word
+  # wherever the status is shown, never the step that leads to it.
+  defp status_word("waiting"), do: pgettext("task status", "Waiting")
+  defp status_word("todo"), do: pgettext("task status", "Can be started")
+  defp status_word("in_progress"), do: pgettext("task status", "In progress")
+  defp status_word("done"), do: pgettext("task status", "Done")
+
+  # The task form's look (`FormParts.status_choices/1`): the current one
+  # filled, the others outlined in their own colour.
+  defp status_change_class(status, true) do
+    [
+      "badge badge-lg h-auto py-1.5 px-3 gap-1 font-semibold ring-2 ring-base-content/20 disabled:opacity-100",
+      AssignmentStatusBadge.badge_class(status)
+    ]
+  end
+
+  defp status_change_class(status, false) do
+    [
+      "badge badge-lg badge-outline h-auto py-1.5 px-3 gap-1 cursor-pointer opacity-80 hover:opacity-100",
+      status_outline(status)
+    ]
+  end
+
+  defp status_outline("todo"), do: "badge-info"
+  defp status_outline("in_progress"), do: "badge-warning"
+  defp status_outline("done"), do: "badge-success"
+  defp status_outline(_), do: "text-base-content/70"
+
   defp priority_class("urgent"), do: "badge-error"
   defp priority_class("high"), do: "badge-warning"
   defp priority_class("low"), do: "badge-ghost"
@@ -5891,7 +5972,18 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                       {gettext("Unassigned")}
                     </span>
 
-                    <div class="ml-auto shrink-0">
+                    <div class="ml-auto shrink-0 flex items-center gap-1">
+                      <button
+                        :if={a.status in ~w(waiting todo in_progress done)}
+                        type="button"
+                        phx-click="open_status_change"
+                        phx-value-uuid={a.uuid}
+                        class="btn btn-ghost btn-xs btn-square"
+                        title={pgettext("task action", "Change status…")}
+                        aria-label={pgettext("task action", "Change status…")}
+                      >
+                        <.icon name="hero-arrows-right-left" class="w-3.5 h-3.5" />
+                      </button>
                       <%= cond do %>
                         <% a.status == "waiting" and a.child_project_uuid == nil -> %>
                           <button
@@ -6085,6 +6177,35 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
             })}
         <% end %>
       </div>
+
+      <%!-- Change status…: the task form's coloured status choices, the
+           current one marked. Each press runs that status's own step. --%>
+      <.modal
+        :if={@status_change}
+        show
+        on_close="close_status_change"
+        id={"project-status-change-#{@project.uuid}"}
+        max_width="sm"
+      >
+        <:title>{gettext("Status of “%{task}”", task: @status_change.label)}</:title>
+        <div class="flex flex-wrap gap-1.5" id={"status-change-choices-#{@status_change.uuid}"}>
+          <button
+            :for={status <- @status_change.choices}
+            type="button"
+            phx-click="set_status"
+            phx-value-uuid={@status_change.uuid}
+            phx-value-status={status}
+            phx-value-from={@status_change.status}
+            phx-disable-with={gettext("Saving…")}
+            disabled={status == @status_change.status}
+            aria-pressed={to_string(status == @status_change.status)}
+            class={status_change_class(status, status == @status_change.status)}
+          >
+            <.icon :if={status == @status_change.status} name="hero-check-mini" class="w-4 h-4 -ml-0.5" />
+            {status_word(status)}
+          </button>
+        </div>
+      </.modal>
 
       <%!-- Reopen asks why. --%>
       <% reopening = @reopen_uuid && @reopen_task %>
