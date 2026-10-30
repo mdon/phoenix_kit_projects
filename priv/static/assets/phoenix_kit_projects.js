@@ -1126,7 +1126,7 @@
         } else if (e.key === "Escape") {
           el.value = self.saved;
           el.blur();
-        } else if (e.key === "Backspace" && el.value === "" && el.dataset.fresh === "1") {
+        } else if (e.key === "Backspace" && el.value === "") {
           e.preventDefault();
           self.pushEvent("outline_drop", { id: el.dataset.id });
         } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
@@ -1144,7 +1144,7 @@
         if (rows.length === 0) return;
         self.save(function () { self.pushEvent("outline_paste", { after: el.dataset.id, lines: rows }); });
       });
-      el.addEventListener("blur", function () { self.save(); });
+      el.addEventListener("blur", function () { if (el.value.trim() === "") self.pushEvent("outline_drop", { id: el.dataset.id }); else self.save(); });
       this.wanted = el.dataset.focus === "1";
       if (this.wanted) { el.focus(); el.setSelectionRange(0, 0); }
     },

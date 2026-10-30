@@ -516,6 +516,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       list_controls: ListControls.read(),
       list_controls?: false,
       outline_style: :cards,
+      outline_draft: nil,
       outline_depths: %{},
       outline_counts: %{},
       outline_parents: MapSet.new(),
@@ -5697,10 +5698,12 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                   <% end %>
                 </div>
               </div>
+              <OutlineList.draft_row draft={assigns[:outline_draft]} slot={a.uuid} indent={@list_manual?} />
             <% end %>
           </div>
         </div>
       <% end %>
+      <OutlineList.draft_row draft={assigns[:outline_draft]} slot={:end} />
 
       <%!-- The "Add a task" row at the foot of the list opens the same
            sheet as the button at the top, cursor in the title; Shift+Enter
