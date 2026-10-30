@@ -124,6 +124,23 @@ defmodule PhoenixKitProjects.Web.ProjectShowBossReviewTest do
     end
   end
 
+  describe "the header line (item 19)" do
+    test "an embed puts the name, key, link and ⋮ on one centred line",
+         %{conn: conn, actor_uuid: actor} do
+      project = started_project()
+      {:ok, project} = Projects.update_project(project, %{"external_url" => "/somewhere"})
+      {:ok, _view, html} = embed(conn, project, actor)
+
+      [line] =
+        Regex.run(
+          ~r/<div class="flex flex-wrap items-center gap-2 min-w-0">.*?<\/h1>.*?data-project-link.*?project-header-menu-/s,
+          html
+        )
+
+      assert line =~ project.key
+    end
+  end
+
   describe "the assignee (item 5)" do
     test "a row names its team with no \"Team:\" before it", %{conn: conn} do
       n = System.unique_integer([:positive])

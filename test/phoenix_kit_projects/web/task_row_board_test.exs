@@ -412,15 +412,24 @@ defmodule PhoenixKitProjects.Web.TaskRowBoardTest do
              )
     end
 
-    test "a path on this site opens in the same tab, as stored; no label says Open link",
+    # A new tab for a site path too (the boss, 2026-10-30): following the
+    # link must not take the project page away. An outlined button with
+    # the external-link icon, so it reads as one.
+    test "a path on this site opens in a new tab too, as stored; no label says Open link",
          %{conn: conn} do
       project = fixture_project()
       path = "/admin/andi/sub-orders/#{Ecto.UUID.generate()}"
       {:ok, project} = Projects.update_project(project, %{"external_url" => path})
 
       {:ok, view, _html} = show(conn, project)
-      assert has_element?(view, ~s(a[data-project-link][href="#{path}"]), "Open link")
-      refute has_element?(view, ~s(a[data-project-link][target]))
+
+      assert has_element?(
+               view,
+               ~s(a.btn-outline[data-project-link][href="#{path}"][target="_blank"][rel="noopener noreferrer"]),
+               "Open link"
+             )
+
+      assert has_element?(view, "a[data-project-link] .hero-arrow-top-right-on-square")
     end
 
     test "no address, no button", %{conn: conn} do

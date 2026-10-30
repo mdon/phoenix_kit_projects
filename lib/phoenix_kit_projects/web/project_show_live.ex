@@ -972,9 +972,9 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         <.ref_chip :if={not @is_template} ref={@project.key} size="md" />
         <%!-- Where the project belongs elsewhere (V26): the order a host
              app made it for, a client folder. A path is the host's own
-             page — same tab, written as stored, since it is not one of the
-             kit's routes; a web address is someone else's site — a new
-             tab, with no way back into this one. --%>
+             page, written as stored since it is not one of the kit's
+             routes; either opens in a new tab, so the project stays open
+             here. --%>
         <.project_link project={@project} />
         <%!-- Inline workflow-status picker (the current value). The
              status-list *source* is chosen on the new/edit form (and the
@@ -4141,21 +4141,16 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         label: present_or(assigns.project.external_label, gettext("Open link"))
       )
 
+    # An outlined button with the external-link icon, in a new tab for a
+    # path on this site too (the boss, 2026-10-30: a ghost link next to the
+    # key was not seen as one, and following it lost the project page).
     ~H"""
     <a
-      :if={@local?}
-      href={@url}
-      class="btn btn-sm btn-ghost gap-1"
-      data-project-link
-    >
-      <.icon name="hero-link" class="w-4 h-4" /> {@label}
-    </a>
-    <a
-      :if={@web? and not @local?}
+      :if={@local? or @web?}
       href={@url}
       target="_blank"
       rel="noopener noreferrer"
-      class="btn btn-sm btn-ghost gap-1"
+      class="btn btn-sm btn-outline gap-1"
       data-project-link
     >
       {@label} <.icon name="hero-arrow-top-right-on-square" class="w-4 h-4" />
@@ -4596,12 +4591,16 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         <div class="flex flex-col gap-2">
           <%!-- Title (embeds only) + lifecycle/status badges. Min-width: 0
                lets the h1 truncate instead of pushing siblings around. --%>
+          <%!-- One line, centred: the name, then the key, the link, the
+               status picker and ⋮ (an embed has no site header for
+               those), then the lifecycle badges. --%>
           <div class="flex flex-wrap items-center gap-2 min-w-0">
             <%= if not @router_mounted? do %>
               <h1 class="text-2xl font-bold break-words">
                 {Project.localized_name(@project, L10n.current_content_lang())}
               </h1>
               <span :if={@is_template} class="badge badge-info badge-sm">{gettext("Template")}</span>
+              {header_toolbar(assigns)}
             <% end %>
             <%= if @project.completed_at do %>
               <span class="badge badge-success gap-1">
@@ -4641,12 +4640,6 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
           <p :if={desc} class="text-sm text-base-content/60">
             <.mention_text text={desc} scope={@phoenix_kit_current_scope} />
           </p>
-          <%!-- The status picker + ⋮ live in the site header on the
-               standalone page (`page_toolbar`); an embed has no site header,
-               so it keeps them here under its own h1. --%>
-          <div :if={not @router_mounted?} class="flex flex-wrap gap-2">
-            {header_toolbar(assigns)}
-          </div>
         </div>
       </div>
 
