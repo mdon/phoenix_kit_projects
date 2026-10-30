@@ -29,14 +29,16 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
   alias PhoenixKitProjects.{
     Assignees,
     CalendarDisplay,
+    Extensions,
     L10n,
     Paths,
+    ProjectEvents,
     Projects,
     ScheduleLayout
   }
 
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
-  alias PhoenixKitProjects.Schemas.{Assignment, Project}
+  alias PhoenixKitProjects.Schemas.{Assignment, Project, ProjectEvent}
   alias PhoenixKitProjects.Web.AssigneeFilter
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
 
@@ -165,6 +167,14 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
       # closed, else %{date: Date, rows: [row]} filled by a day-cell / "+N
       # more" click. The dialog itself opens client-side (PkDialogTrigger).
       day_popup: nil,
+      # The grid the calendar shows (Month / Week / Day), as its switcher
+      # reports it: a task planned over several days at set hours is one bar
+      # on the month and a block on each day of the week and day grids.
+      cal_view: :month,
+      # The project's own events and what its extensions put on a calendar
+      # (meetings), as calendar events — drawn while no filter narrows the
+      # calendar to tasks.
+      happenings: [],
       today: Date.utc_today(),
       # Per-project PubSub topics already subscribed (the whole rendered tree;
       # grows as sub-projects appear). Avoids double-subscribing on reload.
@@ -188,6 +198,13 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
   def handle_info({:calendar_event_click, assignment_uuid}, socket) do
     {:noreply, navigate_to_target(socket, assignment_uuid)}
   end
+
+  # The Month / Week / Day switcher.
+  def handle_info({:calendar_view, view}, socket) when view in [:month, :week, :day] do
+    {:noreply, socket |> assign(cal_view: view) |> apply_calendar_filter()}
+  end
+
+  def handle_info({:calendar_view, _view}, socket), do: {:noreply, socket}
 
   # A day cell or its "+N more" link was clicked — fill the whole-day popup
   # (the dialog already opened client-side in the same frame).
@@ -263,6 +280,10 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
 
   # A leaf task opens its assignment edit form; a sub-project drills into the
   # child project. Unknown id (stale render) is a no-op.
+  # An event or a meeting opens the project's Events tab, where it is kept.
+  defp navigate_to_target(socket, "event:" <> _), do: open_events_tab(socket)
+  defp navigate_to_target(socket, "ext:" <> _), do: open_events_tab(socket)
+
   defp navigate_to_target(socket, event_id) do
     assignment_uuid = CalendarDisplay.task_uuid(event_id)
 
@@ -285,6 +306,16 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
       nil ->
         socket
     end
+  end
+
+  defp open_events_tab(socket) do
+    project = socket.assigns.project
+
+    WebHelpers.navigate_or_open(socket,
+      to: Paths.project_ext_tab(project.uuid, "events"),
+      open: {PhoenixKitProjects.Web.ProjectShowLive, %{"id" => project.uuid}},
+      popup: false
+    )
   end
 
   defp view_session(socket, project_uuid, assignment_uuid) do
@@ -359,6 +390,7 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
     |> assign(overdue_anim: CalendarDisplay.read())
     |> assign(
       calendar_items: {items, layout},
+      happenings: happenings(project),
       click_targets: click_targets,
       today: Date.utc_today(),
       calendar_loading: false,
@@ -418,11 +450,12 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
             if socket.assigns.overdue_only? and not late? do
               []
             else
-              to_events(it, span, lang, late?, late_class, via)
+              to_events(it, span, lang, late?, late_class, via, socket.assigns.cal_view)
             end
         end
       end)
       |> Kernel.++(deadline_events(items, scopes, socket.assigns, lang))
+      |> Kernel.++(if filtered?(socket.assigns, scopes), do: [], else: socket.assigns.happenings)
 
     socket = socket |> assign(events: events) |> put_initial_anchor(events)
 
@@ -500,10 +533,10 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
   # get the shared red inset ring; `via` carries the filter provenance for
   # the day popup. Lateness (data — drives the popup badge + Overdue-only)
   # is independent of the marker class (dress — nil when the marker is off).
-  defp to_events(it, span, lang, late?, late_class, via) do
+  defp to_events(it, span, lang, late?, late_class, via, view) do
     a = it.assignment
 
-    CalendarDisplay.planned_events(a, title(a, lang), span_days(span), :month,
+    CalendarDisplay.planned_events(a, title(a, lang), span_days(span), view,
       color: status_color(a.status),
       class: if(late?, do: late_class),
       extra: %{status: a.status, late: late?, via: via}
@@ -549,6 +582,76 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
           end
       end
     end)
+  end
+
+  # A person picked, Unassigned or Overdue-only: the calendar is narrowed
+  # to tasks, so events and meetings (nobody's tasks) step aside.
+  defp filtered?(assigns, scopes),
+    do: scopes != [] or assigns.include_unassigned? or assigns.overdue_only?
+
+  # The project's events (the Events extension) and its extensions'
+  # calendar items (a client meeting), when the Events tab is on: what the
+  # day holds besides tasks. A year either side of today.
+  defp happenings(%Project{uuid: uuid} = project) do
+    if Extensions.enabled?(project, "events") do
+      now = DateTime.utc_now()
+      from = DateTime.add(now, -366 * 86_400)
+      until = DateTime.add(now, 366 * 86_400)
+
+      Enum.map(ProjectEvents.list_for_project(uuid, from: from, until: until), &happening/1) ++
+        Enum.map(Extensions.calendar_items(uuid, from, until), &ext_happening/1)
+    else
+      []
+    end
+  end
+
+  defp happening(%ProjectEvent{all_day: true} = e) do
+    start_d = DateTime.to_date(e.starts_at)
+    last = if e.ends_at, do: DateTime.to_date(e.ends_at), else: start_d
+
+    PhoenixLiveCalendar.event("event:" <> e.uuid, start_d,
+      title: e.title,
+      end: Date.add(Enum.max([last, start_d], Date), 1),
+      all_day: true,
+      color: "bg-info",
+      extra: %{kind: :event}
+    )
+  end
+
+  defp happening(%ProjectEvent{} = e) do
+    timed_happening("event:" <> e.uuid, e.title, e.starts_at, e.ends_at, "bg-info")
+  end
+
+  defp ext_happening(item) do
+    cancelled? = Map.get(item, :status) == "cancelled"
+    title = if cancelled?, do: "✕ " <> item.title, else: item.title
+    color = if cancelled?, do: "bg-neutral", else: "bg-accent"
+    id = "ext:#{item.source}:#{item.id}"
+    timed_happening(id, title, item.starts_at, Map.get(item, :ends_at), color)
+  end
+
+  # A timed happening at the viewer's wall clock; with no end, an hour.
+  defp timed_happening(id, title, %DateTime{} = starts_at, ends_at, color) do
+    start = starts_at |> L10n.local() |> DateTime.to_naive()
+
+    finish =
+      case ends_at do
+        %DateTime{} = e -> e |> L10n.local() |> DateTime.to_naive()
+        _ -> NaiveDateTime.add(start, 3600)
+      end
+
+    finish =
+      if NaiveDateTime.compare(finish, start) == :gt,
+        do: finish,
+        else: NaiveDateTime.add(start, 3600)
+
+    PhoenixLiveCalendar.event(id, start,
+      title: title,
+      end: finish,
+      all_day: false,
+      color: color,
+      extra: %{kind: :event}
+    )
   end
 
   defp deadline_items(items) do
@@ -676,7 +779,7 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
               module={PhoenixLiveCalendar.CalendarComponent}
               id={"project-calendar-#{@project.uuid}"}
               events={@events}
-              views={[:month]}
+              views={[:month, :week, :day]}
               time_format={CalendarDisplay.time_format()}
               date={@anchor_date}
               today={@today}
@@ -691,6 +794,7 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
               on_event_click={fn id -> send(self(), {:calendar_event_click, id}) end}
               on_date_select={fn date -> send(self(), {:calendar_date_click, date}) end}
               on_more_click={fn date -> send(self(), {:calendar_more_click, date}) end}
+              on_view_change={fn %{view: view} -> send(self(), {:calendar_view, view}) end}
             >
               <%!-- Same shared Filters popup as the Overview calendar (person
                    chips with descendant-aware sub-project matching, Unassigned,
