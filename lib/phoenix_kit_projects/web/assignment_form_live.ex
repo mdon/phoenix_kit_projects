@@ -22,6 +22,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   import PhoenixKitWeb.Components.Core.SearchPicker, only: [search_picker: 1]
   import PhoenixKitWeb.Components.MultilangForm
   import PhoenixKitProjects.Web.Components.TimeInput, only: [datetime_input: 1, clock_input: 1]
+  import PhoenixKitProjects.Web.Components.DurationInput, only: [duration_input: 1]
 
   require Logger
 
@@ -46,10 +47,9 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
     Statuses
   }
 
-  alias PhoenixKitProjects.Hours.Format
   alias PhoenixKitProjects.Schemas.{Assignment, Project, Task}
   alias PhoenixKitProjects.Web.Components.AssignmentStatusBadge
-  alias PhoenixKitProjects.Web.Components.TimeInput
+  alias PhoenixKitProjects.Web.Components.{DurationInput, TimeInput}
   alias PhoenixKitProjects.Web.Components.WorkflowStatusFields, as: WSF
   alias PhoenixKitProjects.Web.Crumbs
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
@@ -1248,6 +1248,8 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
     # The time pickers post their parts (`TimeInput`); folded back into the
     # values the browser's own inputs posted.
     |> TimeInput.normalize(~w(deadline start_time end_time))
+    # An estimate of 1.5 hours is stored as 90 minutes (a whole number).
+    |> DurationInput.estimate_attrs()
     |> drop_unchanged_wall(socket.assigns[:assignment], ["deadline"])
     |> normalize_form_attrs()
   end
@@ -1721,7 +1723,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
     with true <- Features.on?(project, "ledger"),
          true <- PhoenixKitProjects.Authz.can?(scope, project, :log_time, assignment),
          {:ok, actor} <- log_actor(socket),
-         {:ok, minutes} <- Format.parse_duration(params["duration"]),
+         {:ok, minutes} <- DurationInput.to_minutes(params["duration"]),
          {:ok, _entry} <-
            PhoenixKitProjects.Ledger.log_time(
              assignment.project_uuid,
@@ -1739,8 +1741,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
        |> put_flash(:info, gettext("Time logged."))}
     else
       :error ->
-        {:noreply,
-         put_flash(socket, :error, gettext("Enter how long, like 1h 30m, 1:30, 90 or 1.5h."))}
+        {:noreply, put_flash(socket, :error, gettext("Enter a positive amount of time."))}
 
       false ->
         {:noreply,
@@ -3700,18 +3701,6 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
      )}
   end
 
-  defp duration_unit_options do
-    [
-      {gettext("Minutes"), "minutes"},
-      {gettext("Hours"), "hours"},
-      {gettext("Days"), "days"},
-      {gettext("Weeks"), "weeks"},
-      {gettext("Fortnights"), "fortnights"},
-      {gettext("Months"), "months"},
-      {gettext("Years"), "years"}
-    ]
-  end
-
   @impl true
   def render(%{kind: "subproject"} = assigns) do
     ~H"""
@@ -4368,19 +4357,13 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
         <section id="assignment-pane-planning" role="tabpanel" class={["flex flex-col gap-4", @pane != "planning" && "hidden"]}>
             <%!-- The ESTIMATE: planned effort, not time already spent (that is
                  logged under More). --%>
-            <div :if={@fx.estimates} class="flex gap-2">
-              <div class="flex-1">
-                <.input field={@form[:estimated_duration]} label={gettext("Estimate")} type="number" />
-              </div>
-              <div class="w-40">
-                <.select
-                  field={@form[:estimated_duration_unit]}
-                  label={gettext("Unit")}
-                  options={duration_unit_options()}
-                  prompt={gettext("—")}
-                />
-              </div>
-            </div>
+            <.duration_input
+              :if={@fx.estimates}
+              id="assignment-estimate"
+              amount_field={@form[:estimated_duration]}
+              unit_field={@form[:estimated_duration_unit]}
+              label={gettext("Estimate")}
+            />
 
           <%!-- The plan (Max, 2026-10-06): optional days, either alone, each
                with an optional time that belongs to its day. A dated task
@@ -4698,15 +4681,11 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
                 </div>
                 <%!-- Re-keyed after each entry (`log_seq`): the two boxes come
                      back empty, so a second press cannot log the same again. --%>
-                <.input
+                <.duration_input
                   id={"assignment-log-duration-#{@log_seq}"}
                   name="duration"
                   form="assignment-log-form"
                   label={gettext("How long")}
-                  value=""
-                  placeholder={gettext("1h 30m, 1:30, 90 or 1.5h")}
-                  autocomplete="off"
-                  class="input-sm"
                 />
                 <.input
                   id={"assignment-log-note-#{@log_seq}"}

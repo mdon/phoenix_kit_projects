@@ -34,6 +34,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
   import PhoenixKitWeb.Components.Core.DateNav, only: [date_nav: 1]
   import PhoenixKitWeb.Components.Core.SearchPicker, only: [search_picker: 1]
   import PhoenixKitProjects.Web.Components.TimeInput, only: [clock_input: 1]
+  import PhoenixKitProjects.Web.Components.DurationInput, only: [duration_input: 1]
 
   alias PhoenixKit.Users.Auth.User
   alias PhoenixKit.Utils.Date, as: KitDate
@@ -56,7 +57,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Schemas.{Project, WorkEntry}
   alias PhoenixKitProjects.Web.Components.ConfirmAction
-  alias PhoenixKitProjects.Web.Components.TimeInput
+  alias PhoenixKitProjects.Web.Components.{DurationInput, TimeInput}
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
   alias PhoenixKitWeb.Components.Core.FormFieldLabel
 
@@ -923,7 +924,8 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
         "time" => params["time"] || "",
         "person" => params["person"] || "me",
         "task" => blank_to_nil(params["task"]) || "",
-        "duration" => params["duration"] || "",
+        # The number and unit as typed (`DurationInput`), kept on a re-render.
+        "duration" => duration_parts(params["duration"]),
         "note" => params["note"] || "",
         "billable" => params["billable"] in ["true", "on"]
       },
@@ -989,12 +991,16 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
        else: {:error, gettext("You don't have permission to log time here.")}
   end
 
-  defp minutes(text) do
-    case Format.parse_duration(text) do
+  # A number and a unit (`DurationInput`), never text to parse.
+  defp minutes(duration) do
+    case DurationInput.to_minutes(duration) do
       {:ok, minutes} -> {:ok, minutes}
-      :error -> {:error, gettext("Enter how long, like 1h 30m, 1:30, 90 or 1.5h.")}
+      :error -> {:error, gettext("Enter a positive amount of time.")}
     end
   end
+
+  defp duration_parts(%{} = parts), do: Map.take(parts, ["amount", "unit"])
+  defp duration_parts(_), do: %{}
 
   # Who the time is for. Anyone but "me" needs the plan-level permission,
   # and must be one of the choices the form offered.
@@ -2016,14 +2022,12 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
             class="flex-1"
           />
         </div>
-        <.input
+        <.duration_input
           id={"#{@dom}-log-duration"}
           name="duration"
           label={gettext("How long")}
-          value={@form.values["duration"]}
-          placeholder={gettext("1h 30m, 1:30, 90 or 1.5h")}
-          class="input-sm"
-          autocomplete="off"
+          amount={@form.values["duration"]["amount"]}
+          unit={@form.values["duration"]["unit"]}
         />
         <.select
           :if={length(@form.people) > 1}
@@ -2101,13 +2105,11 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
       <:title>{gettext("Edit entry")}</:title>
       <form id={"#{@dom}-edit-form"} phx-submit="save_edit" class="flex flex-col gap-3 mt-2" novalidate>
         <p :if={@error} class="alert alert-error text-sm py-2" role="alert">{@error}</p>
-        <.input
+        <.duration_input
           id={"#{@dom}-edit-duration"}
           name="duration"
           label={gettext("How long")}
-          value={Format.duration(Decimal.to_float(@entry.amount))}
-          class="input-sm"
-          autocomplete="off"
+          minutes={Decimal.to_float(@entry.amount)}
         />
         <label class="label cursor-pointer justify-start gap-2">
           <input type="hidden" name="billable" value="false" />

@@ -339,9 +339,6 @@ defmodule PhoenixKitProjects.Web.Components.TimeInput do
 
   defp with_field(assigns), do: assign(assigns, :errors, [])
 
-  defp translate_error({msg, opts}) do
-    Enum.reduce(opts, msg, fn {key, value}, acc ->
-      String.replace(acc, "%{#{key}}", fn _ -> to_string(value) end)
-    end)
-  end
+  # Core's, so a changeset error reads as in every other field.
+  defp translate_error(error), do: PhoenixKitWeb.Components.Core.Input.translate_error(error)
 end

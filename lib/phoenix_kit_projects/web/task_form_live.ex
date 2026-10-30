@@ -10,12 +10,14 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
   use PhoenixKitAI.Components.AITranslate.Embed
 
   import PhoenixKitWeb.Components.MultilangForm
+  import PhoenixKitProjects.Web.Components.DurationInput, only: [duration_input: 1]
 
   require Logger
 
   alias PhoenixKitAI.Components.AITranslate.FormGlue
   alias PhoenixKitProjects.{Activity, Authz, L10n, Paths, Projects}
   alias PhoenixKitProjects.Schemas.Task
+  alias PhoenixKitProjects.Web.Components.DurationInput
   alias PhoenixKitProjects.Web.Crumbs
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
 
@@ -359,7 +361,11 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
 
   defp merge_attrs(attrs, socket) do
     in_flight = WebHelpers.in_flight_record(socket, :form, :task)
-    WebHelpers.merge_translations_attrs(attrs, in_flight, Task.translatable_fields())
+
+    attrs
+    # An estimate of 1.5 hours is stored as 90 minutes (a whole number).
+    |> DurationInput.estimate_attrs()
+    |> WebHelpers.merge_translations_attrs(in_flight, Task.translatable_fields())
   end
 
   defp reload_task_deps(socket) do
@@ -483,18 +489,6 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
     field |> Atom.to_string() |> String.replace("_", " ") |> String.capitalize()
   end
 
-  defp duration_unit_options do
-    [
-      {gettext("Minutes"), "minutes"},
-      {gettext("Hours"), "hours"},
-      {gettext("Days"), "days"},
-      {gettext("Weeks"), "weeks"},
-      {gettext("Fortnights"), "fortnights"},
-      {gettext("Months"), "months"},
-      {gettext("Years"), "years"}
-    ]
-  end
-
   @impl true
   def render(assigns) do
     ~H"""
@@ -573,18 +567,12 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
         <%!-- Non-translatable settings (duration, default assignee). --%>
         <div class="card bg-base-100 shadow">
           <div class="card-body flex flex-col gap-3">
-            <div class="flex gap-2">
-              <div class="flex-1">
-                <.input field={@form[:estimated_duration]} label={gettext("Estimated duration")} type="number" />
-              </div>
-              <div class="w-40">
-                <.select
-                  field={@form[:estimated_duration_unit]}
-                  label={gettext("Unit")}
-                  options={duration_unit_options()}
-                />
-              </div>
-            </div>
+            <.duration_input
+              id="task-estimate"
+              amount_field={@form[:estimated_duration]}
+              unit_field={@form[:estimated_duration_unit]}
+              label={gettext("Estimated duration")}
+            />
 
             <%!-- One-off (V15): quick-added tasks start hidden from the
                  library; unticking here is how one is promoted. Shown on

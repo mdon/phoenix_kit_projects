@@ -242,7 +242,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLiveTest do
           "project" => project.uuid,
           "date" => Date.to_iso8601(Date.utc_today()),
           "time" => "09:00",
-          "duration" => "1h 30m",
+          "duration" => %{"amount" => "1.5", "unit" => "hours"},
           "person" => "me",
           "task" => cut.uuid,
           "note" => "Morning shift",
@@ -270,11 +270,15 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLiveTest do
       base = %{
         "project" => project.uuid,
         "date" => Date.to_iso8601(Date.utc_today()),
-        "duration" => "45",
+        "duration" => %{"amount" => "45", "unit" => "minutes"},
         "person" => "me"
       }
 
-      assert render_submit(view, "save_log", %{base | "duration" => "soon"}) =~ "Enter how long"
+      assert render_submit(view, "save_log", %{
+               base
+               | "duration" => %{"amount" => "soon", "unit" => "hours"}
+             }) =~
+               "Enter a positive amount of time"
 
       assert render_submit(view, "save_log", Map.put(base, "task", foreign.uuid)) =~
                "Pick a task of this project"
@@ -308,7 +312,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLiveTest do
       render_submit(view, "save_log", %{
         "project" => project.uuid,
         "date" => Date.to_iso8601(Date.utc_today()),
-        "duration" => "2h",
+        "duration" => %{"amount" => "2", "unit" => "hours"},
         "person" => "user:#{ann.uuid}"
       })
 
@@ -330,8 +334,18 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLiveTest do
       {:ok, view, _html} = mount_tab(conn, project, admin)
 
       assert render_click(view, "edit_entry", %{"uuid" => entry.uuid}) =~ "Edit entry"
-      assert render_submit(view, "save_edit", %{"duration" => "x"}) =~ "Enter how long"
-      html = render_submit(view, "save_edit", %{"duration" => "45m", "billable" => "true"})
+
+      assert render_submit(view, "save_edit", %{
+               "duration" => %{"amount" => "x", "unit" => "hours"}
+             }) =~
+               "Enter a positive amount of time"
+
+      html =
+        render_submit(view, "save_edit", %{
+          "duration" => %{"amount" => "45", "unit" => "minutes"},
+          "billable" => "true"
+        })
+
       assert html =~ "Entry updated."
 
       amended = Ledger.get_entry(entry.uuid)
@@ -411,7 +425,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLiveTest do
       assert render_submit(view, "save_log", %{
                "project" => project.uuid,
                "date" => Date.to_iso8601(Date.utc_today()),
-               "duration" => "1h"
+               "duration" => %{"amount" => "1", "unit" => "hours"}
              }) =~ "Vera Viewer"
 
       assert render_click(view, "edit_entry", %{"uuid" => theirs.uuid}) =~
@@ -605,7 +619,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLiveTest do
       render_submit(view, "save_log", %{
         "project" => off.uuid,
         "date" => Date.to_iso8601(Date.utc_today()),
-        "duration" => "20"
+        "duration" => %{"amount" => "20", "unit" => "minutes"}
       })
 
       assert Ledger.list_entries(off.uuid) == []
@@ -621,13 +635,18 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLiveTest do
       {:ok, view, _html} = live(conn, "/en/admin/projects/hours")
 
       render_click(view, "open_log", %{})
-      render_change(view, "log_change", %{"project" => project.uuid, "duration" => "20"})
+
+      render_change(view, "log_change", %{
+        "project" => project.uuid,
+        "duration" => %{"amount" => "20", "unit" => "minutes"}
+      })
+
       assert "Cut the panels" in task_search(view)
 
       render_submit(view, "save_log", %{
         "project" => project.uuid,
         "date" => Date.to_iso8601(Date.utc_today()),
-        "duration" => "20",
+        "duration" => %{"amount" => "20", "unit" => "minutes"},
         "task" => cut.uuid
       })
 
