@@ -9,7 +9,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowBossReviewTest do
   use PhoenixKitProjects.LiveCase, async: false
 
   alias PhoenixKit.Users.Auth
-  alias PhoenixKitProjects.Projects
+  alias PhoenixKitProjects.{Features, Projects}
   alias PhoenixKitStaff.{Departments, Teams}
 
   setup %{conn: conn} do
@@ -138,6 +138,67 @@ defmodule PhoenixKitProjects.Web.ProjectShowBossReviewTest do
         )
 
       assert line =~ project.key
+    end
+  end
+
+  describe "time logging on the project and billable time (item 20)" do
+    test "both are off by default: no project Log time, no Logged bar, no billable box",
+         %{conn: conn} do
+      project = started_project()
+      a = assignment!(project)
+      fx = Features.gates(project)
+      refute fx.project_time
+      refute fx.billable
+
+      {:ok, view, html} = live(conn, "/en/admin/projects/#{project.uuid}")
+      refute html =~ "Logged:"
+      refute html =~ ~s(phx-click="open_log_time">)
+
+      # A task's own Log time stays.
+      html = render_click(view, "open_log_time", %{"uuid" => a.uuid})
+      assert html =~ ~s(id="work-entry-form-#{project.uuid}")
+      refute html =~ ~s(id="log-time-billable-#{project.uuid}")
+
+      # A forged project-level log is refused, and a forged billable mark
+      # is dropped.
+      render_click(view, "close_log_time", %{})
+      assert render_click(view, "open_log_time", %{}) =~ "turned off for this project"
+
+      render_click(view, "open_log_time", %{"uuid" => a.uuid})
+
+      render_submit(view, "save_work_entry", %{
+        "hours" => "1",
+        "minutes" => "0",
+        "billable" => "true"
+      })
+
+      [entry] = PhoenixKitProjects.Ledger.list_entries(project.uuid)
+      refute entry.billable
+    end
+
+    test "a project that turns them on gets both", %{conn: conn} do
+      project = started_project()
+      {:ok, project} = Features.set_flags(project, %{"project_time" => true, "billable" => true})
+
+      {:ok, view, _html} = live(conn, "/en/admin/projects/#{project.uuid}")
+      html = render_click(view, "open_log_time", %{})
+      assert html =~ "On the project overall"
+      assert html =~ ~s(id="log-time-billable-#{project.uuid}")
+    end
+
+    test "the site default is set on the settings page and a project inherits it",
+         %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/en/admin/settings/projects")
+
+      view |> element("#site-flag-project_time") |> render_click()
+      assert Features.site_default_values()["project_time"] == true
+
+      project = started_project()
+      assert Features.gates(project).project_time
+
+      # The project's own value still wins.
+      {:ok, project} = Features.set_flags(project, %{"project_time" => false})
+      refute Features.gates(project).project_time
     end
   end
 

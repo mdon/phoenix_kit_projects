@@ -127,6 +127,11 @@ defmodule PhoenixKitProjects.LifecycleFlagTest do
       {:ok, project} =
         Projects.create_project(%{"name" => "Normal #{uniq()}", "start_mode" => "immediate"})
 
+      # Time on the project is its own switch, off by default (the boss,
+      # 2026-10-30); a project that has it shows the readout.
+      {:ok, project} =
+        PhoenixKitProjects.Features.set_flags(project, %{"project_time" => true})
+
       {:ok, _view, html} = live(conn, "/en/admin/projects/#{project.uuid}")
 
       assert html =~ "Not started"

@@ -62,6 +62,8 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
        use_status_translations: Statuses.global_use_status_translations?(),
        creation_blocks: PhoenixKitProjects.Features.creation_blocks(),
        creation_top_blocks: PhoenixKitProjects.Features.creation_top_blocks(),
+       site_flags: PhoenixKitProjects.Features.site_flags(),
+       site_flag_values: PhoenixKitProjects.Features.site_default_values(),
        gantt_display: GanttDisplay.read(),
        calendar_anim: CalendarDisplay.read(),
        list_controls: ListControls.read(),
@@ -105,7 +107,7 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
   end
 
   @impl true
-  @settings_tabs ~w(creation statuses list_controls timeline calendar)
+  @settings_tabs ~w(creation features statuses list_controls timeline calendar)
 
   def handle_event("switch_settings_tab", %{"tab" => tab}, socket) when tab in @settings_tabs do
     {:noreply, assign(socket, :active_tab, tab)}
@@ -192,6 +194,27 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
       {:error, _} ->
         {:noreply,
          put_flash(socket, :error, gettext("Could not update the new-project page layout."))}
+    end
+  end
+
+  # A project feature's site default (`Features.site_flags/0`): what every
+  # project inherits unless it sets its own on its Modules & Features page.
+  defp settings_write("toggle_site_flag", %{"key" => key}, socket) do
+    new_value = not Map.get(socket.assigns.site_flag_values, key, false)
+
+    case PhoenixKitProjects.Features.set_site_default(key, new_value) do
+      {:ok, _} ->
+        Activity.log("projects.feature_default_set",
+          actor_uuid: Activity.actor_uuid(socket),
+          resource_type: "projects_settings",
+          metadata: %{"flag" => key, "enabled" => new_value}
+        )
+
+        {:noreply,
+         assign(socket, site_flag_values: PhoenixKitProjects.Features.site_default_values())}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, gettext("Could not save the settings."))}
     end
   end
 
@@ -676,6 +699,7 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
         variant={:border}
         tabs={[
           %{id: "creation", label: gettext("New Project Page"), icon: "hero-document-plus"},
+          %{id: "features", label: gettext("Project Features"), icon: "hero-adjustments-horizontal"},
           %{id: "statuses", label: gettext("Workflow Statuses"), icon: "hero-flag"},
           %{id: "list_controls", label: gettext("Task List Controls"), icon: "hero-list-bullet"},
           %{id: "timeline", label: gettext("Timeline Chart"), icon: "hero-chart-bar"},
@@ -711,6 +735,36 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
               />
             </label>
           </div>
+      </.form_section>
+
+      <%!-- What every project starts with for the features a site sets
+           (time on the project, billable time, sub-project status, the
+           comment tabs). A project overrides any of them on its own
+           Modules & Features page. --%>
+      <.form_section
+        title={gettext("Project features")}
+        class={if @active_tab != "features", do: "hidden"}
+        body_class="gap-3"
+      >
+        <p class="text-xs text-base-content/60">
+          {gettext("What every project has unless it sets its own on its Modules & Features page.")}
+        </p>
+        <div class="grid grid-cols-1 gap-x-6 gap-y-1 sm:grid-cols-2">
+          <label
+            :for={flag <- @site_flags}
+            class="flex cursor-pointer items-center justify-between gap-3 py-1"
+          >
+            <span class="text-sm">{WebHelpers.translate_catalog(flag.label)}</span>
+            <input
+              type="checkbox"
+              id={"site-flag-#{flag.key}"}
+              class="toggle toggle-primary toggle-sm"
+              checked={Map.get(@site_flag_values, flag.key, false)}
+              phx-click="toggle_site_flag"
+              phx-value-key={flag.key}
+            />
+          </label>
+        </div>
       </.form_section>
 
       <.form_section

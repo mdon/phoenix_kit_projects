@@ -19,7 +19,9 @@ defmodule PhoenixKitProjects.Features do
        the GitLab-style dependency rule: `view_timeline` requires
        `scheduling`, `scheduling` requires `estimates`;
     4. the project's explicit value — `settings["features"][key]` — when
-       present; otherwise the flag's declared `default`.
+       present; otherwise the site's default for a flag declared
+       `site_default: true` (the module's settings page, `site_flags/0`),
+       when one is set; otherwise the flag's declared `default`.
 
   **Absence semantics are frozen**: a missing settings key ALWAYS means
   "inherit the flag's catalog default", never a latent choice. Presets and
@@ -117,7 +119,8 @@ defmodule PhoenixKitProjects.Features do
   defp context(project_or_uuid) do
     %{
       enabled: Extensions.enabled_map(project_uuid(project_or_uuid)),
-      features: settings_features(project_or_uuid)
+      features: settings_features(project_or_uuid),
+      site: site_defaults()
     }
   end
 
@@ -146,8 +149,80 @@ defmodule PhoenixKitProjects.Features do
   defp explicit_or_default(ctx, flag) do
     case Map.get(ctx.features, flag.key) do
       value when is_boolean(value) -> value
+      _ -> site_or_default(Map.get(ctx, :site, %{}), flag)
+    end
+  end
+
+  defp site_or_default(site, flag) do
+    case Map.get(site, flag.key) do
+      value when is_boolean(value) -> value
       _ -> flag.default
     end
+  end
+
+  # ── Site defaults ───────────────────────────────────────────────────
+  #
+  # A flag declared `site_default: true` takes its default from the
+  # module's settings page when the site set one (the boss, 2026-10-30:
+  # project-level time logging and billable time are off unless a site
+  # turns them on). Absence still means "the catalog default", so an
+  # existing install reads exactly what it read before. A project's own
+  # explicit value wins over both.
+
+  @site_default_prefix "projects_feature_default_"
+
+  @doc "The flags whose default the site sets, in catalog order of key: `[flag]`."
+  @spec site_flags() :: [map()]
+  def site_flags do
+    catalog()
+    |> Map.values()
+    |> Enum.filter(&Map.get(&1, :site_default, false))
+    |> Enum.sort_by(& &1.key)
+  end
+
+  @doc """
+  What a new project inherits for each `site_flags/0` flag:
+  `%{flag_key => boolean}` (the site's value, else the catalog default).
+  """
+  @spec site_default_values() :: %{String.t() => boolean()}
+  def site_default_values do
+    site = site_defaults()
+    Map.new(site_flags(), &{&1.key, site_or_default(site, &1)})
+  end
+
+  @doc "Sets the site's default for one `site_flags/0` flag."
+  @spec set_site_default(String.t(), boolean()) ::
+          {:ok, term()} | {:error, :unknown_flag | term()}
+  def set_site_default(flag_key, value) when is_binary(flag_key) and is_boolean(value) do
+    if Enum.any?(site_flags(), &(&1.key == flag_key)) do
+      PhoenixKit.Settings.update_boolean_setting_with_module(
+        @site_default_prefix <> flag_key,
+        value,
+        "projects"
+      )
+    else
+      {:error, :unknown_flag}
+    end
+  end
+
+  # The values the site set — only those: an unset one is absent, so the
+  # catalog default applies. One cached batch read for all of them (one
+  # query on a cold cache).
+  defp site_defaults do
+    keys = Map.new(site_flags(), &{@site_default_prefix <> &1.key, &1.key})
+    values = PhoenixKit.Settings.get_settings_cached(Map.keys(keys))
+
+    Enum.reduce(keys, %{}, fn {setting, flag_key}, acc ->
+      case Map.get(values, setting) do
+        "true" -> Map.put(acc, flag_key, true)
+        "false" -> Map.put(acc, flag_key, false)
+        _ -> acc
+      end
+    end)
+  rescue
+    _ -> %{}
+  catch
+    :exit, _ -> %{}
   end
 
   # ── Gate maps (the render layer's one-stop lookup) ──────────────────
@@ -175,8 +250,26 @@ defmodule PhoenixKitProjects.Features do
     :lifecycle,
     :view_board,
     :view_timeline,
-    :view_calendar
+    :view_calendar,
+    # Time logged on the project as a whole (its "Log time" and the logged
+    # chip in the header) and the billable mark on a time entry. Off unless
+    # the site or the project turns them on (the boss, 2026-10-30).
+    :project_time,
+    :billable,
+    # A sub-project's row follows its own tasks (waiting until released,
+    # in progress once one starts, done when all are); off, it is set by
+    # hand like a task.
+    :subproject_auto,
+    # The Discussions extension's two tabs: the project's own thread and
+    # every comment on its tasks.
+    :project_comments,
+    :all_comments
   ]
+
+  # Not part of "Full tracker": time on the project as a whole and the
+  # billable mark are a site's or a project's own choice (the boss,
+  # 2026-10-30: off unless someone turns them on).
+  @opt_in_gates [:project_time, :billable]
 
   @doc """
   EVERY catalog flag resolved for one project, `%{flag_key => boolean}`
@@ -206,11 +299,13 @@ defmodule PhoenixKitProjects.Features do
           %{atom() => boolean()} | %{binary() => %{atom() => boolean()}}
   def gates(projects) when is_list(projects) do
     enabled = Extensions.enabled_maps(Enum.map(projects, & &1.uuid))
+    site = site_defaults()
 
     Map.new(projects, fn project ->
       ctx = %{
         enabled: Map.get(enabled, project.uuid, %{}),
-        features: settings_features(project)
+        features: settings_features(project),
+        site: site
       }
 
       {project.uuid, resolve_gates(ctx)}
@@ -242,24 +337,28 @@ defmodule PhoenixKitProjects.Features do
   @spec default_gates() :: %{atom() => boolean()}
   def default_gates do
     cat = catalog()
+    site = site_defaults()
 
     base = %{tasks: true}
 
     Enum.reduce(@task_gates, base, fn gate, acc ->
       default =
         case Map.get(cat, to_string(gate)) do
-          nil -> false
-          flag -> flag.default and Enum.all?(flag.requires, &default_of(cat, &1))
+          nil ->
+            false
+
+          flag ->
+            site_or_default(site, flag) and Enum.all?(flag.requires, &default_of(cat, site, &1))
         end
 
       Map.put(acc, gate, default)
     end)
   end
 
-  defp default_of(cat, key) do
+  defp default_of(cat, site, key) do
     case Map.get(cat, key) do
       nil -> false
-      flag -> flag.default
+      flag -> site_or_default(site, flag)
     end
   end
 
@@ -372,7 +471,9 @@ defmodule PhoenixKitProjects.Features do
           "ledger" => false,
           "view_board" => false,
           "view_timeline" => false,
-          "view_calendar" => false
+          "view_calendar" => false,
+          "project_time" => false,
+          "billable" => false
         }
       },
       %{
@@ -389,7 +490,7 @@ defmodule PhoenixKitProjects.Features do
         # out: a hand-kept map missed lifecycle, ledger and view_board, so
         # "Full" applied over "Simple" left three explicit falses standing
         # (found seeding the boss's Test project at full power, 2026-09-05).
-        flags: Map.new(@task_gates, &{to_string(&1), true})
+        flags: Map.new(@task_gates -- @opt_in_gates, &{to_string(&1), true})
       }
     ]
   end

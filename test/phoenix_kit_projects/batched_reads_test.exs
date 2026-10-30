@@ -48,8 +48,9 @@ defmodule PhoenixKitProjects.BatchedReadsTest do
       {:ok, project} = Features.set_flags(project, %{"assignees" => false, "estimates" => false})
 
       {gates, q_gates} = QueryCounter.count(fn -> Features.gates(project) end)
-      # The extension map (one read); the flag values ride on the struct.
-      assert q_gates == 1
+      # The extension map (one read) and the site's feature defaults (one
+      # batch read, cached in production); the flag values ride on the struct.
+      assert q_gates <= 2
 
       # Same answer as the per-flag path, for every gate.
       for {gate, value} <- gates, gate != :tasks do
@@ -63,7 +64,7 @@ defmodule PhoenixKitProjects.BatchedReadsTest do
       assert gates.tasks == true
 
       {flags, q_flags} = QueryCounter.count(fn -> Features.flags(project) end)
-      assert q_flags == 1
+      assert q_flags <= 2
       assert flags["assignees"] == false
       assert flags["labels"] == true
       assert map_size(flags) == map_size(Features.catalog())
@@ -72,7 +73,7 @@ defmodule PhoenixKitProjects.BatchedReadsTest do
     test "a bare uuid costs one more read (the settings row), still not one per flag" do
       project = fixture_project()
       {_, queries} = QueryCounter.count(fn -> Features.gates(project.uuid) end)
-      assert queries == 2
+      assert queries <= 3
     end
 
     test "tasks off turns every task flag off in one go" do

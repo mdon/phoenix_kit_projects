@@ -386,6 +386,8 @@ defmodule PhoenixKitProjects.Web.FeatureEnforcementTest do
   describe "ledger flag on (default)" do
     test "logging time through the modal writes an entry and refreshes the strip",
          %{conn: conn, project: project, assignment: assignment} do
+      # Billable time is off unless turned on (the boss, 2026-10-30).
+      {:ok, project} = Features.set_flags(project, %{"billable" => true})
       {:ok, view, html} = live(conn, show_path(project))
 
       # Entry points render: the effort strip and the per-task chip.
@@ -473,10 +475,10 @@ defmodule PhoenixKitProjects.Web.FeatureEnforcementTest do
     end
 
     test "garbage duration is refused with a flash, nothing written",
-         %{conn: conn, project: project} do
+         %{conn: conn, project: project, assignment: assignment} do
       {:ok, view, _} = live(conn, show_path(project))
 
-      render_click(view, "open_log_time", %{})
+      render_click(view, "open_log_time", %{"uuid" => assignment.uuid})
       html = render_submit(view, "save_work_entry", %{"hours" => "0", "minutes" => "0"})
 
       assert html =~ "Enter a positive amount of time."

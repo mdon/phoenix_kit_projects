@@ -3229,8 +3229,18 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   # the authz resolver — `:log_time` floors at manager, with the
   # assignee relationship grant when the entry targets a task.
 
+  # A task's time is the ledger's; time on the project as a whole is its
+  # own switch (`project_time`, off unless the site or the project turns
+  # it on — the boss, 2026-10-30).
   defp gated_handle_event("open_log_time", params, socket) do
-    {:noreply, assign(socket, log_time_open: true, log_time_uuid: Map.get(params, "uuid"))}
+    uuid = Map.get(params, "uuid")
+
+    if is_nil(uuid) and socket.assigns.fx[:project_time] != true do
+      {:noreply,
+       put_flash(socket, :error, gettext("This feature is turned off for this project."))}
+    else
+      {:noreply, assign(socket, log_time_open: true, log_time_uuid: uuid)}
+    end
   end
 
   defp gated_handle_event("close_log_time", _params, socket) do
@@ -3245,6 +3255,12 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       end
 
     cond do
+      socket.assigns.log_time_uuid == nil and socket.assigns.fx[:project_time] != true ->
+        {:noreply,
+         socket
+         |> assign(log_time_open: false)
+         |> put_flash(:error, gettext("This feature is turned off for this project."))}
+
       socket.assigns.log_time_uuid != nil and is_nil(record) ->
         {:noreply,
          socket
@@ -4451,7 +4467,8 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         |> Ledger.log_time(minutes,
           assignment_uuid: record && record.uuid,
           note: blank_to_nil(params["note"]),
-          billable: params["billable"] in ["true", "on"],
+          # Off, nothing is marked billable — whatever a stale form sends.
+          billable: socket.assigns.fx[:billable] == true and params["billable"] in ["true", "on"],
           actor_uuid: Activity.actor_uuid(socket)
         )
         |> case do
@@ -4877,6 +4894,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                 placeholder={gettext("What was the time spent on?")}
               />
               <.checkbox
+                :if={@fx.billable}
                 id={"log-time-billable-#{@project.uuid}"}
                 name="billable"
                 label={gettext("Billable")}
@@ -5104,7 +5122,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       <%!-- Ongoing work has no finish line, so no bar towards one (Max,
            2026-10-05); the start bar's badges say Ongoing / All caught up. --%>
       <% show_progress = @fx.tasks and @total_tasks > 0 and not @is_template and not Project.ongoing?(@project) %>
-      <% show_effort = @fx.ledger and @ledger_totals != nil %>
+      <% show_effort = @fx.ledger and @fx.project_time and @ledger_totals != nil %>
       <%!-- Every block around the list carries an id: a block that appears
            (this one, with the first task) must be inserted, not matched
            against the next block by position — that rebuilt the typed list
@@ -5153,7 +5171,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                 <.icon name="hero-play-circle" class="w-4 h-4 text-base-content/60" />
                 <span class="text-base-content/60">{gettext("Logged:")}</span>
                 <span class="font-medium">{format_minutes(@ledger_totals.time_minutes)}</span>
-                <span :if={@ledger_totals.billable_minutes > 0} class="text-base-content/50">
+                <span :if={@fx.billable and @ledger_totals.billable_minutes > 0} class="text-base-content/50">
                   {gettext("(%{amount} billable)",
                     amount: format_minutes(@ledger_totals.billable_minutes)
                   )}
