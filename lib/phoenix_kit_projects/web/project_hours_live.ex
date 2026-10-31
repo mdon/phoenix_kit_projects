@@ -736,7 +736,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
          {:ok, minutes} <- minutes(params["duration"]),
          {:ok, _} <-
            Ledger.update_time(entry, minutes,
-             billable: billable_on?(entry.project_uuid) and params["billable"] in ["true", "on"],
+             billable: edited_billable(entry, params),
              actor_uuid: Activity.actor_uuid(socket)
            ) do
       {:noreply,
@@ -923,16 +923,28 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
 
   # The project's `billable` Tasks flag (off by default): without it there is
   # no Billable box and an entry is never saved as billable.
-  defp billable_on?(project_uuid) when is_binary(project_uuid) do
+  # Where the project tracks billable time the box decides; where it does
+  # not, the box is not shown and the entry keeps the mark it has — an
+  # edit of its length never clears a billable mark logged before the
+  # flag was turned off.
+  defp edited_billable(%WorkEntry{} = entry, params) do
+    if billable_on?(entry.project_uuid),
+      do: params["billable"] in ["true", "on"],
+      else: entry.billable == true
+  end
+
+  defp billable_on?(project_uuid), do: feature_on?(project_uuid, "billable")
+
+  defp feature_on?(project_uuid, flag) when is_binary(project_uuid) do
     case Projects.get_project(project_uuid) do
-      %Project{} = project -> PhoenixKitProjects.Features.on?(project, "billable")
+      %Project{} = project -> PhoenixKitProjects.Features.on?(project, flag)
       _ -> false
     end
   rescue
     _ -> false
   end
 
-  defp billable_on?(_), do: false
+  defp feature_on?(_project_uuid, _flag), do: false
 
   # The projects the viewer may log time on, as `{name, uuid}`: the tab's
   # own project, or on the site-wide page every listed project that allows
@@ -1077,7 +1089,14 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
     end
   end
 
-  defp log_task(_project_uuid, blank) when blank in [nil, ""], do: {:ok, nil}
+  # Empty means the project itself — only where the project keeps time on
+  # the project as a whole (its `project_time` flag, off unless the site or
+  # the project turns it on), as the project page's Log time asks.
+  defp log_task(project_uuid, blank) when blank in [nil, ""] do
+    if feature_on?(project_uuid, "project_time"),
+      do: {:ok, nil},
+      else: {:error, gettext("Pick a task: this project keeps time on its tasks only.")}
+  end
 
   defp log_task(project_uuid, task_uuid) do
     # The one task is looked up, not the project's whole list.
