@@ -30,6 +30,7 @@ defmodule PhoenixKitProjects.Web.Components.FormParts do
   import PhoenixKitWeb.Components.MultilangForm, only: [multilang_fields_wrapper: 1]
   import PhoenixKitAI.Components.AITranslate, only: [ai_multilang_tabs: 1]
 
+  alias PhoenixKit.Modules.Languages
   alias PhoenixKitProjects.Web.Components.AssignmentStatusBadge
 
   # ── Header ─────────────────────────────────────────────────────────
@@ -272,7 +273,7 @@ defmodule PhoenixKitProjects.Web.Components.FormParts do
   defp native_tab(tab), do: tab
 
   defp native_name(code) do
-    case PhoenixKit.Modules.Languages.get_available_language_by_code(code) do
+    case Languages.get_available_language_by_code(code) do
       %{native: native} -> native
       _ -> nil
     end

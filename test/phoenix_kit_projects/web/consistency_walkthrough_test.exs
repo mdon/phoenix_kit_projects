@@ -9,6 +9,8 @@ defmodule PhoenixKitProjects.Web.ConsistencyWalkthroughTest do
 
   alias PhoenixKit.Users.Auth
   alias PhoenixKitProjects.Projects
+  alias PhoenixKitProjects.Web.Components.DescriptionEditor
+  alias PhoenixKitProjects.Web.Widgets.Helpers, as: WidgetHelpers
 
   setup %{conn: conn} do
     {:ok, user} =
@@ -341,7 +343,7 @@ defmodule PhoenixKitProjects.Web.ConsistencyWalkthroughTest do
         assert Format.hours_shown(90) == "1,50"
         assert Format.tokens(3_400) == "3,4k"
         assert Format.cost(1234) == "$12,34"
-        assert PhoenixKitProjects.Web.Widgets.Helpers.hours(1.5) == "1,5h"
+        assert WidgetHelpers.hours(1.5) == "1,5h"
         assert Format.decimal_hours(90) == "1.50"
       end)
     end
@@ -412,7 +414,7 @@ defmodule PhoenixKitProjects.Web.ConsistencyWalkthroughTest do
     test "the description editor hides Leaf's English word / char / read-time counter" do
       html =
         render_component(
-          &PhoenixKitProjects.Web.Components.DescriptionEditor.description_editor/1,
+          &DescriptionEditor.description_editor/1,
           id: "walk-description--en",
           name: "walk[description]",
           value: "Hello"

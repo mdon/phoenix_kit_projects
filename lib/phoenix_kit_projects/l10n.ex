@@ -256,11 +256,12 @@ defmodule PhoenixKitProjects.L10n do
     String.replace(text, ".", decimal_separator())
   end
 
-  @doc "The page's decimal separator: `\",\"` or `\".\"` (`format_decimal/2`)."
+  @doc ~S|The page's decimal separator: `","` or `"."` (`format_decimal/2`).|
   @spec decimal_separator() :: String.t()
   def decimal_separator do
     base =
-      (current_content_lang() || "en")
+      current_content_lang()
+      |> to_string()
       |> String.downcase()
       |> String.split(["-", "_"], parts: 2)
       |> hd()

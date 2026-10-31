@@ -43,6 +43,7 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
   alias PhoenixKitProjects.Schemas.{Assignment, Project, ProjectEvent}
   alias PhoenixKitProjects.Web.AssigneeFilter
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
+  alias PhoenixLiveCalendar.Utils.DateHelpers
 
   require Logger
 
@@ -714,7 +715,7 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
     week_start = Map.get(anim, :week_start) || 1
 
     {first, last} =
-      PhoenixLiveCalendar.Utils.DateHelpers.visible_range(from_view, date, week_start: week_start)
+      DateHelpers.visible_range(from_view, date, week_start: week_start)
 
     # `last` is exclusive.
     if Date.compare(today, first) != :lt and Date.compare(today, last) == :lt,
