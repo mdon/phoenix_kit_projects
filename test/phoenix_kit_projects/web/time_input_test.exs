@@ -87,6 +87,35 @@ defmodule PhoenixKitProjects.Web.TimeInputTest do
     end
   end
 
+  describe "a short date" do
+    test "no year this year, the full date another" do
+      L10n.reset_viewer_zone()
+      this_year = L10n.local_date(DateTime.utc_now()).year
+      assert L10n.format_short_date(Date.new!(this_year, 10, 27)) == "Oct 27"
+      assert L10n.format_short_date(~D[2020-10-27]) == L10n.format_date(~D[2020-10-27])
+      assert L10n.format_short_date(nil) == nil
+    end
+  end
+
+  describe "status buttons" do
+    test "press sends the event with the status, the current one marked" do
+      html =
+        Phoenix.LiveViewTest.render_component(
+          &PhoenixKitProjects.Web.Components.FormParts.status_buttons/1,
+          id: "st",
+          value: "todo",
+          options: [{"Waiting", "waiting"}, {"Can be started", "todo"}],
+          event: "set_status",
+          values: %{"uuid" => "u1"}
+        )
+
+      assert html =~ ~s(id="st-todo")
+      assert html =~ ~s(aria-pressed="true")
+      assert html =~ "set_status"
+      refute html =~ ~s(type="radio")
+    end
+  end
+
   describe "the task form" do
     test "asks for times with selects, not the device's pickers", ctx do
       {:ok, view, html} =

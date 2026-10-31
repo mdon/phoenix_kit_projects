@@ -266,6 +266,37 @@ defmodule PhoenixKitProjects.Web.Components.FormParts do
     """
   end
 
+  @doc """
+  The same coloured status choices as plain buttons, for a status changed
+  at once rather than posted with a form (the "Change status" popup): each
+  press sends `event` with `values` plus `"status" => value`; the current
+  one is marked and pressed already.
+  """
+  attr(:id, :string, required: true)
+  attr(:value, :string, default: nil, doc: "the status it has now")
+  attr(:options, :list, required: true, doc: "`[{label, value}]`")
+  attr(:event, :string, required: true)
+  attr(:values, :map, default: %{}, doc: "sent with every press, beside `status`")
+  attr(:target, :any, default: nil)
+
+  def status_buttons(assigns) do
+    ~H"""
+    <div id={@id} class="flex flex-wrap gap-1.5" role="group">
+      <button
+        :for={{label, value} <- @options}
+        type="button"
+        id={"#{@id}-#{value}"}
+        phx-click={Phoenix.LiveView.JS.push(@event, value: Map.put(@values, "status", value), target: @target)}
+        aria-pressed={to_string(@value == value)}
+        class={status_choice_class(value, @value == value)}
+      >
+        <.icon :if={@value == value} name="hero-check-mini" class="w-4 h-4 -ml-0.5" />
+        {label}
+      </button>
+    </div>
+    """
+  end
+
   # The chosen one filled, the others outlined in their own colour.
   defp status_choice_class(status, true) do
     [

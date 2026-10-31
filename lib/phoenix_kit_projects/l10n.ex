@@ -114,6 +114,28 @@ defmodule PhoenixKitProjects.L10n do
     do: gettext("%{month} %{day}, %{year}", month: short_month(d.month), day: d.day, year: d.year)
 
   @doc """
+  A short date: `Oct 27` this year (in the order the language writes a
+  month and a day), the full `format_date/1` another year — for a line like
+  "since %{date}". An instant is read on the viewer's clock. nil for nil.
+  """
+  @spec format_short_date(Date.t() | DateTime.t() | NaiveDateTime.t() | nil) :: String.t() | nil
+  def format_short_date(nil), do: nil
+  def format_short_date(%DateTime{} = dt), do: dt |> local_date() |> format_short_date()
+
+  def format_short_date(%NaiveDateTime{} = n),
+    do: n |> NaiveDateTime.to_date() |> format_short_date()
+
+  def format_short_date(%Date{} = d) do
+    if d.year == local_date(DateTime.utc_now()).year,
+      do:
+        Gettext.Macros.gettext_with_backend(PhoenixKitProjects.Gettext, "%{month} %{day}",
+          month: short_month(d.month),
+          day: d.day
+        ),
+      else: format_date(d)
+  end
+
+  @doc """
   Formats as `Mon DD, YYYY at HH:MM`. For DateTimes.
   """
   @spec format_datetime(DateTime.t() | nil) :: String.t() | nil
