@@ -47,7 +47,6 @@ defmodule PhoenixKitProjects.Web.AssignmentViewLive do
   alias PhoenixKitProjects.Web.Crumbs
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
 
-  import PhoenixKitProjects.Web.Helpers, only: [assignee_label: 1]
   import PhoenixKitProjects.Web.Components.TaskTimes, only: [deadline_chip: 1, planned_label: 1]
   import PhoenixKitProjects.Web.Components.RichText, only: [rich_text: 1]
   import PhoenixKitProjects.Web.Components.TaskFiles, only: [task_files: 1]
@@ -727,9 +726,11 @@ defmodule PhoenixKitProjects.Web.AssignmentViewLive do
             <span class={["min-w-0 truncate", row.status == "done" && "text-base-content/60"]}>
               {Assignment.label(row, @lang)}
             </span>
-            <span :if={assignee_kind(row)} class="ml-auto text-xs text-base-content/60 truncate shrink-0 max-w-[40%]">
-              {assignee_label(row)}
-            </span>
+            <.assignee_shown
+              :if={assignee_kind(row)}
+              a={row}
+              class="ml-auto text-xs text-base-content/60 shrink-0 max-w-[40%]"
+            />
           </button>
         </li>
       </ul>

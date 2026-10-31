@@ -35,6 +35,8 @@ defmodule PhoenixKitProjects.Web.TasksLive do
       lens: [default: :library, cast: :atom, in: [:library, :one_off], url_key: "lens"]
     ]
 
+  import PhoenixKitProjects.Web.Components.PersonDisplay, only: [person: 1]
+
   alias PhoenixKitProjects.{Activity, Authz, Hours, L10n, Paths, Projects}
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Schemas.Task, as: TaskSchema
@@ -1207,7 +1209,11 @@ defmodule PhoenixKitProjects.Web.TasksLive do
 
     ~H"""
     <.table_default_cell class="whitespace-nowrap text-base-content/70">
-      {Map.get(@creators, @task.uuid) || "—"}
+      <%= if name = Map.get(@creators, @task.uuid) do %>
+        <.person name={name} class="max-w-[14rem]" />
+      <% else %>
+        <span class="text-base-content/40">—</span>
+      <% end %>
     </.table_default_cell>
     """
   end

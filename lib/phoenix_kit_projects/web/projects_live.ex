@@ -49,6 +49,8 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
       f_ext_val: [default: "", url_key: "xval"]
     ]
 
+  import PhoenixKitProjects.Web.Components.PersonDisplay, only: [person: 1]
+
   alias PhoenixKitProjects.{
     Activity,
     Authz,
@@ -1352,7 +1354,7 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
   end
 
   defp column_cell(assigns, "owner", p),
-    do: text_cell(assigns, p |> Columns.owners(assigns.metrics) |> Enum.join(", "))
+    do: people_cell(assigns, Columns.owners(p, assigns.metrics))
 
   defp column_cell(assigns, "assignee", p) do
     assigns = assign(assigns, a: Columns.get(assigns.metrics, :assignee, p))
@@ -1439,7 +1441,7 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
   defp column_cell(assigns, "updated", p), do: date_cell(assigns, p.updated_at)
 
   defp column_cell(assigns, "created_by", p),
-    do: text_cell(assigns, Columns.get(assigns.metrics, :creators, p))
+    do: people_cell(assigns, List.wrap(Columns.get(assigns.metrics, :creators, p)))
 
   defp column_cell(assigns, "key", p), do: text_cell(assigns, p.key, "font-mono text-xs")
 
@@ -1500,13 +1502,27 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
     """
   end
 
-  defp text_cell(assigns, text, class \\ nil) do
+  defp text_cell(assigns, text, class) do
     assigns = assign(assigns, text: if(text in [nil, ""], do: nil, else: text), class: class)
 
     ~H"""
     <.table_default_cell class={["whitespace-nowrap text-base-content/70", @class]}>
       <span :if={@text} class="inline-block max-w-[14rem] truncate align-bottom" title={@text}>{@text}</span>
       <span :if={!@text} class="text-base-content/40">—</span>
+    </.table_default_cell>
+    """
+  end
+
+  # People in a cell: a face and a name each, as everywhere in the module.
+  defp people_cell(assigns, names) do
+    assigns = assign(assigns, names: Enum.reject(names, &(&1 in [nil, ""])))
+
+    ~H"""
+    <.table_default_cell class="whitespace-nowrap text-base-content/70">
+      <span :if={@names != []} class="inline-flex flex-wrap items-center gap-x-2 gap-y-1 max-w-[16rem]">
+        <.person :for={name <- @names} name={name} class="max-w-[14rem]" />
+      </span>
+      <span :if={@names == []} class="text-base-content/40">—</span>
     </.table_default_cell>
     """
   end
