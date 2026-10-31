@@ -1094,10 +1094,12 @@ defmodule PhoenixKitProjects.Web.OutlineList do
             :if={@can.delete}
             type="button"
             class="btn btn-ghost btn-xs text-error"
-            phx-click="outline_purge"
-            phx-value-uuid={a.uuid}
-            phx-disable-with={gettext("Deleting…")}
-            data-confirm={gettext("Delete \"%{title}\" and everything it carries? This cannot be undone.", title: Assignment.label(a))}
+            {PhoenixKitProjects.Web.Components.ConfirmAction.ask("outline_purge",
+              uuid: a.uuid,
+              title: gettext("Delete “%{title}”?", title: Assignment.label(a)),
+              message: gettext("Everything it carries goes with it. This cannot be undone."),
+              confirm: gettext("Delete")
+            )}
           >
             <.icon name="hero-trash" class="w-3.5 h-3.5" /> {gettext("Delete")}
           </button>

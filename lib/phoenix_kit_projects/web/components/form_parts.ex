@@ -302,6 +302,7 @@ defmodule PhoenixKitProjects.Web.Components.FormParts do
         id={"#{@id}-#{value}"}
         phx-click={Phoenix.LiveView.JS.push(@event, value: Map.put(@values, "status", value), target: @target)}
         aria-pressed={to_string(@value == value)}
+        phx-disable-with={label}
         class={status_choice_class(value, @value == value)}
       >
         <.icon :if={@value == value} name="hero-check-mini" class="w-4 h-4 -ml-0.5" />

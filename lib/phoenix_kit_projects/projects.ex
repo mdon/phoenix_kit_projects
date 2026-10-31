@@ -9,7 +9,6 @@ defmodule PhoenixKitProjects.Projects do
 
   alias PhoenixKit.Activity.Entry, as: ActivityEntry
   alias PhoenixKit.Mentions.Token
-  alias PhoenixKit.Users.Auth, as: UsersAuth
   alias PhoenixKit.Utils.Reorder
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Refs
@@ -1790,12 +1789,12 @@ defmodule PhoenixKitProjects.Projects do
         {resource_uuid, actor_uuid}
       end)
 
+    # Named as everywhere else a person is: full name, else staff name,
+    # else email (`People.user_display_names/1`).
     names_by_user =
       earliest_actor_by_resource
       |> Map.values()
-      |> Enum.uniq()
-      |> UsersAuth.get_users_by_uuids()
-      |> Map.new(&{&1.uuid, creator_display_name(&1)})
+      |> PhoenixKitProjects.People.user_display_names()
 
     for {resource_uuid, actor_uuid} <- earliest_actor_by_resource,
         name = Map.get(names_by_user, actor_uuid),
@@ -1841,13 +1840,6 @@ defmodule PhoenixKitProjects.Projects do
     |> Map.new(fn {task_uuid, count, last_used} ->
       {task_uuid, %{count: count, last_used: last_used}}
     end)
-  end
-
-  defp creator_display_name(user) do
-    case UsersAuth.User.full_name(user) do
-      name when is_binary(name) and name != "" -> name
-      _ -> user.email
-    end
   end
 
   @doc """

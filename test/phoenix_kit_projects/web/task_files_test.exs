@@ -133,4 +133,31 @@ defmodule PhoenixKitProjects.Web.TaskFilesTest do
     assert has_element?(view, "#assignment-files input[type=file][name=task_files]")
     assert has_element?(view, "#assignment-description-image")
   end
+
+  test "removing a file asks first through the shared confirm", ctx do
+    path = tmp("drop #{System.unique_integer()}")
+
+    {:ok, file} =
+      Attachments.store_task_file(
+        ctx.a,
+        path,
+        [filename: "drop.txt", content_type: "text/plain", size_bytes: 4],
+        ctx.me
+      )
+
+    {:ok, view, _html} =
+      live(ctx.conn, "/en/admin/projects/#{ctx.project.uuid}/assignments/#{ctx.a.uuid}/edit")
+
+    html =
+      view
+      |> element(~s(#assignment-file-list [phx-value-event="remove_task_file"]))
+      |> render_click()
+
+    assert html =~ "Remove this file from the task?"
+    assert [_] = Attachments.list_task_files(ctx.a.uuid)
+
+    render_click(view, "confirm_action_ok", %{})
+    assert Attachments.list_task_files(ctx.a.uuid) == []
+    assert file.uuid
+  end
 end

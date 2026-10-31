@@ -335,7 +335,9 @@ defmodule PhoenixKitProjects.TaskAssigneeApiTest do
   end
 
   describe "an ongoing project's page" do
-    test "has no start bar: no Ongoing tag, no setup line, nothing to start", %{conn: conn} do
+    test "has no start bar: no setup line, nothing to start; Ongoing beside its name", %{
+      conn: conn
+    } do
       conn = put_test_scope(conn, fake_scope())
       project = fixture_project()
 
@@ -345,7 +347,8 @@ defmodule PhoenixKitProjects.TaskAssigneeApiTest do
       _ = task(project, "One")
 
       {:ok, _view, html} = live(conn, "/en/admin/projects/#{project.uuid}")
-      refute html =~ "Ongoing"
+      # The "∞ Ongoing" badge beside the name (item 33), and nothing else.
+      assert html =~ ~s(data-id="project-ongoing-#{project.uuid}")
       refute html =~ "Start project"
       refute html =~ "set up tasks, then start"
 

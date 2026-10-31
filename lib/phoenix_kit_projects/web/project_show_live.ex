@@ -2475,7 +2475,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
          socket,
          params,
          ~w(archive_project remove_assignment review_submission detach_subproject complete
-            make_subproject make_task)
+            make_subproject make_task outline_purge)
        )}
 
   def handle_event("confirm_action_cancel", _params, socket),

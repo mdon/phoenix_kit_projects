@@ -19,6 +19,7 @@ defmodule PhoenixKitProjects.Web.Components.TaskFiles do
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
 
   alias PhoenixKitProjects.Attachments
+  alias PhoenixKitProjects.Web.Components.ConfirmAction
 
   attr(:id, :string, required: true)
   attr(:files, :list, required: true, doc: "`[%{file: %File{}, inline: boolean}]`")
@@ -59,9 +60,11 @@ defmodule PhoenixKitProjects.Web.Components.TaskFiles do
           <button
             :if={@remove_event}
             type="button"
-            phx-click={@remove_event}
-            phx-value-uuid={f.uuid}
-            data-confirm={gettext("Remove this file from the task?")}
+            {ConfirmAction.ask(@remove_event,
+              uuid: f.uuid,
+              title: gettext("Remove this file from the task?"),
+              confirm: gettext("Remove")
+            )}
             class="btn btn-xs btn-circle absolute -top-2 -right-2 opacity-80 hover:opacity-100"
             aria-label={gettext("Remove file")}
           >
@@ -85,9 +88,11 @@ defmodule PhoenixKitProjects.Web.Components.TaskFiles do
           <button
             :if={@remove_event}
             type="button"
-            phx-click={@remove_event}
-            phx-value-uuid={f.uuid}
-            data-confirm={gettext("Remove this file from the task?")}
+            {ConfirmAction.ask(@remove_event,
+              uuid: f.uuid,
+              title: gettext("Remove this file from the task?"),
+              confirm: gettext("Remove")
+            )}
             class="btn btn-ghost btn-xs btn-circle"
             aria-label={gettext("Remove file")}
           >

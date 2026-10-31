@@ -60,6 +60,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
 
   alias PhoenixKitProjects.Web.Components.{
     AssigneePicker,
+    ConfirmAction,
     DescriptionEditor,
     DurationInput,
     TimeInput
@@ -1521,6 +1522,21 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   # so there is nothing to clear — but without a clause the event raised
   # FunctionClauseError and took the whole form down (tim-dev, 2026-10-27).
   def handle_event("pk_cue_seen", _params, socket), do: {:noreply, socket}
+
+  # A file's removal asks first, through the module's one confirm dialog
+  # (`Components.ConfirmAction`); only these events may be put behind it.
+  def handle_event("request_confirm", params, socket),
+    do: {:noreply, ConfirmAction.request(socket, params, ~w(remove_task_file))}
+
+  def handle_event("confirm_action_cancel", _params, socket),
+    do: {:noreply, ConfirmAction.clear(socket)}
+
+  def handle_event("confirm_action_ok", _params, socket) do
+    case ConfirmAction.take(socket) do
+      {nil, socket} -> {:noreply, socket}
+      {%{event: event, params: params}, socket} -> handle_event(event, params, socket)
+    end
+  end
 
   # "Done" on a task being edited: what is still waiting is saved first;
   # if that fails the form stays open on the error.
@@ -5153,6 +5169,8 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
       <%!-- Owns the assignee search box, and asks before an assignment
            makes a staff record. --%>
       <.assignee_picker_outside search_form="assignment-assignee-form" staff_confirm={@staff_confirm} />
+      <%!-- The shared confirm (`Components.ConfirmAction`): removing a file. --%>
+      <.confirm_action_modal confirm={assigns[:confirm_action]} />
     </div>
     """
   end

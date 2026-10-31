@@ -210,8 +210,9 @@ defmodule PhoenixKitProjects.Web.TaskRowBoardTest do
       refute menu =~ "Mark done"
 
       html = render_click(view, "open_status_change", %{"uuid" => a.uuid})
-      assert html =~ ~r/phx-value-status="done"[^>]*>|phx-value-status="done"/
-      assert html =~ ~r/<button[^>]*phx-click="set_status"[^>]*phx-disable-with/s
+      # The shared status buttons (`FormParts.status_buttons/1`).
+      assert html =~ ~s(id="status-change-choices-#{a.uuid}-done")
+      assert html =~ ~r/id="status-change-choices-#{a.uuid}-done"[^>]*phx-disable-with/s
     end
   end
 
