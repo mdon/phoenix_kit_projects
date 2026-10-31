@@ -54,7 +54,6 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   # "Post Comment" silently submits empty content. comments is a hard dep here.
   use PhoenixKitComments.Embed
 
-  alias PhoenixKit.Users.Auth.User, as: AuthUser
   alias PhoenixKit.Utils.Routes
 
   alias PhoenixKitProjects.{
@@ -993,15 +992,8 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   defp board_columns(fx, assignments) do
     middle? = fx.in_progress or Enum.any?(assignments, &(&1.status == "in_progress"))
 
-    [
-      {"waiting", AssignmentStatusBadge.label("waiting"), "border-t-base-300"},
-      {"todo", AssignmentStatusBadge.label("todo"), "border-t-info"}
-    ] ++
-      if(middle?,
-        do: [{"in_progress", AssignmentStatusBadge.label("in_progress"), "border-t-warning"}],
-        else: []
-      ) ++
-      [{"done", AssignmentStatusBadge.label("done"), "border-t-success"}]
+    (~w(waiting todo) ++ if(middle?, do: ["in_progress"], else: []) ++ ["done"])
+    |> Enum.map(&{&1, AssignmentStatusBadge.label(&1), AssignmentStatusBadge.column_class(&1)})
   end
 
   @doc """
@@ -1439,15 +1431,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   defp assignee_holder(%Assignment{child_project: %Project{} = child}), do: child
   defp assignee_holder(row), do: row
 
-  defp user_names([]), do: %{}
-
-  defp user_names(uuids) do
-    from(u in AuthUser, where: u.uuid in ^uuids)
-    |> PhoenixKit.RepoHelper.repo().all()
-    |> Map.new(&{&1.uuid, AuthUser.display_name(&1)})
-  rescue
-    _ -> %{}
-  end
+  defp user_names(uuids), do: PhoenixKitProjects.People.user_display_names(uuids)
 
   # The offered rows still on the page and still not started, in order.
   defp next_up_rows(nil, _assignments), do: []
@@ -2677,18 +2661,10 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   defp same_status(%Assignment{status: status}, status), do: :ok
   defp same_status(_a, _from), do: :stale
 
-  # The statuses the popup offers a row: the vocabulary, the middle step
-  # only while the in-progress step is on (or the row sits there).
-  defp status_choices(socket, %Assignment{} = a) do
-    if Assignment.subproject?(a) and socket.assigns.fx[:subproject_auto] == true do
-      # Its tasks move it from "can be started" on: what is left to a
-      # person is releasing it, or holding it back before it starts.
-      if a.status in ["waiting", "todo"], do: ["waiting", "todo"], else: []
-    else
-      middle? = socket.assigns.fx[:in_progress] == true or a.status == "in_progress"
-      ["waiting", "todo"] ++ if(middle?, do: ["in_progress"], else: []) ++ ["done"]
-    end
-  end
+  # The statuses the popup offers a row — the task form's own rule
+  # (`AssignmentStatusBadge.choices/2`).
+  defp status_choices(socket, %Assignment{} = a),
+    do: AssignmentStatusBadge.choices(a, socket.assigns.fx)
 
   # Through `handle_event/3`, not straight to the handler: the step's own
   # feature gate and permission apply to a drag as to its button — with
@@ -5050,28 +5026,10 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
 
   defp blank_to_nil(_), do: nil
 
-  # "45m" / "2h" / "2h 05m" — totals stay scannable at any size.
-  defp format_minutes(m) do
-    m = round(m)
-    h = div(m, 60)
-    rest = rem(m, 60)
-
-    cond do
-      h == 0 -> gettext("%{m}m", m: rest)
-      rest == 0 -> gettext("%{h}h", h: h)
-      true -> gettext("%{h}h %{m}m", h: h, m: rest)
-    end
-  end
-
-  defp format_tokens(t) when t >= 1_000_000,
-    do: gettext("%{n}M tokens", n: Float.round(t / 1_000_000, 1))
-
-  defp format_tokens(t) when t >= 1_000, do: gettext("%{n}k tokens", n: Float.round(t / 1_000, 1))
-  defp format_tokens(t), do: gettext("%{n} tokens", n: round(t))
-
-  # Cents -> a dollar string. The ledger stores cents unit-agnostically;
-  # the display currency is a deliberate v1 simplification (morning list).
-  defp format_cents(cents), do: "$" <> :erlang.float_to_binary(cents / 100, decimals: 2)
+  # The figures as the Hours page writes them (`ListUI`).
+  defp format_minutes(m), do: PhoenixKitProjects.Web.ListUi.format_minutes(m)
+  defp format_tokens(t), do: PhoenixKitProjects.Web.ListUi.format_tokens(t)
+  defp format_cents(cents), do: PhoenixKitProjects.Web.ListUi.format_cents(cents)
 
   # Modal subtitle: the targeted task's title, or nil for a project-level
   # entry. Searches the same displayed set `scoped_assignment/2` accepts.

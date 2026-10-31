@@ -539,7 +539,7 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
     a = it.assignment
 
     CalendarDisplay.planned_events(a, title(a, lang), span_days(span), view,
-      color: status_color(a.status),
+      color: AssignmentStatusBadge.bar_color(a.status),
       class: if(late?, do: late_class),
       extra: %{status: a.status, late: late?, via: via}
     )
@@ -661,14 +661,6 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
       not Assignment.subproject?(it.assignment) and match?(%DateTime{}, it.assignment.deadline)
     end)
   end
-
-  # Status → bar color, matching the Timeline tab's bars (NOT the list badges:
-  # a light `bg-base-300` todo chip would wash out on the month grid). The
-  # calendar lib infers a readable text color for daisyUI semantic classes.
-  defp status_color("done"), do: "bg-success"
-  defp status_color("in_progress"), do: "bg-warning"
-  defp status_color("waiting"), do: "bg-neutral"
-  defp status_color(_), do: "bg-primary"
 
   defp click_target(%Assignment{} = a) do
     if Assignment.subproject?(a),
@@ -826,21 +818,9 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
                   {gettext("Each task spans the days it is scheduled to run, in the project's task order — the same schedule as the Timeline tab.")}
                 </p>
                 <p class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <span class="inline-flex items-center gap-1.5">
-                    <span class="inline-block w-2.5 h-2.5 rounded-full bg-neutral"></span>
-                    {AssignmentStatusBadge.label("waiting")}
-                  </span>
-                  <span class="inline-flex items-center gap-1.5">
-                    <span class="inline-block w-2.5 h-2.5 rounded-full bg-primary"></span>
-                    {AssignmentStatusBadge.label("todo")}
-                  </span>
-                  <span class="inline-flex items-center gap-1.5">
-                    <span class="inline-block w-2.5 h-2.5 rounded-full bg-warning"></span>
-                    {AssignmentStatusBadge.label("in_progress")}
-                  </span>
-                  <span class="inline-flex items-center gap-1.5">
-                    <span class="inline-block w-2.5 h-2.5 rounded-full bg-success"></span>
-                    {AssignmentStatusBadge.label("done")}
+                  <span :for={status <- ~w(waiting todo in_progress done)} class="inline-flex items-center gap-1.5">
+                    <span class={["inline-block w-2.5 h-2.5 rounded-full", AssignmentStatusBadge.bar_color(status)]}></span>
+                    {AssignmentStatusBadge.label(status)}
                   </span>
                 </p>
                 <p class="mt-1.5">

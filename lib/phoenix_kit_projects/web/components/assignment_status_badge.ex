@@ -63,6 +63,65 @@ defmodule PhoenixKitProjects.Web.Components.AssignmentStatusBadge do
   def badge_class(_), do: "badge-ghost"
 
   @doc """
+  The outlined badge of a status that is offered but not chosen (the
+  form's status choices, the Change status popup): its own colour, the
+  waiting one in plain text.
+  """
+  @spec outline_class(String.t() | nil) :: String.t()
+  def outline_class("todo"), do: "badge-info"
+  def outline_class("in_progress"), do: "badge-warning"
+  def outline_class("done"), do: "badge-success"
+  def outline_class(_), do: "text-base-content/70"
+
+  @doc "The top border of a status's board column."
+  @spec column_class(String.t() | nil) :: String.t()
+  def column_class("todo"), do: "border-t-info"
+  def column_class("in_progress"), do: "border-t-warning"
+  def column_class("done"), do: "border-t-success"
+  def column_class(_), do: "border-t-base-300"
+
+  @doc """
+  A status's bar on the Timeline and the Calendar: stronger than the list's
+  dot (a light `bg-base-300` chip washes out on a month grid), and a
+  daisyUI semantic class, so the libraries pick a readable text colour.
+  """
+  @spec bar_color(String.t() | nil) :: String.t()
+  def bar_color("done"), do: "bg-success"
+  def bar_color("in_progress"), do: "bg-warning"
+  def bar_color("waiting"), do: "bg-neutral"
+  def bar_color(_), do: "bg-primary"
+
+  @doc """
+  The statuses a row may be put in — the form's status choices and the
+  project page's Change status popup alike: the four, "in progress" only
+  while that step is on (`fx.in_progress`) or the row sits there. A
+  sub-project row whose status follows its tasks (`fx.subproject_auto`)
+  is left only releasing or holding back before it starts — and nothing
+  once it has.
+  """
+  @spec choices(map() | nil, map()) :: [String.t()]
+  def choices(assignment, fx) do
+    status = assignment && Map.get(assignment, :status)
+
+    if subproject_row?(assignment) and fx[:subproject_auto] == true do
+      if status in ["waiting", "todo"], do: ["waiting", "todo"], else: []
+    else
+      middle? = fx[:in_progress] == true or status == "in_progress"
+      ["waiting", "todo"] ++ if(middle?, do: ["in_progress"], else: []) ++ ["done"]
+    end
+  end
+
+  defp subproject_row?(%{child_project_uuid: uuid}) when is_binary(uuid), do: true
+  defp subproject_row?(_), do: false
+
+  @doc "`choices/2` as `[{label, status}]` for a form's options."
+  @spec options(map() | nil, map()) :: [{String.t(), String.t()}]
+  def options(assignment, fx) do
+    sub? = subproject_row?(assignment)
+    Enum.map(choices(assignment, fx), &{label(&1, sub?), &1})
+  end
+
+  @doc """
   The status as it is NAMED — the one word used for it everywhere: the
   badge, the board's columns, the filters, the Change status popup and the
   form's status buttons (`pgettext "task status"`). Never the step that

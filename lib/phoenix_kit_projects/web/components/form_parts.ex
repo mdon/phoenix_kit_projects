@@ -325,12 +325,7 @@ defmodule PhoenixKitProjects.Web.Components.FormParts do
     [
       "badge badge-lg badge-outline h-auto py-1.5 px-3 gap-1 cursor-pointer select-none",
       "opacity-80 hover:opacity-100 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2",
-      status_outline(status)
+      AssignmentStatusBadge.outline_class(status)
     ]
   end
-
-  defp status_outline("todo"), do: "badge-info"
-  defp status_outline("in_progress"), do: "badge-warning"
-  defp status_outline("done"), do: "badge-success"
-  defp status_outline(_), do: "text-base-content/70"
 end

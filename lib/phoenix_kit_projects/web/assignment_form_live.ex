@@ -3941,20 +3941,6 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
     end
   end
 
-  # Waiting / Can be started / In progress / Done — "in progress" only with
-  # the in-progress step on, or for a row already there (it must stay
-  # selectable).
-  defp status_options(fx, assignment) do
-    middle? = fx.in_progress or match?(%{status: "in_progress"}, assignment)
-
-    [
-      {AssignmentStatusBadge.label("waiting"), "waiting"},
-      {AssignmentStatusBadge.label("todo"), "todo"}
-    ] ++
-      if(middle?, do: [{AssignmentStatusBadge.label("in_progress"), "in_progress"}], else: []) ++
-      [{AssignmentStatusBadge.label("done"), "done"}]
-  end
-
   defp priority_options do
     [
       {gettext("Urgent"), "urgent"},
@@ -4597,7 +4583,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
             id="assignment-status"
             name={@form[:status].name}
             value={to_string(@form[:status].value)}
-            options={status_options(@fx, @assignment)}
+            options={AssignmentStatusBadge.options(@assignment, @fx)}
           />
 
           <%!-- Whose it is: one search over people, teams and departments,
