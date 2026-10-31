@@ -13,6 +13,13 @@ defmodule PhoenixKitProjects.Repeats do
   (from when it was done, for a task with none). The rule moves to the
   new task, so reopening and finishing the old one again makes no second.
 
+  A repeating SUBTASK's next occurrence goes under its parent while the
+  parent is open; under a done parent it would reopen it (the completion
+  rules), so it goes under the nearest open ancestor instead, right after
+  the done branch (`place_for/1`). Everything this says — the
+  broadcasts, the audit row — goes out after the occurrence's transaction
+  has committed.
+
   `next/1` is called with the status changes every write announces (the
   same ones `Handoffs` reacts to). Nothing here raises into the writer: a
   status change is never lost to a repeat.
@@ -170,15 +177,19 @@ defmodule PhoenixKitProjects.Repeats do
   end
 
   defp occur(%Assignment{} = done, rule, actor_uuid) do
+    # Under the project's lock (`Outline.with_project_lock/2`), so what the
+    # completion rules change while the occurrence is placed is announced
+    # once it has committed — and this module's own broadcasts and audit
+    # row come after the commit too (`announce/3`), never before.
     result =
-      repo().transaction(fn ->
+      Outline.with_project_lock(done.project_uuid, fn _project ->
         # Taken off the done one first, under its row lock: two writes
         # announcing the same finish make one next task, not two.
         {count, _} =
           from(a in Assignment, where: a.uuid == ^done.uuid and not is_nil(a.repeat_rule))
           |> repo().update_all(set: [repeat_rule: nil])
 
-        if count == 1, do: copy!(done, rule, done.parent_uuid), else: repo().rollback(:taken)
+        if count == 1, do: copy!(done, rule, place_for(done)), else: repo().rollback(:taken)
       end)
 
     case result do
@@ -235,7 +246,7 @@ defmodule PhoenixKitProjects.Repeats do
 
   # The task again, not done, with the rule (only on the top one) and its
   # dates moved on; then its subtasks, the same way, under it.
-  defp copy!(%Assignment{} = a, rule, parent_uuid, top? \\ true) do
+  defp copy!(%Assignment{} = a, rule, place, top? \\ true) do
     base = a.deadline || a.completed_at || DateTime.utc_now()
 
     attrs =
@@ -269,24 +280,49 @@ defmodule PhoenixKitProjects.Repeats do
         {:error, cs} -> repo().rollback(cs)
       end
 
-    made = place!(made, parent_uuid)
+    made = place!(made, place)
 
     a.project_uuid
     |> project_rows()
     |> Enum.filter(&(&1.parent_uuid == a.uuid and &1.review_status == "accepted"))
-    |> Enum.each(&copy!(&1, rule, made.uuid, false))
+    |> Enum.each(&copy!(&1, rule, {made.uuid, :last}, false))
 
     made
   end
 
-  # Right under the parent the done one had (the top level when none),
-  # last there.
-  defp place!(%Assignment{} = made, nil), do: made
+  # Where the next occurrence of a SUBTASK goes. Under its parent, last
+  # there, while that parent is still open. A done parent (often closed by
+  # this very finish — its last subtask ticked) would be reopened by the
+  # completion rules the moment an open row lands under it, undoing the
+  # tick; so the occurrence climbs to the nearest open ancestor instead and
+  # sits right after the done branch it came from (the top level, after
+  # it, when every ancestor is done). A top-level task's occurrence stays
+  # at the top level, last.
+  defp place_for(%Assignment{parent_uuid: nil}), do: {nil, :last}
 
-  defp place!(%Assignment{} = made, parent_uuid) do
+  defp place_for(%Assignment{} = done) do
+    by_uuid = Map.new(project_rows(done.project_uuid), &{&1.uuid, &1})
+    climb(by_uuid, by_uuid[done.parent_uuid], nil)
+  end
+
+  # `after` is the topmost done ancestor met so far: the occurrence goes
+  # right after it, under the first open one above.
+  defp climb(_by_uuid, nil, after_uuid), do: {nil, after_uuid || :last}
+
+  defp climb(by_uuid, %Assignment{status: "done"} = parent, _after_uuid),
+    do: climb(by_uuid, by_uuid[parent.parent_uuid], parent.uuid)
+
+  defp climb(_by_uuid, %Assignment{} = open, after_uuid), do: {open.uuid, after_uuid || :last}
+
+  defp place!(%Assignment{} = made, {nil, :last}), do: made
+
+  defp place!(%Assignment{} = made, {parent_uuid, after_uuid}) do
     # The move runs in this transaction (its lock nests): a refused move
     # rolls the whole occurrence back, so it is said rather than ignored.
-    case Outline.move(Projects.get_assignment(made.uuid), parent_uuid, :last) do
+    # Its broadcast waits for the commit (`announce/3`).
+    case Outline.move(Projects.get_assignment(made.uuid), parent_uuid, after_uuid,
+           broadcast: false
+         ) do
       {:ok, moved} -> moved
       {:error, reason} -> repo().rollback(reason)
     end

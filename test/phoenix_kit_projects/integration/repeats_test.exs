@@ -176,4 +176,116 @@ defmodule PhoenixKitProjects.Integration.RepeatsTest do
       metadata_has: %{"repeat_of" => weekly.uuid, "task" => "Weekly call"}
     )
   end
+
+  describe "a repeating subtask" do
+    test "whose finish closed its parent comes back beside the parent, not inside it",
+         %{project: p} do
+      parent = task!(p, "Kitchen")
+
+      weekly =
+        task!(p, "Wipe the worktop", %{"repeat_rule" => %{"every" => 1, "unit" => "week"}},
+          under: parent
+        )
+
+      later = task!(p, "Later")
+
+      done!(weekly)
+
+      # the auto-tick closed the parent, and the next occurrence leaves it closed
+      assert Projects.get_assignment(parent.uuid).status == "done"
+
+      [next] = Enum.filter(Projects.list_assignments(p.uuid), &(&1.repeat_rule != nil))
+      assert next.status == "todo"
+      assert next.parent_uuid == nil
+
+      order =
+        Projects.list_assignments(p.uuid)
+        |> Enum.filter(&is_nil(&1.parent_uuid))
+        |> Enum.sort_by(& &1.position)
+        |> Enum.map(& &1.uuid)
+
+      assert order == [parent.uuid, next.uuid, later.uuid]
+    end
+
+    test "under a parent still open stays under it", %{project: p} do
+      parent = task!(p, "Kitchen")
+
+      weekly =
+        task!(p, "Wipe the worktop", %{"repeat_rule" => %{"every" => 1, "unit" => "week"}},
+          under: parent
+        )
+
+      _open = task!(p, "Fit the doors", %{}, under: parent)
+
+      done!(weekly)
+
+      assert Projects.get_assignment(parent.uuid).status != "done"
+      [next] = Enum.filter(Projects.list_assignments(p.uuid), &(&1.repeat_rule != nil))
+      assert next.parent_uuid == parent.uuid
+    end
+
+    test "under two done levels goes under the first open one, after the done branch",
+         %{project: p} do
+      top = task!(p, "House")
+      mid = task!(p, "Kitchen", %{}, under: top)
+      _other = task!(p, "Hall", %{}, under: top)
+      weekly = task!(p, "Wipe", %{"repeat_rule" => %{"every" => 1, "unit" => "week"}}, under: mid)
+
+      done!(weekly)
+
+      assert Projects.get_assignment(mid.uuid).status == "done"
+      [next] = Enum.filter(Projects.list_assignments(p.uuid), &(&1.repeat_rule != nil))
+      assert next.parent_uuid == top.uuid
+
+      under_top =
+        Projects.list_assignments(p.uuid)
+        |> Enum.filter(&(&1.parent_uuid == top.uuid))
+        |> Enum.sort_by(& &1.position)
+        |> Enum.map(& &1.uuid)
+
+      assert hd(under_top) == mid.uuid
+      assert Enum.at(under_top, 1) == next.uuid
+    end
+
+    test "is announced once, after it exists — no reorder broadcast ahead of it",
+         %{project: p} do
+      parent = task!(p, "Kitchen")
+      _open = task!(p, "Fit the doors", %{}, under: parent)
+
+      weekly =
+        task!(p, "Wipe", %{"repeat_rule" => %{"every" => 1, "unit" => "week"}}, under: parent)
+
+      PhoenixKitProjects.PubSub.subscribe(PhoenixKitProjects.PubSub.topic_project(p.uuid))
+      flush_projects_messages()
+
+      done!(weekly)
+
+      [next] = Enum.filter(Projects.list_assignments(p.uuid), &(&1.repeat_rule != nil))
+
+      events =
+        projects_events()
+        |> Enum.filter(&(&1 in [:assignment_created, :assignment_reordered]))
+
+      # The occurrence's own move inside its transaction used to broadcast a
+      # reorder before the transaction (and the create) was through.
+      assert events == [:assignment_created, :assignment_reordered]
+      assert next.parent_uuid == parent.uuid
+    end
+  end
+
+  defp flush_projects_messages do
+    receive do
+      {:projects, _, _} -> flush_projects_messages()
+    after
+      0 -> :ok
+    end
+  end
+
+  defp projects_events do
+    receive do
+      {:projects, event, _} -> [event | projects_events()]
+    after
+      0 -> []
+    end
+  end
 end

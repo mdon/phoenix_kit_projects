@@ -591,11 +591,13 @@ defmodule PhoenixKitProjects.Outline do
 
   `{:error, :not_found}` for a parent or sibling that is not an accepted
   row of the same project, `{:error, :cycle}` for a place under itself.
-  Broadcasts `:assignment_reordered`.
+  Broadcasts `:assignment_reordered` — unless `broadcast: false`, for a
+  caller running the move inside its own transaction, who broadcasts once
+  that has committed.
   """
-  @spec move(Assignment.t(), binary() | nil, binary() | nil | :last) ::
+  @spec move(Assignment.t(), binary() | nil, binary() | nil | :last, keyword()) ::
           {:ok, Assignment.t()} | {:error, :not_found | :cycle | :subproject | term()}
-  def move(%Assignment{} = a, parent_uuid, after_uuid \\ :last) do
+  def move(%Assignment{} = a, parent_uuid, after_uuid \\ :last, opts \\ []) do
     result =
       with_project_lock(a.project_uuid, fn _project ->
         rows = shape(a.project_uuid)
@@ -614,9 +616,11 @@ defmodule PhoenixKitProjects.Outline do
       end)
 
     with {:ok, moved} <- result do
-      ProjectsPubSub.broadcast_assignment(:assignment_reordered, %{
-        project_uuid: moved.project_uuid
-      })
+      if Keyword.get(opts, :broadcast, true) do
+        ProjectsPubSub.broadcast_assignment(:assignment_reordered, %{
+          project_uuid: moved.project_uuid
+        })
+      end
 
       {:ok, moved}
     end
