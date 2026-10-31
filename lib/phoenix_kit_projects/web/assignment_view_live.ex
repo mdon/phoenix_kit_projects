@@ -30,6 +30,7 @@ defmodule PhoenixKitProjects.Web.AssignmentViewLive do
 
   alias PhoenixKitProjects.{
     Assignees,
+    Attachments,
     Authz,
     Extensions,
     Features,
@@ -48,6 +49,8 @@ defmodule PhoenixKitProjects.Web.AssignmentViewLive do
 
   import PhoenixKitProjects.Web.Helpers, only: [assignee_label: 1]
   import PhoenixKitProjects.Web.Components.TaskTimes, only: [deadline_chip: 1, planned_label: 1]
+  import PhoenixKitProjects.Web.Components.RichText, only: [rich_text: 1]
+  import PhoenixKitProjects.Web.Components.TaskFiles, only: [task_files: 1]
 
   @default_wrapper_class "@container flex flex-col w-full mx-auto max-w-5xl px-4 py-6 gap-5"
 
@@ -154,7 +157,12 @@ defmodule PhoenixKitProjects.Web.AssignmentViewLive do
     {waits_on, unlocks} = connections(fx, project, a, by_uuid)
     threads = threads(project, a)
 
+    files =
+      if project.is_template, do: [], else: Attachments.list_task_files(a.uuid, inline: false)
+
     assign(socket,
+      files: files,
+      file_urls: Attachments.download_urls(Enum.map(files, & &1.file)),
       fx: fx,
       ref: Refs.task_ref(project.key, a.number),
       parent: a.parent_uuid && by_uuid[a.parent_uuid],
@@ -505,12 +513,17 @@ defmodule PhoenixKitProjects.Web.AssignmentViewLive do
         </aside>
 
         <main class="flex flex-col gap-6 min-w-0 @2xl:col-start-1 @2xl:row-start-1">
-          <%!-- Description, folded to a few lines until asked for. --%>
+          <%!-- Description, folded to a few lines until asked for. Drawn
+               as the Leaf editor wrote it (bold, lists, images), its
+               mentions resolved for the viewer; plain text from before
+               the editor reads as it did. --%>
           <% desc = Assignment.localized_description(@assignment, @lang) || task_description(@assignment, @lang) %>
           <section :if={present?(desc)} class="flex flex-col gap-1">
-            <div class={["text-sm whitespace-pre-line", not @desc_open? && "line-clamp-6"]}>
-              <.mention_text text={desc} scope={@phoenix_kit_current_scope} />
-            </div>
+            <.rich_text
+              text={desc}
+              scope={@phoenix_kit_current_scope}
+              class={["text-sm", not @desc_open? && "line-clamp-6"]}
+            />
             <button
               :if={String.length(desc) > 400 or length(String.split(desc, "\n")) > 6}
               type="button"
@@ -528,6 +541,17 @@ defmodule PhoenixKitProjects.Web.AssignmentViewLive do
           >
             {gettext("Add a description")}
           </button>
+
+          <%!-- The files added to the task, to look at or download. Only
+               the ones added as files: the images pasted into the
+               description already show in it. Removing one is the edit
+               popup's job. --%>
+          <section :if={@files != []} class="flex flex-col gap-2">
+            <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+              {gettext("Files")}
+            </h3>
+            <.task_files id={"task-view-files-#{@assignment.uuid}"} files={@files} urls={@file_urls} />
+          </section>
 
           <%!-- Connections, in words: the cards no longer carry them. No
                "Connections" heading on a line of its own: "Waits on" and

@@ -81,6 +81,33 @@ defmodule PhoenixKitProjects.Web.AssignmentViewLiveTest do
       assert html =~ "Ready to start"
     end
 
+    test "draws the description as written and lists the task's own files", ctx do
+      {:ok, a} =
+        Projects.update_assignment_form(ctx.measure, %{
+          "description" => "Bring **the long tape**."
+        })
+
+      path = Path.join(System.tmp_dir!(), "pkp-view-#{System.unique_integer([:positive])}")
+      File.write!(path, "plan")
+      on_exit(fn -> File.rm(path) end)
+
+      {:ok, _} =
+        PhoenixKitProjects.Attachments.store_task_file(
+          a,
+          path,
+          [filename: "plan.txt", content_type: "text/plain", size_bytes: 4],
+          ctx.user.uuid
+        )
+
+      {:ok, view, html} =
+        live(ctx.conn, "/en/admin/projects/#{ctx.project.uuid}/assignments/#{a.uuid}")
+
+      assert html =~ "<strong>the long tape</strong>"
+      assert has_element?(view, "#task-view-files-#{a.uuid}", "plan.txt")
+      # Read-only: the view lists them, the edit popup removes them.
+      refute html =~ "remove_task_file"
+    end
+
     test "a task of another project is not found", ctx do
       other = fixture_project()
 
