@@ -8886,11 +8886,6 @@ msgstr "%{hours} h saisies"
 msgid "%{month} %{day}"
 msgstr "%{day} %{month}"
 
-#: lib/phoenix_kit_projects/web/project_form_live.ex:3091
-#, elixir-autogen, elixir-format
-msgid "A web address opens in a new tab; a path on this site (/…) opens in the same one."
-msgstr "Une adresse web s'ouvre dans un nouvel onglet ; un chemin de ce site (/…) s'ouvre dans le même."
-
 #: lib/phoenix_kit_projects/web/time_live.ex:503
 #, elixir-autogen, elixir-format
 msgid "Actually worked"
@@ -10525,3 +10520,8 @@ msgstr "+%{count} de plus"
 msgctxt "month name"
 msgid "May"
 msgstr "mai"
+
+#: lib/phoenix_kit_projects/web/project_form_live.ex:3091
+#, elixir-autogen, elixir-format
+msgid "A web address and a path on this site (/…) both open in a new tab."
+msgstr "Une adresse web comme un chemin de ce site (/…) s’ouvrent dans un nouvel onglet."

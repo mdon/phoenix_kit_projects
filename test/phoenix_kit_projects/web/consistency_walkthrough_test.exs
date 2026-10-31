@@ -272,4 +272,15 @@ defmodule PhoenixKitProjects.Web.ConsistencyWalkthroughTest do
     # included — the assign is what reaches the tab.
     defp lv_page_title(view), do: :sys.get_state(view.pid).socket.assigns[:page_title]
   end
+
+  describe "the project link hint (item 7)" do
+    test "says a site path opens in a new tab too, as the link does", %{conn: conn} do
+      conn = put_test_scope(conn, fake_scope(user_uuid: embed_user_uuid!()))
+      project = fixture_project()
+      {:ok, _view, html} = live(conn, "/en/admin/projects/#{project.uuid}/edit")
+
+      assert html =~ "both open in a new tab"
+      refute html =~ "opens in the same one"
+    end
+  end
 end

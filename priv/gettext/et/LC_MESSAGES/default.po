@@ -8886,11 +8886,6 @@ msgstr "%{hours} h kirja pandud"
 msgid "%{month} %{day}"
 msgstr "%{day}. %{month}"
 
-#: lib/phoenix_kit_projects/web/project_form_live.ex:3091
-#, elixir-autogen, elixir-format
-msgid "A web address opens in a new tab; a path on this site (/…) opens in the same one."
-msgstr "Veebiaadress avaneb uuel vahelehel; selle saidi tee (/…) avaneb samal vahelehel."
-
 #: lib/phoenix_kit_projects/web/time_live.ex:503
 #, elixir-autogen, elixir-format
 msgid "Actually worked"
@@ -10525,3 +10520,8 @@ msgstr "+%{count} veel"
 msgctxt "month name"
 msgid "May"
 msgstr "Mai"
+
+#: lib/phoenix_kit_projects/web/project_form_live.ex:3091
+#, elixir-autogen, elixir-format
+msgid "A web address and a path on this site (/…) both open in a new tab."
+msgstr "Nii veebiaadress kui ka selle saidi tee (/…) avanevad uuel vahelehel."

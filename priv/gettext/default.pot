@@ -8883,11 +8883,6 @@ msgstr ""
 msgid "%{month} %{day}"
 msgstr ""
 
-#: lib/phoenix_kit_projects/web/project_form_live.ex:3091
-#, elixir-autogen, elixir-format
-msgid "A web address opens in a new tab; a path on this site (/…) opens in the same one."
-msgstr ""
-
 #: lib/phoenix_kit_projects/web/time_live.ex:503
 #, elixir-autogen, elixir-format
 msgid "Actually worked"
@@ -10521,4 +10516,9 @@ msgstr ""
 #, elixir-autogen, elixir-format
 msgctxt "month name"
 msgid "May"
+msgstr ""
+
+#: lib/phoenix_kit_projects/web/project_form_live.ex:3091
+#, elixir-autogen, elixir-format
+msgid "A web address and a path on this site (/…) both open in a new tab."
 msgstr ""

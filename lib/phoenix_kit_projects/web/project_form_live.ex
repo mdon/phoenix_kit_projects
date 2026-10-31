@@ -3088,7 +3088,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
                   placeholder={gettext("Open link")}
                 />
                 <p class="text-xs opacity-60">
-                  {gettext("A web address opens in a new tab; a path on this site (/…) opens in the same one.")}
+                  {gettext("A web address and a path on this site (/…) both open in a new tab.")}
                 </p>
               </fieldset>
 
