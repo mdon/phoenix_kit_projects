@@ -283,4 +283,28 @@ defmodule PhoenixKitProjects.Web.ConsistencyWalkthroughTest do
       refute html =~ "opens in the same one"
     end
   end
+
+  describe "an embedded project's header keeps to as few lines as it can (item 8)" do
+    test "Archived sits by the name, and ⋮ travels with the status picker", %{
+      conn: conn,
+      actor_uuid: actor
+    } do
+      project = fixture_project(%{"start_mode" => "immediate"})
+      {:ok, _} = Projects.archive_project(project)
+      {:ok, _} = PhoenixKitProjects.Members.add_member(project.uuid, actor, role: "member")
+
+      {:ok, _view, html} =
+        live_isolated(conn, PhoenixKitProjects.Web.ProjectShowLive,
+          session: %{"id" => project.uuid, "current_user_uuid" => actor}
+        )
+
+      {h1, _} = :binary.match(html, "<h1")
+      {archived, _} = :binary.match(html, "data-archived")
+      {menu, _} = :binary.match(html, ~s(id="project-header-menu-#{project.uuid}"))
+      assert h1 < archived and archived < menu
+
+      [group] = Regex.run(~r/<div[^>]*data-header-end[^>]*>.*?project-header-menu-/s, html)
+      assert group =~ "data-header-end"
+    end
+  end
 end

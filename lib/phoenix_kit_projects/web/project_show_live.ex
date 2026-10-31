@@ -1041,6 +1041,10 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
              status-list *source* is chosen on the new/edit form (and the
              global default in Settings), not here. Hidden when no
              statuses exist for the project's list. --%>
+        <%!-- The status picker and ⋮ travel together: on a narrow line
+             (an order page's embed) the ⋮ wrapped onto a line by itself
+             (the walk-through, 2026-10-31). --%>
+        <div class="inline-flex items-center gap-1 shrink-0" data-header-end>
         <form
           :if={@fx.statuses and @statuses_available and @status_options != []}
           id={"project-status-#{@project.uuid}"}
@@ -1163,6 +1167,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
             <% end %>
           <% end %>
         </.table_row_menu>
+        </div>
     """
   end
 
@@ -5101,14 +5106,21 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                those), then the lifecycle badges. --%>
           <div class="flex flex-wrap items-center gap-2 min-w-0">
             <%= if not @router_mounted? do %>
-              <h1 class="text-2xl font-bold break-words">
+              <h1 class="text-2xl font-bold break-words min-w-0">
                 {Project.localized_name(@project, L10n.current_content_lang())}
               </h1>
               <span :if={@is_template} class="badge badge-info badge-sm">{gettext("Template")}</span>
+            <% end %>
+            <%!-- Archived is part of the name's line, not a row after the
+                 controls (the walk-through, 2026-10-31). --%>
+            <span :if={@project.archived_at} class="badge badge-ghost badge-sm gap-1 shrink-0" data-archived>
+              <.icon name="hero-archive-box" class="w-3.5 h-3.5" /> {gettext("Archived")}
+            </span>
+            <%= if not @router_mounted? do %>
               {header_toolbar(assigns)}
             <% end %>
             <%= if @project.completed_at do %>
-              <span class="badge badge-success gap-1">
+              <span class="badge badge-success badge-sm gap-1 shrink-0">
                 <.icon name="hero-check-circle" class="w-3.5 h-3.5" /> {gettext("Completed")}
               </span>
             <% end %>
@@ -5119,15 +5131,10 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                  "no reason for Ongoing to take up a whole row"). --%>
             <span
               :if={Project.ongoing?(@project) and is_nil(@project.completed_at) and @total_tasks > 0 and @done_tasks == @total_tasks}
-              class="badge badge-success badge-outline gap-1"
+              class="badge badge-success badge-outline badge-sm gap-1 shrink-0"
             >
               <.icon name="hero-check" class="w-3.5 h-3.5" /> {gettext("All caught up")}
             </span>
-            <%= if @project.archived_at do %>
-              <span class="badge badge-ghost gap-1">
-                <.icon name="hero-archive-box" class="w-3.5 h-3.5" /> {gettext("Archived")}
-              </span>
-            <% end %>
             <%!-- User-defined workflow status (entities-backed), alongside
                  the computed lifecycle badges above — but ONLY when the
                  action row's status select is not there to show it: the
