@@ -97,11 +97,7 @@ defmodule PhoenixKitProjects.Web.Components.RichText do
         piece, n -> {piece, n}
       end)
 
-    html =
-      case MDEx.to_html(IO.iodata_to_binary(markdown), @render_opts) do
-        {:ok, html} -> html
-        {:error, _} -> text |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
-      end
+    html = render_markdown(IO.iodata_to_binary(markdown), text)
 
     if tokens == [],
       do: html,
@@ -109,6 +105,42 @@ defmodule PhoenixKitProjects.Web.Components.RichText do
   end
 
   def to_html(_text, _scope, _allow), do: ""
+
+  # Most descriptions are a line or two of plain words, drawn on every row
+  # of a list and again on each change: those are put in paragraphs here,
+  # as the renderer would (`plain_html/1`), and only text that could mean
+  # something to markdown goes through MDEx and its sanitiser.
+  defp render_markdown(markdown, text) do
+    if plain?(markdown) do
+      plain_html(markdown)
+    else
+      case MDEx.to_html(markdown, @render_opts) do
+        {:ok, html} -> html
+        {:error, _} -> text |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
+      end
+    end
+  end
+
+  # Nothing markdown or HTML reads: no markup character, no line starting
+  # or ending in white space (indented code, hard breaks), no `1.` list.
+  @markup ~r/[\\`*_\[\]()!#<>&~|=+\-:\r]|(?:^|\n)[ \t]|[ \t](?:\n|$)|(?:^|\n)\d+\./
+
+  @doc false
+  @spec plain?(String.t()) :: boolean()
+  def plain?(markdown), do: not Regex.match?(@markup, markdown)
+
+  @doc false
+  # What MDEx renders a plain text as (hard line breaks): paragraphs at
+  # blank lines, `<br>` within one.
+  @spec plain_html(String.t()) :: String.t()
+  def plain_html(markdown) do
+    markdown
+    |> String.split(~r/\n(?:[ \t]*\n)+/)
+    |> Enum.reject(&(String.trim(&1) == ""))
+    |> Enum.map_join("\n", fn para ->
+      "<p>" <> (para |> String.trim("\n") |> String.split("\n") |> Enum.join("<br>\n")) <> "</p>"
+    end)
+  end
 
   # Letters and digits only: markdown leaves it alone, the sanitiser too.
   defp placeholder(nonce, n), do: "PKMENTION#{nonce}N#{n}X"

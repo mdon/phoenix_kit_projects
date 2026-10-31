@@ -550,33 +550,72 @@ defmodule PhoenixKitProjects.Assignees do
 
     (own ++ project ++ site)
     |> Enum.uniq()
-    |> Enum.reduce_while([], fn {kind, uuid}, acc ->
-      if length(acc) >= limit do
-        {:halt, acc}
-      else
-        case live_row(kind, uuid, lang) do
-          nil -> {:cont, acc}
-          row -> {:cont, [row | acc]}
-        end
-      end
-    end)
-    |> Enum.reverse()
+    |> rows_for(lang)
+    |> Enum.take(limit)
   rescue
     e in [Postgrex.Error, DBConnection.ConnectionError, Ecto.QueryError] ->
       Logger.warning("[Assignees] recent picks failed: #{Exception.message(e)}")
       []
   end
 
-  # A remembered person who has been trashed since is no choice any more.
-  defp live_row("person", uuid, lang) do
-    case repo().one(from(p in Person, where: p.uuid == ^uuid, select: p.status)) do
-      "trashed" -> nil
-      nil -> nil
-      _ -> row_for("person", uuid, lang)
-    end
+  # `{kind, uuid}` keys as picker rows, in their order, in a fixed number
+  # of reads however many there are (one per kind, and the people's places
+  # once) — the picker asks on every mount and pick, so never a read per
+  # chip. A key that no longer resolves (a trashed person, a deleted team)
+  # is left out.
+  defp rows_for([], _lang), do: []
+
+  defp rows_for(keys, lang) do
+    wanted = Enum.group_by(keys, &elem(&1, 0), &elem(&1, 1))
+
+    people =
+      case Map.get(wanted, "person", []) |> Enum.flat_map(&cast_uuid/1) do
+        [] ->
+          []
+
+        uuids ->
+          from(p in Person,
+            left_join: u in assoc(p, :user),
+            where: p.uuid in ^uuids and p.status != "trashed",
+            select: %{uuid: p.uuid, name: p.name, email: u.email}
+          )
+          |> repo().all()
+          |> Enum.map(&person_row/1)
+          |> with_places(lang)
+      end
+
+    teams =
+      case Map.get(wanted, "team", []) |> Enum.flat_map(&cast_uuid/1) do
+        [] ->
+          []
+
+        uuids ->
+          from(t in Team, where: t.uuid in ^uuids, preload: [:department])
+          |> repo().all()
+          |> Enum.map(&team_row(&1, lang))
+      end
+
+    departments =
+      case Map.get(wanted, "department", []) |> Enum.flat_map(&cast_uuid/1) do
+        [] ->
+          []
+
+        uuids ->
+          from(d in Department, where: d.uuid in ^uuids)
+          |> repo().all()
+          |> Enum.map(&department_row(&1, lang))
+      end
+
+    found = Map.new(people ++ teams ++ departments, &{{&1.kind, to_string(&1.uuid)}, &1})
+    for {kind, uuid} <- keys, %{} = row <- [Map.get(found, {kind, to_string(uuid)})], do: row
   end
 
-  defp live_row(kind, uuid, lang), do: row_for(kind, uuid, lang)
+  defp cast_uuid(uuid) do
+    case Ecto.UUID.cast(uuid) do
+      {:ok, uuid} -> [uuid]
+      :error -> []
+    end
+  end
 
   defp in_project(nil), do: dynamic(true)
   defp in_project(uuid), do: dynamic([a], a.project_uuid == ^uuid)
@@ -585,8 +624,7 @@ defmodule PhoenixKitProjects.Assignees do
     project_uuid
     |> recent_keys()
     |> Enum.take(limit)
-    |> Enum.map(fn {kind, uuid} -> row_for(kind, uuid, lang) end)
-    |> Enum.reject(&is_nil/1)
+    |> rows_for(lang)
   rescue
     e in [Postgrex.Error, DBConnection.ConnectionError, Ecto.QueryError] ->
       Logger.warning("[Assignees] recent assignees failed: #{Exception.message(e)}")

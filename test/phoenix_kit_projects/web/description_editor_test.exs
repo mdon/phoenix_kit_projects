@@ -102,4 +102,42 @@ defmodule PhoenixKitProjects.Web.DescriptionEditorTest do
       end
     end
   end
+
+  describe "plain text skips the markdown renderer" do
+    @opts [
+      render: [hardbreaks: true, unsafe: true],
+      sanitize:
+        Keyword.put(MDEx.Document.default_sanitize_options(), :rm_tag_attributes, %{
+          "div" => ["style"]
+        })
+    ]
+
+    test "and draws what the renderer would" do
+      for text <- [
+            "Call them",
+            "Line one\nline two",
+            "Para one\n\nPara two\nmore",
+            "\n\nAfter blank lines\n\n\n",
+            "Õun, \"jutumärgid\" ja it's 2026 / 5% {x}",
+            "www.example.com and a.b"
+          ] do
+        assert RichText.plain?(text), text
+        assert RichText.to_html(text) == MDEx.to_html!(text, @opts), text
+      end
+    end
+
+    test "but anything markdown or HTML could read goes through it" do
+      for text <- [
+            "**bold**",
+            "a <b>tag</b>",
+            "1. first",
+            "    code",
+            "hard  \nbreak",
+            "Title\n===",
+            "x & y",
+            "[a](b)"
+          ],
+          do: refute(RichText.plain?(text), text)
+    end
+  end
 end

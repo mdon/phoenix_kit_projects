@@ -162,6 +162,53 @@ defmodule PhoenixKitProjects.BatchedReadsTest do
     end
   end
 
+  describe "Assignees.recent_for_viewer/4" do
+    defp staff_person!(name) do
+      {:ok, user} =
+        PhoenixKit.Users.Auth.register_user(%{
+          "email" => "#{name}-#{System.unique_integer([:positive])}@example.com",
+          "password" => "ValidPassword123!"
+        })
+
+      Repo.insert!(%PhoenixKitStaff.Schemas.Person{
+        user_uuid: user.uuid,
+        status: "active",
+        name: name
+      })
+    end
+
+    test "reads do not grow with the chips" do
+      me = LiveCase.embed_user_uuid!()
+      project = fixture_project()
+
+      count = fn n ->
+        Repo.update_all(PhoenixKit.Users.Auth.User |> Ecto.Query.where(uuid: ^me),
+          set: [custom_fields: %{}]
+        )
+
+        for i <- 1..n do
+          PhoenixKitProjects.Assignees.remember_pick(
+            me,
+            "person",
+            staff_person!("p#{n}-#{i}").uuid
+          )
+        end
+
+        {rows, queries} =
+          QueryCounter.count(fn ->
+            PhoenixKitProjects.Assignees.recent_for_viewer(me, project.uuid, 8)
+          end)
+
+        assert length(rows) == n
+        queries
+      end
+
+      one = count.(1)
+      six = count.(6)
+      assert six <= one, "#{six} reads for six chips, #{one} for one"
+    end
+  end
+
   describe "Attachments.download_urls/1" do
     defp stored_file!(owner_uuid, attrs \\ %{}) do
       n = System.unique_integer([:positive])

@@ -261,7 +261,8 @@ Repo-local aliases:
   depth level; feeds `project_tree_summaries/1` and `ScheduleLayout.trees/1`),
   `Projects.list_all_dependencies/1` on a LIST, `Extensions.enabled_map/1` +
   `Features.gates/1` / `flags/1` (one context read), `Portal.review_details_for/1`,
-  `Attachments.download_urls/1`, `Grants.subject_reaches/1`, `ListMetrics.load/3`
+  `Attachments.download_urls/1`, `Assignees.recent_for_viewer/4` (the
+  picker's Recent chips, one read per kind), `Grants.subject_reaches/1`, `ListMetrics.load/3`
   (the projects list's columns, one family of reads per column group) and
   `Extensions.project_columns/2`. Ecto preloads are
   statements too, so assert N-independence, never an exact count. Known and
