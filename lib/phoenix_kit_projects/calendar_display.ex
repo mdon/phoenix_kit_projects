@@ -443,6 +443,89 @@ defmodule PhoenixKitProjects.CalendarDisplay do
     if String.starts_with?(clock(~T[13:00:00]), "13"), do: :h24, else: :h12
   end
 
+  @doc """
+  The calendar's words in the page's language, for
+  `PhoenixLiveCalendar.CalendarComponent`'s `translations` attr: the
+  headings' month and day names, the weekday row and the Month / Week /
+  Day / Today buttons. Without it every calendar printed English on an
+  Estonian or Russian page (the walk-through, 2026-10-31).
+
+  The library still writes the heading in English ORDER ("October 2026",
+  "Tuesday, October 27, 2026", "Oct 26 – Nov 1, 2026") — with these names
+  but the month before the day; it has no hook for the order yet.
+  """
+  @spec translations() :: map()
+  def translations do
+    short = %{
+      1 => gettext("Mon"),
+      2 => gettext("Tue"),
+      3 => gettext("Wed"),
+      4 => gettext("Thu"),
+      5 => gettext("Fri"),
+      6 => gettext("Sat"),
+      7 => gettext("Sun")
+    }
+
+    %{
+      day_names: %{
+        1 => gettext("Monday"),
+        2 => gettext("Tuesday"),
+        3 => gettext("Wednesday"),
+        4 => gettext("Thursday"),
+        5 => gettext("Friday"),
+        6 => gettext("Saturday"),
+        7 => gettext("Sunday")
+      },
+      day_names_short: short,
+      # A weekday's initial is its short name's first letter in every
+      # language this module speaks (E T K N R L P; П В С Ч П С В).
+      day_names_narrow: Map.new(short, fn {day, name} -> {day, String.first(name)} end),
+      month_names: %{
+        1 => gettext("January"),
+        2 => gettext("February"),
+        3 => gettext("March"),
+        4 => gettext("April"),
+        5 => pgettext("month name", "May"),
+        6 => gettext("June"),
+        7 => gettext("July"),
+        8 => gettext("August"),
+        9 => gettext("September"),
+        10 => gettext("October"),
+        11 => gettext("November"),
+        12 => gettext("December")
+      },
+      month_names_short: Map.new(1..12, &{&1, L10n.short_month(&1)}),
+      labels: %{
+        today: gettext("Today"),
+        month: gettext("Month"),
+        week: gettext("Week"),
+        day: gettext("Day"),
+        year: gettext("Year"),
+        agenda: gettext("Agenda"),
+        timeline: gettext("Timeline"),
+        activity: gettext("Activity"),
+        # The library fills in the count itself: the placeholder goes back
+        # in as it is.
+        more: pgettext("calendar", "+%{count} more", count: "%{count}"),
+        no_events: gettext("No events"),
+        all_day: gettext("All day"),
+        ongoing: gettext("Ongoing"),
+        prev: gettext("Previous"),
+        next: gettext("Next"),
+        prev_month: gettext("Previous month"),
+        next_month: gettext("Next month"),
+        prev_week: gettext("Previous week"),
+        next_week: gettext("Next week"),
+        prev_day: gettext("Previous day"),
+        next_day: gettext("Next day"),
+        prev_year: gettext("Previous year"),
+        next_year: gettext("Next year"),
+        go_to_today: gettext("Go to today"),
+        layers: gettext("Calendars")
+      }
+    }
+  end
+
   defp timed?(%Assignment{start_time: %Time{}}), do: true
   defp timed?(%Assignment{end_time: %Time{}}), do: true
   defp timed?(_a), do: false

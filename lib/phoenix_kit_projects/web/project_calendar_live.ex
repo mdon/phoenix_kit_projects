@@ -771,6 +771,7 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
             <div id={"project-calendar-sync-#{@project.uuid}"} phx-hook="SyncAnimations">
             <.live_component
               module={PhoenixLiveCalendar.CalendarComponent}
+              translations={CalendarDisplay.translations()}
               id={"project-calendar-#{@project.uuid}"}
               events={@events}
               views={[:month, :week, :day]}

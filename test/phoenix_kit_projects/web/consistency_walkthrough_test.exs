@@ -94,4 +94,54 @@ defmodule PhoenixKitProjects.Web.ConsistencyWalkthroughTest do
       refute card =~ "ml-auto shrink-0"
     end
   end
+
+  describe "calendars speak the page's language (item 4)" do
+    test "translations/0 names months, weekdays and the view buttons in the locale" do
+      Gettext.put_locale(PhoenixKitProjects.Gettext, "et")
+      t = PhoenixKitProjects.CalendarDisplay.translations()
+      Gettext.put_locale(PhoenixKitProjects.Gettext, "en")
+
+      assert t.month_names[10] == "Oktoober"
+      assert t.day_names[2] == "Teisipäev"
+      assert t.day_names_short[1] == "E"
+      assert t.day_names_narrow[4] == "N"
+      assert t.labels.month == "Kuu"
+      assert t.labels.more =~ "%{count}"
+    end
+
+    test "the project Calendar tab renders Estonian headings and buttons", %{
+      conn: conn,
+      actor_uuid: actor
+    } do
+      project = fixture_project(%{"start_mode" => "immediate"})
+      {:ok, _} = Projects.start_project(project)
+      start = Date.utc_today() |> Date.beginning_of_month() |> Date.add(9)
+
+      {:ok, project} =
+        Projects.update_project(project, %{started_at: DateTime.new!(start, ~T[08:00:00])})
+
+      task = fixture_task(%{"estimated_duration" => 2, "estimated_duration_unit" => "days"})
+      assignment!(project, %{"task_uuid" => task.uuid})
+      {:ok, _} = PhoenixKitProjects.Members.add_member(project.uuid, actor, role: "member")
+
+      {:ok, view, _html} =
+        live_isolated(conn, PhoenixKitProjects.Web.ProjectCalendarLive,
+          session: %{"id" => project.uuid, "current_user_uuid" => actor, "locale" => "et"}
+        )
+
+      html = render_async(view)
+
+      Gettext.put_locale(PhoenixKitProjects.Gettext, "et")
+
+      month =
+        PhoenixKitProjects.CalendarDisplay.translations().month_names[Date.utc_today().month]
+
+      Gettext.put_locale(PhoenixKitProjects.Gettext, "en")
+
+      assert html =~ month
+      assert html =~ ">Kuu<" or html =~ "Kuu\n"
+      refute html =~ ~r/>\s*Month\s*</
+      refute html =~ ~r/>\s*Today\s*</
+    end
+  end
 end

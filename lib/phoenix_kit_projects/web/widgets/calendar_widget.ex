@@ -186,6 +186,7 @@ defmodule PhoenixKitProjects.Web.Widgets.CalendarWidget do
         <div id={"#{@id}-sync"} phx-hook="SyncAnimations" class="h-full min-h-0 overflow-hidden text-xs">
           <.live_component
             module={PhoenixLiveCalendar.CalendarComponent}
+            translations={CalendarDisplay.translations()}
             id={"#{@id}-calendar"}
             events={@events}
             views={[String.to_existing_atom(@view)]}

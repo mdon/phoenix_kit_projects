@@ -1330,6 +1330,7 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
             >
               <.live_component
                 module={PhoenixLiveCalendar.CalendarComponent}
+                translations={CalendarDisplay.translations()}
                 id="calendar-settings-demo-grid"
                 events={calendar_demo_events(@demo_calendar_today, @calendar_anim)}
                 views={[:month]}

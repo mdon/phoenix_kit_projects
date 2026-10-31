@@ -818,6 +818,7 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                   >
                     <.live_component
                       module={PhoenixLiveCalendar.CalendarComponent}
+                      translations={CalendarDisplay.translations()}
                       id={"overview-tasks-calendar-#{@sfx}"}
                       events={@task_calendar_events}
                       views={[:month, :agenda]}
@@ -892,6 +893,7 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
                     <div id={"overview-calendar-sync-#{@sfx}"} phx-hook="SyncAnimations">
                       <.live_component
                         module={PhoenixLiveCalendar.CalendarComponent}
+                        translations={CalendarDisplay.translations()}
                         id={"projects-overview-calendar-#{@sfx}"}
                         events={@calendar_events}
                         views={[:month]}

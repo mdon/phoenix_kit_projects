@@ -19,7 +19,7 @@ defmodule PhoenixKitProjects.Web.ProjectEventsLive do
   import PhoenixKitProjects.Web.Components.ConfirmAction, only: [confirm_action_modal: 1]
   import PhoenixKitProjects.Web.Components.TimeInput, only: [clock_input: 1]
 
-  alias PhoenixKitProjects.{Extensions, L10n, Paths, ProjectEvents, Projects}
+  alias PhoenixKitProjects.{CalendarDisplay, Extensions, L10n, Paths, ProjectEvents, Projects}
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Schemas.ProjectEvent
   alias PhoenixKitProjects.Web.Components.ConfirmAction
@@ -486,6 +486,7 @@ defmodule PhoenixKitProjects.Web.ProjectEventsLive do
 
         <.live_component
           module={PhoenixLiveCalendar.CalendarComponent}
+          translations={CalendarDisplay.translations()}
           id={"project-events-cal-#{@project.uuid}"}
           events={@calendar_events}
           views={[:month]}
