@@ -351,6 +351,36 @@ defmodule PhoenixKitProjects.Web.OutlineListTest do
       assert titles(p) == ["Old"]
     end
 
+    test "a suggestion's hint is the description's words, not its markdown", %{conn: conn} do
+      p = project()
+      {:ok, _} = Outline.sync(p.uuid, [%{"text" => "First"}], [])
+      [first] = Projects.list_assignments(p.uuid)
+      tag = "Vh#{System.unique_integer([:positive])}"
+
+      fixture_task(%{
+        "title" => "#{tag} hang the doors",
+        "description" =>
+          "**Check** the [hinges](https://example.com/h) with @[user:01a1|Ann]\n" <>
+            "![photo](https://example.com/p.png)\n- then `level` them"
+      })
+
+      {:ok, view, _} = live(conn, "/en/admin/projects/#{p.uuid}")
+      render_hook(view, "outline_add", %{"after" => first.uuid, "text" => ""})
+      key = page_assigns(view).outline_draft.key
+      # No dashed number circle in front of the draft any more.
+      refute render(view) =~ "rounded-full border-2 border-dashed"
+
+      {:reply, %{items: [%{hint: hint}]}, _} =
+        OutlineList.handle_event(
+          "outline_draft_suggest",
+          %{"key" => key, "q" => tag},
+          :sys.get_state(view.pid).socket,
+          & &1
+        )
+
+      assert hint == "Check the hinges with @Ann then level them"
+    end
+
     test "the library's tasks are offered as a title is typed, and one is taken",
          %{conn: conn} do
       p = project()

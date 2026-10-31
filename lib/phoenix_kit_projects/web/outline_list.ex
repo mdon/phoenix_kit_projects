@@ -662,15 +662,32 @@ defmodule PhoenixKitProjects.Web.OutlineList do
   end
 
   # A second line for a suggestion, to tell like titles apart: the start
-  # of its description.
+  # of its description, as words — a description from the Leaf editor is
+  # markdown, and a hint line showing `**`, `![…](…)` or a link's address
+  # says less than the words around them.
   defp suggestion_hint(%Task{} = t, lang) do
     case Task.localized_description(t, lang) do
       text when is_binary(text) and text != "" ->
-        text |> String.replace(~r/\s+/u, " ") |> String.trim() |> String.slice(0, 90)
+        text
+        |> markdown_words()
+        |> String.replace(~r/\s+/u, " ")
+        |> String.trim()
+        |> String.slice(0, 90)
 
       _ ->
         ""
     end
+  end
+
+  # A mention token (`@[user:…|Ann]`) becomes its label.
+  defp markdown_words(text) do
+    text
+    |> String.replace(~r/([@#])\[[a-z_]+:[^|\]]*\|([^\]]*)\]/u, "\\1\\2")
+    |> String.replace(~r/!\[[^\]]*\]\([^)]*\)/u, " ")
+    |> String.replace(~r/\[([^\]]*)\]\([^)]*\)/u, "\\1")
+    |> String.replace(~r/<[^>]*>/u, " ")
+    |> String.replace(~r/(^|\n)\s*(#+|>|[-*+]|\d+\.)\s+/u, "\\1")
+    |> String.replace(~r/(\*\*|__|~~|`)/u, "")
   end
 
   defp remember_created(socket, uuids) do
@@ -1005,11 +1022,12 @@ defmodule PhoenixKitProjects.Web.OutlineList do
     <div
       :if={@draft && Map.get(@draft, :slot) == @slot}
       id="outline-draft-row"
-      class="relative flex gap-4 py-3"
+      class="relative flex py-3"
       style={"margin-left: #{if @indent, do: Map.get(@draft, :depth, 0) * 2, else: 0}rem"}
     >
-      <div class="shrink-0 w-10 h-10 rounded-full border-2 border-dashed border-base-300" aria-hidden="true">
-      </div>
+      <%!-- No dashed circle in front: the rows lost their numbered
+           circles (the boss, 2026-10-30), so the draft lines up with
+           their cards. --%>
       <div class="flex-1 min-w-0 card bg-base-100 shadow-sm border border-dashed border-base-300">
         <div class="card-body relative py-3 px-4">
           <input
