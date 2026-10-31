@@ -49,13 +49,13 @@ defmodule PhoenixKitProjects.Portal do
   alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKit.RepoHelper
   alias PhoenixKit.Users.Auth
+  alias PhoenixKit.Users.Auth.User
   alias PhoenixKit.Users.RateLimiter
   alias PhoenixKitProjects.Activity
   alias PhoenixKitProjects.Attachments
   alias PhoenixKitProjects.Extensions
   alias PhoenixKitProjects.Features
   alias PhoenixKitProjects.Members
-  alias PhoenixKitProjects.People
   alias PhoenixKitProjects.PortalLinks
   alias PhoenixKitProjects.Projects
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
@@ -538,13 +538,11 @@ defmodule PhoenixKitProjects.Portal do
   end
 
   defp commenters_for(query, issue_uuid) do
-    users = issue_uuid |> commenter_uuids() |> Auth.get_users_by_uuids()
-    names = People.user_display_names(Enum.map(users, & &1.uuid))
-    name = fn user -> Map.get(names, user.uuid) || gettext("User") end
-
-    users
+    issue_uuid
+    |> commenter_uuids()
+    |> Auth.get_users_by_uuids()
     |> Enum.filter(fn user ->
-      matches?(name.(user), query) or matches?(user.email, query)
+      matches?(display_name(user), query) or matches?(user.email, query)
     end)
     |> Enum.take(@mention_limit)
     |> Enum.map(fn user ->
@@ -552,7 +550,7 @@ defmodule PhoenixKitProjects.Portal do
         kind: :user,
         type: "user",
         uuid: user.uuid,
-        title: name.(user),
+        title: display_name(user),
         # NOT the email. It is not on the page, and a typeahead that prints
         # it turns "who is in this thread" into an address harvest.
         subtitle: nil
@@ -571,6 +569,16 @@ defmodule PhoenixKitProjects.Portal do
     |> Enum.uniq()
   rescue
     _ -> []
+  end
+
+  defp display_name(user) do
+    [Map.get(user, :first_name), Map.get(user, :last_name)]
+    |> Enum.reject(&(is_nil(&1) or &1 == ""))
+    |> Enum.join(" ")
+    |> case do
+      "" -> Map.get(user, :email) || gettext("User")
+      name -> name
+    end
   end
 
   # An empty query lists the first few rather than nothing: on a board with
@@ -1284,7 +1292,15 @@ defmodule PhoenixKitProjects.Portal do
 
   defp users_by_uuid([]), do: %{}
 
-  defp users_by_uuid(uuids), do: People.user_display_names(uuids)
+  # The portal is public: people are named by core's `User.display_name/1`
+  # (an account with no name shows the part of its email before the @),
+  # never by `People.user_display_names/1`, whose last resort is the whole
+  # email address.
+  defp users_by_uuid(uuids) do
+    uuids |> Auth.get_users_by_uuids() |> Map.new(&{&1.uuid, User.display_name(&1)})
+  rescue
+    _ -> %{}
+  end
 
   defp files_by_uuid([]), do: %{}
 
@@ -1300,7 +1316,10 @@ defmodule PhoenixKitProjects.Portal do
   defp submission_images(_), do: []
 
   defp submitter_name(%PortalSubmission{submitted_by_uuid: uuid}) when is_binary(uuid) do
-    People.user_display_names([uuid])[uuid]
+    case Auth.get_users_by_uuids([uuid]) do
+      [user | _] -> User.display_name(user)
+      _ -> nil
+    end
   rescue
     _ -> nil
   end
