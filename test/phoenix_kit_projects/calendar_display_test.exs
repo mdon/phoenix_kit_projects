@@ -787,4 +787,10 @@ defmodule PhoenixKitProjects.CalendarDisplayTest do
       assert CalendarDisplay.max_multiday() >= CalendarDisplay.max_events()
     end
   end
+
+  test "the Week/Day grid keeps its hour labels the height of their slots" do
+    # In the shorter scroll box a flex column squeezed the 3rem label rows,
+    # so the 08:00 slot sat beside the "20:00" label.
+    assert CalendarDisplay.time_grid_class() =~ "[&_.cal-time-gutter>.cal-time-slot]:shrink-0"
+  end
 end

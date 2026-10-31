@@ -10401,12 +10401,12 @@ msgstr "Päevakava"
 #: lib/phoenix_kit_projects/calendar_display.ex:508
 #, elixir-autogen, elixir-format
 msgid "April"
-msgstr "Aprill"
+msgstr "aprill"
 
 #: lib/phoenix_kit_projects/calendar_display.ex:512
 #, elixir-autogen, elixir-format
 msgid "August"
-msgstr "August"
+msgstr "august"
 
 #: lib/phoenix_kit_projects/calendar_display.ex:545
 #, elixir-autogen, elixir-format
@@ -10416,12 +10416,12 @@ msgstr "Kalendrid"
 #: lib/phoenix_kit_projects/calendar_display.ex:516
 #, elixir-autogen, elixir-format
 msgid "December"
-msgstr "Detsember"
+msgstr "detsember"
 
 #: lib/phoenix_kit_projects/calendar_display.ex:506
 #, elixir-autogen, elixir-format
 msgid "February"
-msgstr "Veebruar"
+msgstr "veebruar"
 
 #: lib/phoenix_kit_projects/calendar_display.ex:544
 #, elixir-autogen, elixir-format
@@ -10431,22 +10431,22 @@ msgstr "Mine tänasele"
 #: lib/phoenix_kit_projects/calendar_display.ex:505
 #, elixir-autogen, elixir-format
 msgid "January"
-msgstr "Jaanuar"
+msgstr "jaanuar"
 
 #: lib/phoenix_kit_projects/calendar_display.ex:511
 #, elixir-autogen, elixir-format
 msgid "July"
-msgstr "Juuli"
+msgstr "juuli"
 
 #: lib/phoenix_kit_projects/calendar_display.ex:510
 #, elixir-autogen, elixir-format
 msgid "June"
-msgstr "Juuni"
+msgstr "juuni"
 
 #: lib/phoenix_kit_projects/calendar_display.ex:507
 #, elixir-autogen, elixir-format
 msgid "March"
-msgstr "Märts"
+msgstr "märts"
 
 #: lib/phoenix_kit_projects/calendar_display.ex:541
 #, elixir-autogen, elixir-format
@@ -10471,12 +10471,12 @@ msgstr "Sündmusi pole"
 #: lib/phoenix_kit_projects/calendar_display.ex:515
 #, elixir-autogen, elixir-format
 msgid "November"
-msgstr "November"
+msgstr "november"
 
 #: lib/phoenix_kit_projects/calendar_display.ex:514
 #, elixir-autogen, elixir-format
 msgid "October"
-msgstr "Oktoober"
+msgstr "oktoober"
 
 #: lib/phoenix_kit_projects/calendar_display.ex:540
 #, elixir-autogen, elixir-format
@@ -10496,7 +10496,7 @@ msgstr "Eelmine aasta"
 #: lib/phoenix_kit_projects/calendar_display.ex:513
 #, elixir-autogen, elixir-format
 msgid "September"
-msgstr "September"
+msgstr "september"
 
 #: lib/phoenix_kit_projects/calendar_display.ex:524
 #, elixir-autogen, elixir-format
@@ -10513,7 +10513,7 @@ msgstr "+%{count} veel"
 #, elixir-autogen, elixir-format
 msgctxt "month name"
 msgid "May"
-msgstr "Mai"
+msgstr "mai"
 
 #: lib/phoenix_kit_projects/web/project_form_live.ex:3096
 #, elixir-autogen, elixir-format

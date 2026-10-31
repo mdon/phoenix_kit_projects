@@ -459,10 +459,13 @@ defmodule PhoenixKitProjects.CalendarDisplay do
   The class a calendar with Week / Day views takes: their time grid scrolls
   inside a box of its own (at most most of the window), so opening at the
   work day's start scrolls the grid and not the page, and the toolbar stays
-  in sight.
+  in sight. The hour labels must not shrink inside that shorter box: the
+  label column is a flex column, and without `shrink-0` its 3rem rows were
+  squeezed to fit, so 08:00's slot sat beside the "20:00" label.
   """
   @spec time_grid_class() :: String.t()
-  def time_grid_class, do: "[&_.cal-week-body]:max-h-[70vh]"
+  def time_grid_class,
+    do: "[&_.cal-week-body]:max-h-[70vh] [&_.cal-time-gutter>.cal-time-slot]:shrink-0"
 
   @doc """
   The calendar's words in the page's language, for
