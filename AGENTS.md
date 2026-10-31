@@ -1689,7 +1689,15 @@ reference:
   that makes the next, so two finishes make one. A task made a sub-project
   loses its rule (`TaskConversion`). The control's "Every…" with a number or
   unit it cannot read is refused by the changeset, never read as "does not
-  repeat".
+  repeat". A repeating SUBTASK's next one goes under the nearest OPEN
+  ancestor, right after the done branch (under a done parent the completion
+  rules would reopen it). A month rule keeps its first deadline's day
+  (`"day"` in the rule: 31 Jan → 28 Feb → 31 Mar). The occurrence is made
+  under the project lock and announced after the commit.
+- **A sub-project that finishes by itself** (`subproject_auto`) releases
+  the rows waiting on it only where the acting person (`Actor.get/0`) holds
+  `:update_status` on the row — the "next up" dialog's rule; a process
+  that names no one releases nothing.
 - **Task ⇄ sub-project in place** (`TaskConversion`): needs `:edit_tasks` +
   `:create_tasks` on the project the row sits in (an expanded sub-project's
   task is converted in ITS project), and, back to a task, `:archive_project`
