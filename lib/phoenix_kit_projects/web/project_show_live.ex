@@ -76,7 +76,14 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     Statuses
   }
 
-  alias PhoenixKitProjects.Web.Components.{ConfirmAction, MoveProject}
+  alias PhoenixKitProjects.Web.Components.{
+    ConfirmAction,
+    DurationInput,
+    FormParts,
+    MoveProject,
+    TimeInput
+  }
+
   alias PhoenixKitProjects.Web.Crumbs
 
   alias PhoenixKitProjects.Extensions.Registry, as: ExtRegistry
@@ -86,7 +93,6 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   alias PhoenixKitProjects.Schemas.{Assignment, Project}
   alias PhoenixKitProjects.Schemas.Task, as: TaskSchema
   alias PhoenixKitProjects.TaskNotes
-  alias PhoenixKitProjects.Web.Components.AssignmentStatusBadge
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
   alias PhoenixKitProjects.Web.OutlineList
 
@@ -97,6 +103,9 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
 
   import PhoenixKitWeb.Components.Core.TimeDisplay, only: [time_ago: 1]
   import PhoenixKitProjects.Web.Components.TaskTimes, only: [deadline_chip: 1, planned_chip: 1]
+  import PhoenixKitProjects.Web.Components.DurationInput, only: [duration_input: 1]
+  import PhoenixKitProjects.Web.Components.TimeInput, only: [datetime_input: 1]
+  import PhoenixKitProjects.Web.Components.RichText, only: [rich_text: 1]
   import Ecto.Query, only: [from: 2]
 
   require Logger
@@ -2088,8 +2097,8 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
           <%!-- Description --%>
           <% lang = L10n.current_content_lang() %>
           <% shown_desc = Assignment.localized_description(@a, lang) || TaskSchema.localized_description(@a.task, lang) %>
-          <div :if={shown_desc} class="text-xs text-base-content/60">
-            <.mention_text text={shown_desc} scope={@scope} />
+          <div :if={shown_desc} class="text-base-content/60">
+            <.rich_text text={shown_desc} scope={@scope} compact />
           </div>
 
           <%!-- Meta row: duration, assignee, completed by. Each chip is
@@ -3472,7 +3481,11 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     {:noreply, assign(socket, start_modal_open: false)}
   end
 
-  defp gated_handle_event("confirm_start_project", %{"start_at" => datetime_str}, socket) do
+  defp gated_handle_event("confirm_start_project", %{"start_at" => _} = params, socket) do
+    # The day and the site's clock (`TimeInput`), folded back into the
+    # `YYYY-MM-DDTHH:mm` the browser's own input posted.
+    %{"start_at" => datetime_str} = TimeInput.normalize(params, ["start_at"])
+
     case parse_start_at(datetime_str) do
       {:ok, started_at} ->
         do_start_project(socket, started_at)
@@ -3707,7 +3720,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
 
   # ── Helpers ─────────────────────────────────────────────────────
 
-  # `<input type="datetime-local">` posts `YYYY-MM-DDTHH:mm` (no
+  # The start's day and time arrive as `YYYY-MM-DDTHH:mm` (no
   # seconds, no timezone): the wall clock where the viewer is, read in their
   # zone (`L10n.from_wall/1`) — the page shows every time in that zone too.
   # Pad seconds when missing so `NaiveDateTime` accepts it.
@@ -3967,9 +3980,9 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     end
   end
 
-  # Default value for `<input type="datetime-local">`: now on the viewer's
-  # wall clock, formatted `YYYY-MM-DDTHH:mm` (the format the browser
-  # expects) — `parse_start_at/1` reads it back in the same zone.
+  # Default value for the start's day and time: now on the viewer's wall
+  # clock, formatted `YYYY-MM-DDTHH:mm` (what `TimeInput.parts/1` reads) —
+  # `parse_start_at/1` reads it back in the same zone.
   defp default_start_at_local do
     DateTime.utc_now()
     |> DateTime.truncate(:second)
@@ -4377,7 +4390,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         class="text-xs text-base-content/60 whitespace-nowrap"
         title={gettext("Started %{when}", when: L10n.format_datetime(@project.started_at))}
       >
-        {gettext("since %{date}", date: L10n.format_date(@project.started_at))}
+        {gettext("since %{date}", date: L10n.format_short_date(@project.started_at))}
       </span>
       <%= if @running? and @schedule do %>
         <% detail = gettext("%{actual}% done vs %{expected}% expected", actual: @schedule.actual_pct, expected: @schedule.expected_pct) %>
@@ -4692,27 +4705,6 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   defp status_word("in_progress"), do: pgettext("task status", "In progress")
   defp status_word("done"), do: pgettext("task status", "Done")
 
-  # The task form's look (`FormParts.status_choices/1`): the current one
-  # filled, the others outlined in their own colour.
-  defp status_change_class(status, true) do
-    [
-      "badge badge-lg h-auto py-1.5 px-3 gap-1 font-semibold ring-2 ring-base-content/20 disabled:opacity-100",
-      AssignmentStatusBadge.badge_class(status)
-    ]
-  end
-
-  defp status_change_class(status, false) do
-    [
-      "badge badge-lg badge-outline h-auto py-1.5 px-3 gap-1 cursor-pointer opacity-80 hover:opacity-100",
-      status_outline(status)
-    ]
-  end
-
-  defp status_outline("todo"), do: "badge-info"
-  defp status_outline("in_progress"), do: "badge-warning"
-  defp status_outline("done"), do: "badge-success"
-  defp status_outline(_), do: "text-base-content/70"
-
   defp priority_class("urgent"), do: "badge-error"
   defp priority_class("high"), do: "badge-warning"
   defp priority_class("low"), do: "badge-ghost"
@@ -4821,30 +4813,8 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     end
   end
 
-  # Hours + minutes inputs -> total minutes; whole non-negatives only,
-  # and the total must be positive.
-  defp parse_total_minutes(params) do
-    h = parse_whole(params["hours"])
-    m = parse_whole(params["minutes"])
-
-    cond do
-      is_nil(h) or is_nil(m) -> :error
-      h * 60 + m <= 0 -> :error
-      true -> {:ok, h * 60 + m}
-    end
-  end
-
-  defp parse_whole(nil), do: 0
-  defp parse_whole(""), do: 0
-
-  defp parse_whole(v) when is_binary(v) do
-    case Integer.parse(v) do
-      {n, ""} when n >= 0 -> n
-      _ -> nil
-    end
-  end
-
-  defp parse_whole(_), do: nil
+  # The number and unit (`DurationInput`) -> whole minutes.
+  defp parse_total_minutes(params), do: DurationInput.to_minutes(params["duration"])
 
   defp blank_to_nil(v) when is_binary(v) do
     case String.trim(v) do
@@ -4987,9 +4957,12 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
           </div>
           <%!-- Description sits directly under the title (embeds) or the
                badges — the project's subtitle. --%>
-          <p :if={desc} class="text-sm text-base-content/60">
-            <.mention_text text={desc} scope={@phoenix_kit_current_scope} />
-          </p>
+          <.rich_text
+            :if={desc}
+            text={desc}
+            scope={@phoenix_kit_current_scope}
+            class="text-sm text-base-content/60"
+          />
         </div>
       </div>
 
@@ -5193,31 +5166,13 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
               <% end %>
             </p>
             <form id={"work-entry-form-#{@project.uuid}"} phx-submit="save_work_entry" class="flex flex-col gap-3 mt-4">
-              <div class="flex items-start gap-2">
-                <.input
-                  id={"log-time-hours-#{@project.uuid}"}
-                  type="number"
-                  name="hours"
-                  label={gettext("Hours")}
-                  min="0"
-                  step="1"
-                  value="0"
-                  class="input-sm"
-                  wrapper_class="flex-1"
-                />
-                <.input
-                  id={"log-time-minutes-#{@project.uuid}"}
-                  type="number"
-                  name="minutes"
-                  label={gettext("Minutes")}
-                  min="0"
-                  max="59"
-                  step="1"
-                  value="30"
-                  class="input-sm"
-                  wrapper_class="flex-1"
-                />
-              </div>
+              <.duration_input
+                id={"log-time-duration-#{@project.uuid}"}
+                name="duration"
+                label={gettext("How long")}
+                minutes={30}
+                required
+              />
               <.input
                 id={"log-time-note-#{@project.uuid}"}
                 name="note"
@@ -5789,12 +5744,12 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
 
                       <%!-- Sub-project description --%>
                       <% sp_desc = Project.localized_description(child, sp_lang) %>
-                      <%!-- Through mention_text, so an @ or # written here
-                           resolves for THIS reader: a link if they may open
-                           it, the author's words if it's gone, a locked chip
-                           if it isn't theirs to see. --%>
-                      <div :if={sp_desc} class="text-xs text-base-content/60">
-                        <.mention_text text={sp_desc} scope={@phoenix_kit_current_scope} />
+                      <%!-- Rendered as the task rows' (`RichText`), so an @ or #
+                           written here resolves for THIS reader: a link if
+                           they may open it, the author's words if it's gone,
+                           a locked chip if it isn't theirs to see. --%>
+                      <div :if={sp_desc} class="text-base-content/60">
+                        <.rich_text text={sp_desc} scope={@phoenix_kit_current_scope} compact />
                       </div>
 
                       <%!-- Rolled-up meta (read-only — driven by the child) --%>
@@ -6425,23 +6380,13 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         max_width="sm"
       >
         <:title>{gettext("Status of “%{task}”", task: @status_change.label)}</:title>
-        <div class="flex flex-wrap gap-1.5" id={"status-change-choices-#{@status_change.uuid}"}>
-          <button
-            :for={status <- @status_change.choices}
-            type="button"
-            phx-click="set_status"
-            phx-value-uuid={@status_change.uuid}
-            phx-value-status={status}
-            phx-value-from={@status_change.status}
-            phx-disable-with={gettext("Saving…")}
-            disabled={status == @status_change.status}
-            aria-pressed={to_string(status == @status_change.status)}
-            class={status_change_class(status, status == @status_change.status)}
-          >
-            <.icon :if={status == @status_change.status} name="hero-check-mini" class="w-4 h-4 -ml-0.5" />
-            {status_word(status)}
-          </button>
-        </div>
+        <FormParts.status_buttons
+          id={"status-change-choices-#{@status_change.uuid}"}
+          value={@status_change.status}
+          options={Enum.map(@status_change.choices, &{status_word(&1), &1})}
+          event="set_status"
+          values={%{"uuid" => @status_change.uuid, "from" => @status_change.status}}
+        />
       </.modal>
 
       <%!-- Reopen asks why. --%>
@@ -6616,7 +6561,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
             </p>
 
             <.form id={"start-project-form-#{@project.uuid}"} for={@start_form} phx-submit="confirm_start_project" class="flex flex-col gap-3 mt-4">
-              <.input field={@start_form[:start_at]} type="datetime-local" label={gettext("Start date and time")} required />
+              <.datetime_input id={"start-project-at-#{@project.uuid}"} field={@start_form[:start_at]} label={gettext("Start date and time")} required />
 
               <div class="modal-action">
                 <button

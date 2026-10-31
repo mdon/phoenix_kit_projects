@@ -166,8 +166,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowBossReviewTest do
       render_click(view, "open_log_time", %{"uuid" => a.uuid})
 
       render_submit(view, "save_work_entry", %{
-        "hours" => "1",
-        "minutes" => "0",
+        "duration" => %{"amount" => "60", "unit" => "minutes"},
         "billable" => "true"
       })
 
@@ -246,8 +245,10 @@ defmodule PhoenixKitProjects.Web.ProjectShowBossReviewTest do
 
       assert html =~ ~s(id="status-change-choices-#{a.uuid}")
 
-      assert html =~ ~r/phx-value-status="todo"[^>]*disabled/s or
-               html =~ ~r/disabled[^>]*phx-value-status="todo"/s
+      # The shared status buttons (`FormParts.status_buttons/1`), the
+      # current one pressed.
+      assert html =~ ~r/id="status-change-choices-#{a.uuid}-todo"[^>]*aria-pressed="true"/s
+      assert html =~ ~r/id="status-change-choices-#{a.uuid}-done"[^>]*aria-pressed="false"/s
 
       render_click(view, "set_status", %{"uuid" => a.uuid, "status" => "in_progress"})
       assert Projects.get_assignment(a.uuid).status == "in_progress"
@@ -431,7 +432,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowBossReviewTest do
 
       {:ok, view, _html} = live(conn, "/en/admin/projects/#{parent.uuid}")
       html = render_click(view, "open_status_change", %{"uuid" => link.uuid})
-      assert html =~ ~s(phx-value-status="done")
+      assert html =~ ~s(id="status-change-choices-#{link.uuid}-done")
 
       render_click(view, "set_status", %{"uuid" => link.uuid, "status" => "in_progress"})
       assert Projects.get_assignment(link.uuid).status == "in_progress"
@@ -447,8 +448,8 @@ defmodule PhoenixKitProjects.Web.ProjectShowBossReviewTest do
       {:ok, view, _html} = live(conn, "/en/admin/projects/#{parent.uuid}")
 
       html = render_click(view, "open_status_change", %{"uuid" => link.uuid})
-      assert html =~ ~s(phx-value-status="waiting")
-      refute html =~ ~s(phx-value-status="done")
+      assert html =~ ~s(id="status-change-choices-#{link.uuid}-waiting")
+      refute html =~ ~s(id="status-change-choices-#{link.uuid}-done")
     end
   end
 

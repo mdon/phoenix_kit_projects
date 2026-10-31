@@ -378,7 +378,10 @@ defmodule PhoenixKitProjects.Web.FeatureEnforcementTest do
       html = render_click(view, "open_log_time", %{"uuid" => assignment.uuid})
       assert html =~ "This feature is turned off for this project."
 
-      render_submit(view, "save_work_entry", %{"hours" => "1", "minutes" => "0"})
+      render_submit(view, "save_work_entry", %{
+        "duration" => %{"amount" => "60", "unit" => "minutes"}
+      })
+
       assert Ledger.list_entries(project.uuid) == []
     end
   end
@@ -397,8 +400,7 @@ defmodule PhoenixKitProjects.Web.FeatureEnforcementTest do
 
       html =
         render_submit(view, "save_work_entry", %{
-          "hours" => "1",
-          "minutes" => "30",
+          "duration" => %{"amount" => "90", "unit" => "minutes"},
           "note" => "Night shift",
           "billable" => "true"
         })
@@ -435,7 +437,10 @@ defmodule PhoenixKitProjects.Web.FeatureEnforcementTest do
 
       render_click(view, "toggle_subproject", %{"uuid" => link.uuid})
       render_click(view, "open_log_time", %{"uuid" => child_task.uuid})
-      render_submit(view, "save_work_entry", %{"hours" => "0", "minutes" => "25"})
+
+      render_submit(view, "save_work_entry", %{
+        "duration" => %{"amount" => "25", "unit" => "minutes"}
+      })
 
       assert [entry] = Ledger.list_entries(child.uuid)
       assert entry.assignment_uuid == child_task.uuid
@@ -468,7 +473,11 @@ defmodule PhoenixKitProjects.Web.FeatureEnforcementTest do
       {:ok, view, _} = live(conn, show_path(project))
 
       render_click(view, "open_log_time", %{"uuid" => assignment.uuid})
-      html = render_submit(view, "save_work_entry", %{"hours" => "1", "minutes" => "0"})
+
+      html =
+        render_submit(view, "save_work_entry", %{
+          "duration" => %{"amount" => "60", "unit" => "minutes"}
+        })
 
       assert html =~ "permission to log time"
       assert Ledger.list_entries(project.uuid) == []
@@ -479,7 +488,11 @@ defmodule PhoenixKitProjects.Web.FeatureEnforcementTest do
       {:ok, view, _} = live(conn, show_path(project))
 
       render_click(view, "open_log_time", %{"uuid" => assignment.uuid})
-      html = render_submit(view, "save_work_entry", %{"hours" => "0", "minutes" => "0"})
+
+      html =
+        render_submit(view, "save_work_entry", %{
+          "duration" => %{"amount" => "0", "unit" => "minutes"}
+        })
 
       assert html =~ "Enter a positive amount of time."
       assert Ledger.list_entries(project.uuid) == []
