@@ -29,8 +29,8 @@ defmodule PhoenixKitProjects.Web.RepeatControlTest do
     path = "/en/admin/projects/#{ctx.project.uuid}/assignments/#{ctx.a.uuid}/edit"
     {:ok, view, html} = live(ctx.conn, path)
 
-    assert has_element?(view, "#assignment-pane-planning #assignment-repeat")
-    refute has_element?(view, "#assignment-pane-task #assignment-repeat")
+    assert has_element?(view, "[id^='assignment-'][id$='-pane-planning'] #assignment-repeat")
+    refute has_element?(view, "[id^='assignment-'][id$='-pane-task'] #assignment-repeat")
     assert html =~ "Does not repeat"
 
     html =

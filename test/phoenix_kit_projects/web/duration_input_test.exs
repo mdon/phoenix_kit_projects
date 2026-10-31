@@ -80,7 +80,9 @@ defmodule PhoenixKitProjects.Web.DurationInputTest do
       assert has_element?(view, "select[name='duration[unit]'] option[value=days]")
 
       view
-      |> form("#assignment-log-form", %{"duration" => %{"amount" => "1,5", "unit" => "hours"}})
+      |> form("[id^='assignment-log-form-']", %{
+        "duration" => %{"amount" => "1,5", "unit" => "hours"}
+      })
       |> render_submit()
 
       assert [entry] = Ledger.list_entries(ctx.project.uuid)

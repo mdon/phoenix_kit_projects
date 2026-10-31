@@ -90,6 +90,10 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
     WebHelpers.maybe_put_locale(session)
 
     wrapper_class = Map.get(session, "wrapper_class", @default_wrapper_class)
+    # This form can be stacked (`PopupHostLive`, a host's two frames): the
+    # ids other elements point at carry the record, or this mount's own key
+    # for a task not saved yet (`dom_key/1`).
+    socket = assign(socket, :dom_seed, "new#{System.unique_integer([:positive])}")
     redirect_to = Map.get(session, "redirect_to")
     live_action = WebHelpers.resolve_live_action(socket, session)
     resolved_params = WebHelpers.resolve_action_params(params, session)
@@ -4160,15 +4164,15 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
           </div>
         <% else %>
           <.form_tabs
-            id="subproject-form-tabs"
-            prefix="subproject"
+            id={"subproject-form-tabs-#{@dom}"}
+            prefix={"subproject-#{@dom}"}
             panes={@sp_panes}
             active={@sp_pane}
             errors={@sp_pane_errors}
           />
 
           <%!-- ── Sub-project: what it is and whose it is ── --%>
-          <.form_pane prefix="subproject" pane="subproject" active={@sp_pane}>
+          <.form_pane prefix={"subproject-#{@dom}"} pane="subproject" active={@sp_pane}>
             <.words_block
               id="subproject-words"
               multilang_enabled={@multilang_enabled}
@@ -4204,7 +4208,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
               :if={@fx.assignees}
               id="subproject-assignee"
               label={gettext("Assignee")}
-              search_form="subproject-assignee-form"
+              search_form={"subproject-assignee-form-#{@dom}"}
               fields={[
                 {@sp_form[:assigned_person_uuid].name, @sp_form[:assigned_person_uuid].value},
                 {@sp_form[:assigned_team_uuid].name, @sp_form[:assigned_team_uuid].value},
@@ -4219,7 +4223,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
           </.form_pane>
 
           <%!-- ── Schedule: how it ends, what it waits on ── --%>
-          <.form_pane prefix="subproject" pane="schedule" active={@sp_pane}>
+          <.form_pane prefix={"subproject-#{@dom}"} pane="schedule" active={@sp_pane}>
             <%!-- How it ends. A new sub-project copies the parent's
                  answer; the value is folded into the child's settings on
                  save, never posted as the settings map itself (a posted
@@ -4308,7 +4312,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
           </.form_pane>
 
           <%!-- ── Settings: its workflow statuses (V125) ── --%>
-          <.form_pane :if={@statuses_available} prefix="subproject" pane="settings" active={@sp_pane}>
+          <.form_pane :if={@statuses_available} prefix={"subproject-#{@dom}"} pane="settings" active={@sp_pane}>
             <.workflow_status_fields
               statuses_available={@statuses_available}
               field={@sp_form[:status_entity_uuid]}
@@ -4345,7 +4349,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
           </button>
         </div>
       </.form>
-      <.assignee_picker_outside search_form="subproject-assignee-form" staff_confirm={@staff_confirm} />
+      <.assignee_picker_outside search_form={"subproject-assignee-form-#{@dom}"} staff_confirm={@staff_confirm} />
     </div>
     """
   end
@@ -4409,15 +4413,15 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
              hidden, so switching loses nothing typed and a save posts them
              all; a tab holding an error the form shows carries a dot. --%>
         <.form_tabs
-          id="assignment-form-tabs"
-          prefix="assignment"
+          id={"assignment-form-tabs-#{@dom}"}
+          prefix={"assignment-#{@dom}"}
           panes={@panes}
           active={@pane}
           errors={@pane_errors}
         />
 
         <%!-- ── Task: what it is, where it stands, whose it is, by when ── --%>
-        <section id="assignment-pane-task" role="tabpanel" class={["flex flex-col gap-4", @pane != "task" && "hidden"]}>
+        <section id={"assignment-#{@dom}-pane-task"} role="tabpanel" class={["flex flex-col gap-4", @pane != "task" && "hidden"]}>
             <%= if @live_action == :new do %>
               <%!-- Task-source tabs. Replaces the old "Pick from library /
                    Create new" dropdown — a tab strip makes the two
@@ -4605,7 +4609,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
             id="assignment-assignee"
             me_id="assignment-assign-me"
             label={gettext("Assignee")}
-            search_form="assignment-assignee-form"
+            search_form={"assignment-assignee-form-#{@dom}"}
             fields={[
               {@form[:assigned_person_uuid].name, @form[:assigned_person_uuid].value},
               {@form[:assigned_team_uuid].name, @form[:assigned_team_uuid].value},
@@ -4667,7 +4671,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
         </section>
 
         <%!-- ── Planning: the effort and the days it is meant for ── --%>
-        <section id="assignment-pane-planning" role="tabpanel" class={["flex flex-col gap-4", @pane != "planning" && "hidden"]}>
+        <section id={"assignment-#{@dom}-pane-planning"} role="tabpanel" class={["flex flex-col gap-4", @pane != "planning" && "hidden"]}>
             <%!-- The ESTIMATE: planned effort, not time already spent (that is
                  logged under More). --%>
             <.duration_input
@@ -4801,7 +4805,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
               <input
                 type="text"
                 name="title"
-                form="assignment-subtask-form"
+                form={"assignment-subtask-form-#{@dom}"}
                 id={"assignment-subtask-new-#{assigns[:subtask_seq] || 0}"}
                 phx-mounted={(assigns[:subtask_seq] || 0) > 0 && JS.focus()}
                 placeholder={gettext("Add a subtask and press Enter")}
@@ -4827,7 +4831,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
         <% lang = L10n.current_content_lang() %>
         <section
           :if={@fx.dependencies}
-          id="assignment-pane-connections"
+          id={"assignment-#{@dom}-pane-connections"}
           role="tabpanel"
           class={["flex flex-col gap-4", @pane != "connections" && "hidden"]}
         >
@@ -4922,7 +4926,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
         <%!-- ── More: time logged, the real start and finish, the portal ── --%>
         <section
           :if={Enum.any?(@panes, &(elem(&1, 0) == "more"))}
-          id="assignment-pane-more"
+          id={"assignment-#{@dom}-pane-more"}
           role="tabpanel"
           class={["flex flex-col gap-4", @pane != "more" && "hidden"]}
         >
@@ -4983,7 +4987,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
                     :if={@log_people != []}
                     id="assignment-log-person"
                     dropdown_id="assignment-log-person-list"
-                    form="assignment-log-form"
+                    form={"assignment-log-form-#{@dom}"}
                     search_event="log_person_search"
                     pick_event="log_person_pick"
                     chosen={@log_person && @log_person.name}
@@ -5008,13 +5012,13 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
                 <.duration_input
                   id={"assignment-log-duration-#{@log_seq}"}
                   name="duration"
-                  form="assignment-log-form"
+                  form={"assignment-log-form-#{@dom}"}
                   label={gettext("How long")}
                 />
                 <.input
                   id={"assignment-log-note-#{@log_seq}"}
                   name="note"
-                  form="assignment-log-form"
+                  form={"assignment-log-form-#{@dom}"}
                   label={gettext("What was done")}
                   value=""
                   autocomplete="off"
@@ -5023,10 +5027,10 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
                 />
                 <div class="col-span-2 flex flex-wrap items-center justify-between gap-2">
                   <label :if={@billable_on?} class="flex items-center gap-2 cursor-pointer text-sm">
-                    <input type="checkbox" name="billable" value="true" form="assignment-log-form" class="checkbox checkbox-sm" />
+                    <input type="checkbox" name="billable" value="true" form={"assignment-log-form-#{@dom}"} class="checkbox checkbox-sm" />
                     {gettext("Billable")}
                   </label>
-                  <button type="submit" form="assignment-log-form" class="btn btn-primary btn-sm" phx-disable-with={gettext("Saving…")}>
+                  <button type="submit" form={"assignment-log-form-#{@dom}"} class="btn btn-primary btn-sm" phx-disable-with={gettext("Saving…")}>
                     <.icon name="hero-plus" class="w-4 h-4" /> {gettext("Log time")}
                   </button>
                 </div>
@@ -5054,7 +5058,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
             <label class="flex flex-col items-center justify-center gap-1 rounded-box border border-dashed border-base-300 px-3 py-4 text-sm text-base-content/60 cursor-pointer hover:bg-base-200/50">
               <.icon name="hero-arrow-up-tray" class="w-5 h-5" />
               <span>{gettext("Drop files here or choose them")}</span>
-              <.live_file_input upload={@uploads.task_files} form="assignment-files-form" class="sr-only" />
+              <.live_file_input upload={@uploads.task_files} form={"assignment-files-form-#{@dom}"} class="sr-only" />
             </label>
             <div :for={entry <- @uploads.task_files.entries} class="flex items-center gap-2 text-xs">
               <span class="truncate flex-1">{entry.client_name}</span>
@@ -5288,13 +5292,13 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
         <.ai_translate_modal ai_translate={FormGlue.ai_translate_config(assigns)} />
       </.form>
       <%!-- Owns the "Log time" inputs drawn inside the form above (`form=`). --%>
-      <form id="assignment-log-form" phx-submit="log_time" class="hidden"></form>
+      <form id={"assignment-log-form-#{@dom}"} phx-submit="log_time" class="hidden"></form>
       <%!-- Owns the "Add a subtask" line drawn inside the form above. --%>
-      <form id="assignment-subtask-form" phx-submit="subtask_add" class="hidden"></form>
+      <form id={"assignment-subtask-form-#{@dom}"} phx-submit="subtask_add" class="hidden"></form>
       <%!-- Owns the task's file inputs drawn inside the form above. --%>
       <form
         :if={@can_attach?}
-        id="assignment-files-form"
+        id={"assignment-files-form-#{@dom}"}
         phx-change="task_files_validate"
         phx-submit="task_files_validate"
         class="hidden"
@@ -5303,7 +5307,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
       </form>
       <%!-- Owns the assignee search box, and asks before an assignment
            makes a staff record. --%>
-      <.assignee_picker_outside search_form="assignment-assignee-form" staff_confirm={@staff_confirm} />
+      <.assignee_picker_outside search_form={"assignment-assignee-form-#{@dom}"} staff_confirm={@staff_confirm} />
       <%!-- The shared confirm (`Components.ConfirmAction`): removing a file. --%>
       <.confirm_action_modal confirm={assigns[:confirm_action]} />
     </div>
@@ -5383,8 +5387,16 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
     """
   end
 
+  # The suffix of every id another element points at (a `form=` attribute,
+  # a tab's pane, a hook): the task's uuid, or this mount's key while it is
+  # new — so two stacked forms never bind to each other's elements.
+  defp dom_key(%{assignment: %Assignment{uuid: uuid}}) when is_binary(uuid), do: uuid
+  defp dom_key(assigns), do: assigns[:dom_seed] || "new"
+
   # The sub-project form's tabs, the open one, and the ones holding an error.
   defp prepare_subproject_render(assigns) do
+    assigns = assign(assigns, :dom, dom_key(assigns))
+
     panes =
       [
         {"subproject", gettext("Sub-project")},
@@ -5424,6 +5436,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   # What the task form's template reads besides the assigns: which tabs it
   # has and which is open, which hold an error, and which parts show.
   defp prepare_task_render(assigns) do
+    assigns = assign(assigns, :dom, dom_key(assigns))
     project = assigns.project
 
     assigns =

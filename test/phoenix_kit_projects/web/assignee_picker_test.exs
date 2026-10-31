@@ -123,9 +123,9 @@ defmodule PhoenixKitProjects.Web.AssigneePickerTest do
         live(ctx.conn, "/en/admin/projects/#{ctx.project.uuid}/assignments/new?kind=subproject")
 
       assert html =~ "New sub-project"
-      assert has_element?(view, "#subproject-form-tabs")
-      assert has_element?(view, "#subproject-tab-subproject")
-      assert has_element?(view, "#subproject-tab-schedule")
+      assert has_element?(view, "[id^='subproject-form-tabs-']")
+      assert has_element?(view, "[id^='subproject-'][id$='-tab-subproject']")
+      assert has_element?(view, "[id^='subproject-'][id$='-tab-schedule']")
       assert has_element?(view, "#subproject-assignee-search")
       refute html =~ ~s(name="assign_type" id=)
 
@@ -136,8 +136,8 @@ defmodule PhoenixKitProjects.Web.AssigneePickerTest do
       assert view |> element("#subproject-form-header-title") |> render() =~ "Kitchen island"
 
       render_click(view, "set_form_pane", %{"pane" => "schedule"})
-      refute has_element?(view, "#subproject-pane-schedule.hidden")
-      assert has_element?(view, "#subproject-pane-subproject.hidden")
+      refute has_element?(view, "[id^='subproject-'][id$='-pane-schedule'].hidden")
+      assert has_element?(view, "[id^='subproject-'][id$='-pane-subproject'].hidden")
     end
 
     test "assigns the new sub-project through the picker", ctx do

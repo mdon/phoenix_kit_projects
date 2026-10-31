@@ -93,15 +93,40 @@ defmodule PhoenixKitProjects.Web.AssignmentFormTabsTest do
     test "the form is in tabs and every tab's fields stay in the one form", ctx do
       {:ok, view, html} = edit(ctx.conn, ctx.project, ctx.a)
 
-      assert html =~ ~s(id="assignment-tab-task")
-      assert html =~ ~s(id="assignment-tab-planning")
+      assert html =~ ~r/id="assignment-[^"]+-tab-task"/
+      assert html =~ ~r/id="assignment-[^"]+-tab-planning"/
       # The planning fields are rendered (hidden), so a save posts them.
-      assert has_element?(view, "#assignment-pane-planning.hidden")
+      assert has_element?(view, "[id^='assignment-'][id$='-pane-planning'].hidden")
       assert has_element?(view, "input[name='assignment[start_date]']")
 
-      view |> element("#assignment-tab-planning") |> render_click()
-      refute has_element?(view, "#assignment-pane-planning.hidden")
-      assert has_element?(view, "#assignment-pane-task.hidden")
+      view |> element("[id^='assignment-'][id$='-tab-planning']") |> render_click()
+      refute has_element?(view, "[id^='assignment-'][id$='-pane-planning'].hidden")
+      assert has_element?(view, "[id^='assignment-'][id$='-pane-task'].hidden")
+    end
+
+    # The form can be stacked (`PopupHostLive`, two frames of a host):
+    # everything another element points at carries the task, so a second
+    # copy never binds to the first one's forms, panes or tab hook.
+    test "the ids other elements point at carry the task", ctx do
+      {:ok, _view, html} = edit(ctx.conn, ctx.project, ctx.a)
+      u = ctx.a.uuid
+
+      for id <- [
+            "assignment-form-tabs-#{u}",
+            "assignment-#{u}-tab-task",
+            "assignment-#{u}-pane-task",
+            "assignment-#{u}-pane-more",
+            "assignment-log-form-#{u}",
+            "assignment-subtask-form-#{u}",
+            "assignment-files-form-#{u}",
+            "assignment-assignee-form-#{u}"
+          ],
+          do: assert(html =~ ~s(id="#{id}"), id)
+
+      refute html =~ ~s(form="assignment-log-form")
+      refute html =~ ~s(form="assignment-files-form")
+      refute html =~ ~s(form="assignment-subtask-form")
+      assert html =~ ~s(aria-controls="assignment-#{u}-pane-planning")
     end
 
     test "a failed save opens the tab holding the error and marks it", ctx do
@@ -114,7 +139,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormTabsTest do
       )
       |> render_submit()
 
-      refute has_element?(view, "#assignment-pane-planning.hidden")
+      refute has_element?(view, "[id^='assignment-'][id$='-pane-planning'].hidden")
       assert has_element?(view, "[data-pane-error='planning']")
     end
   end
@@ -568,7 +593,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormTabsTest do
       assert html =~ "Finished at: cannot be in the future"
       assert Projects.get_assignment(ctx.a.uuid).completed_at == ~U[2026-10-01 15:30:00Z]
       # The error is on the More tab, which is opened.
-      refute has_element?(view, "#assignment-pane-more.hidden")
+      refute has_element?(view, "[id^='assignment-'][id$='-pane-more'].hidden")
     end
   end
 

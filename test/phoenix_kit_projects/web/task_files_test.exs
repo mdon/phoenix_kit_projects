@@ -77,8 +77,13 @@ defmodule PhoenixKitProjects.Web.TaskFilesTest do
     {:ok, view, html} =
       live(ctx.conn, "/en/admin/projects/#{ctx.project.uuid}/assignments/#{ctx.a.uuid}/edit")
 
-    assert has_element?(view, "#assignment-pane-more #assignment-files", "notes.txt")
-    refute has_element?(view, "#assignment-pane-task #assignment-files")
+    assert has_element?(
+             view,
+             "[id^='assignment-'][id$='-pane-more'] #assignment-files",
+             "notes.txt"
+           )
+
+    refute has_element?(view, "[id^='assignment-'][id$='-pane-task'] #assignment-files")
 
     [id] =
       Regex.run(~r/data-description-editor="(assignment-description--[^"]+)"/, html,
@@ -131,7 +136,11 @@ defmodule PhoenixKitProjects.Web.TaskFilesTest do
     {:ok, view, _} =
       live(ctx.conn, "/en/admin/projects/#{ctx.project.uuid}/assignments/#{ctx.a.uuid}/edit")
 
-    assert has_element?(view, "#assignment-pane-more #assignment-files[phx-drop-target]")
+    assert has_element?(
+             view,
+             "[id^='assignment-'][id$='-pane-more'] #assignment-files[phx-drop-target]"
+           )
+
     assert has_element?(view, "#assignment-files input[type=file][name=task_files]")
     assert has_element?(view, "#assignment-description-image")
   end

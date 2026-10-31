@@ -567,7 +567,7 @@ defmodule PhoenixKitProjects.Web.OutlineListTest do
       assert html =~ "Sub"
       refute html =~ ~s(name="checklist_text")
 
-      render_submit(element(view, "#assignment-subtask-form"), %{"title" => "Typed here"})
+      render_submit(element(view, "[id^='assignment-subtask-form-']"), %{"title" => "Typed here"})
       assert "Typed here" in titles(p)
 
       view
