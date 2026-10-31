@@ -395,4 +395,34 @@ defmodule PhoenixKitProjects.Web.ConsistencyWalkthroughTest do
       paste_refused(view, html, "project-description")
     end
   end
+
+  describe "no English from shared parts on other pages (item 11)" do
+    alias PhoenixKitProjects.Web.Components.FormParts
+
+    test "the language tabs carry each language's own name" do
+      tabs = [
+        %{code: "et", name: "Estonian", flag: nil, is_primary: true, short_code: "ET"},
+        %{code: "ru", name: "Russian", flag: nil, is_primary: false, short_code: "RU"},
+        %{code: "xx-unknown", name: "Unknown", flag: nil, is_primary: false, short_code: "XX"}
+      ]
+
+      assert Enum.map(FormParts.native_tabs(tabs), & &1.name) == ["Eesti", "Русский", "Unknown"]
+    end
+
+    test "the description editor hides Leaf's English word / char / read-time counter" do
+      html =
+        render_component(
+          &PhoenixKitProjects.Web.Components.DescriptionEditor.description_editor/1,
+          id: "walk-description--en",
+          name: "walk[description]",
+          value: "Hello"
+        )
+
+      [wrapper] =
+        Regex.run(~r/<div[^>]*data-description-editor="walk-description--en"[^>]*>/, html)
+
+      assert wrapper =~ "[&amp;_div:has(&gt;[data-editor-footer])]:hidden" or
+               wrapper =~ "[&_div:has(>[data-editor-footer])]:hidden"
+    end
+  end
 end

@@ -209,7 +209,8 @@ defmodule PhoenixKitProjects.Web.Components.FormParts do
   def words_block(assigns) do
     assigns =
       assign(assigns,
-        translated?: assigns.multilang_enabled and match?([_, _ | _], assigns.language_tabs)
+        translated?: assigns.multilang_enabled and match?([_, _ | _], assigns.language_tabs),
+        language_tabs: native_tabs(assigns.language_tabs)
       )
 
     ~H"""
@@ -247,6 +248,36 @@ defmodule PhoenixKitProjects.Web.Components.FormParts do
       </.multilang_fields_wrapper>
     </div>
     """
+  end
+
+  @doc """
+  The language tabs named in their own languages — "Eesti", "Русский" —
+  instead of core's English names ("Estonian", "Russian"), which read as
+  English on every page that is not (the walk-through, 2026-10-31). The
+  native name comes from core's static language catalogue
+  (`Languages.get_available_language_by_code/1`, held in memory); a
+  language it does not know keeps the name it came with.
+  """
+  @spec native_tabs([map()]) :: [map()]
+  def native_tabs(tabs) when is_list(tabs), do: Enum.map(tabs, &native_tab/1)
+  def native_tabs(tabs), do: tabs
+
+  defp native_tab(%{code: code} = tab) when is_binary(code) do
+    case native_name(code) do
+      name when is_binary(name) and name != "" -> Map.put(tab, :name, name)
+      _ -> tab
+    end
+  end
+
+  defp native_tab(tab), do: tab
+
+  defp native_name(code) do
+    case PhoenixKit.Modules.Languages.get_available_language_by_code(code) do
+      %{native: native} -> native
+      _ -> nil
+    end
+  rescue
+    _ -> nil
   end
 
   # ── Status ─────────────────────────────────────────────────────────

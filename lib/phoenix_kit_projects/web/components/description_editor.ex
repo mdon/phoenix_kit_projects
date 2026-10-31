@@ -180,7 +180,14 @@ defmodule PhoenixKitProjects.Web.Components.DescriptionEditor do
       )
 
     ~H"""
-    <div class={["flex flex-col gap-1", @class]} data-description-editor={@id}>
+    <%!-- Leaf's footer ("0 words · 0 chars · 0 min read") is hidden: on a
+         description it is clutter, and Leaf writes it in English from its
+         own JS with no option to drop it or translate it (the
+         walk-through, 2026-10-31). --%>
+    <div
+      class={["flex flex-col gap-1 [&_div:has(>[data-editor-footer])]:hidden", @class]}
+      data-description-editor={@id}
+    >
       <span :if={@label} class="label mb-1"><span class="font-semibold">{@label}</span></span>
       <input type="hidden" name={@name} value={@value} data-leaf-sync-input={@id} />
       <.live_component
