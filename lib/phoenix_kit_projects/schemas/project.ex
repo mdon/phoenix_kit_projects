@@ -489,7 +489,8 @@ defmodule PhoenixKitProjects.Schemas.Project do
       made, started or not (Max, 2026-10-13: *"there should be a on going
       status for projects that don't really have an end"*)
     * `:running`   — `started_at` is set and not yet completed
-    * `:overdue`   — scheduled, the scheduled_start_date has passed, not started
+    * `:overdue`   — scheduled, the scheduled_start_date has passed, not
+      started, and not ongoing work (which is never late)
     * `:scheduled` — scheduled, start date still in the future, not started
     * `:setup`     — immediate start mode, not yet started
 
@@ -505,7 +506,9 @@ defmodule PhoenixKitProjects.Schemas.Project do
       p.is_template -> :template
       p.completed_at -> :completed
       p.started_at -> if(ongoing?(p), do: :ongoing, else: :running)
-      scheduled_overdue?(p, now) -> :overdue
+      # Ongoing work is never late (the panel, 2026-10-31): a missed
+      # scheduled start still reads as scheduled.
+      scheduled_overdue?(p, now) and not ongoing?(p) -> :overdue
       p.start_mode == "scheduled" -> :scheduled
       ongoing?(p) -> :ongoing
       true -> :setup

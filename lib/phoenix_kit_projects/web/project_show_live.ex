@@ -1021,12 +1021,21 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
              items of this line (the boss, 2026-10-30): since when it runs,
              how it stands against its plan, a small Start for a project
              not yet started, and the time logged on it. --%>
+        <%!-- Ongoing work says so beside its name (the panel, 2026-10-31:
+             it was nowhere obvious that a project could be ongoing); the
+             badge opens the project's popup, where the choice is. --%>
+        <.ongoing_badge
+          :if={not @is_template and is_binary(@project.uuid) and Project.ongoing?(@project)}
+          project={@project}
+          embed_mode={@embed_mode}
+        />
         <.header_progress
           :if={not @is_template and is_binary(@project.uuid)}
           project={@project}
           fx={@fx}
           schedule={assigns[:schedule]}
           ledger_totals={assigns[:ledger_totals]}
+          open_tasks={max((assigns[:total_tasks] || 0) - (assigns[:done_tasks] || 0), 0)}
         />
         <%!-- Inline workflow-status picker (the current value). The
              status-list *source* is chosen on the new/edit form (and the
@@ -4358,9 +4367,33 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   end
 
   attr(:project, :map, required: true)
+  attr(:embed_mode, :atom, default: nil)
+
+  # "∞ Ongoing" beside the name: a project's popup, opened on the control
+  # that makes it so ("Has an end | Ongoing", right under the name).
+  defp ongoing_badge(assigns) do
+    ~H"""
+    <.smart_link
+      navigate={Paths.edit_project(@project.uuid)}
+      emit={
+        {PhoenixKitProjects.Web.ProjectFormLive,
+         %{"live_action" => "edit", "id" => @project.uuid, "pane" => "project"}}
+      }
+      embed_mode={@embed_mode}
+      class="badge badge-sm badge-outline badge-info gap-1 whitespace-nowrap no-underline"
+      title={gettext("Ongoing — this project ends only when someone ends it")}
+      data-id={"project-ongoing-#{@project.uuid}"}
+    >
+      <span aria-hidden="true">∞</span> {gettext("Ongoing")}
+    </.smart_link>
+    """
+  end
+
+  attr(:project, :map, required: true)
   attr(:fx, :map, required: true)
   attr(:schedule, :map, default: nil)
   attr(:ledger_totals, :map, default: nil)
+  attr(:open_tasks, :integer, default: 0)
 
   defp header_progress(assigns) do
     project = assigns.project
@@ -4368,6 +4401,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     assigns =
       assign(assigns,
         lifecycle?: assigns.fx[:lifecycle] == true,
+        ongoing?: Project.ongoing?(project),
         running?: project.started_at != nil and is_nil(project.completed_at),
         # Ongoing work has no start to press — unless it still waits for a
         # scheduled one, which this brings forward.
@@ -4392,7 +4426,15 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       >
         {gettext("since %{date}", date: L10n.format_short_date(@project.started_at))}
       </span>
-      <%= if @running? and @schedule do %>
+      <%!-- Ongoing work has no plan to be ahead of or behind, and no
+           finish: what is open now is what it says. --%>
+      <span
+        :if={@ongoing? and is_nil(@project.completed_at) and @open_tasks > 0}
+        class="text-xs text-base-content/60 whitespace-nowrap"
+      >
+        {ngettext("%{count} open task", "%{count} open tasks", @open_tasks)}
+      </span>
+      <%= if @running? && @schedule && not @ongoing? do %>
         <% detail = gettext("%{actual}% done vs %{expected}% expected", actual: @schedule.actual_pct, expected: @schedule.expected_pct) %>
         <%= cond do %>
           <% @schedule.overdue? -> %>

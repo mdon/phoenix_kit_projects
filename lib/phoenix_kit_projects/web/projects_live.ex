@@ -1135,6 +1135,14 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
             >
               {Project.localized_name(p, @lang)}
             </.smart_link>
+            <%!-- Ongoing work says so beside its name, as on its page. --%>
+            <span
+              :if={Project.ongoing?(p) and not p.is_template}
+              class="badge badge-xs badge-outline badge-info gap-0.5 ml-1 align-middle whitespace-nowrap"
+              title={gettext("Ongoing — this project ends only when someone ends it")}
+            >
+              <span aria-hidden="true">∞</span> {gettext("Ongoing")}
+            </span>
             <% desc = Project.localized_description(p, @lang) %>
             <div :if={desc} class="text-xs text-base-content/60 truncate max-w-md" title={desc}>{desc}</div>
           </.table_default_cell>
@@ -1166,8 +1174,8 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
               <.table_row_menu_button
                 {ConfirmAction.ask("delete",
                   uuid: p.uuid,
-                  title: gettext("Delete project"),
-                  message: gettext("Delete project \"%{name}\"? All assignments will be removed.", name: Project.localized_name(p, @lang)),
+                  title: gettext("Delete project “%{name}”?", name: Project.localized_name(p, @lang)),
+                  message: gettext("Its tasks are deleted too."),
                   confirm: gettext("Delete")
                 )}
                 icon="hero-trash"
@@ -1272,10 +1280,16 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
   end
 
   defp column_cell(assigns, "progress", p) do
-    assigns = assign(assigns, t: Columns.get(assigns.metrics, :tasks, p))
+    assigns = assign(assigns, t: Columns.get(assigns.metrics, :tasks, p), p: p)
 
     ~H"""
     <.table_default_cell class="whitespace-nowrap">
+      <%!-- Ongoing work has no finish to be a share of: what is open. --%>
+      <%= if Project.ongoing?(@p) and @t && @t.has_work do %>
+        <span class="tabular-nums text-xs text-base-content/70">
+          {ngettext("%{count} open", "%{count} open", @t.open || 0)}
+        </span>
+      <% else %>
       <%= if @t && @t.has_work do %>
         <div class="flex items-center gap-2">
           <progress class="progress progress-primary w-16" value={@t.progress_pct} max="100"></progress>
@@ -1283,6 +1297,7 @@ defmodule PhoenixKitProjects.Web.ProjectsLive do
         </div>
       <% else %>
         <span class="text-base-content/40">—</span>
+      <% end %>
       <% end %>
     </.table_default_cell>
     """

@@ -87,7 +87,8 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
       |> assign_fx_and_presets()
       |> assign_creation_state()
       |> assign_assignee_state()
-      |> assign(form_pane: "project")
+      |> assign(form_pane: session_pane(session))
+      |> assign_completion_choice()
       |> assign_assignee_picker()
       |> assign_status_preview()
       |> assign_status_mode()
@@ -1006,6 +1007,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
        status_translation_mode:
          Map.get(params, "status_translation_mode", socket.assigns.status_translation_mode)
      )
+     |> assign_completion_choice(params["completion"])
      |> track_creation_state(params)
      |> assign_form(cs)
      |> assign_status_preview()
@@ -1036,6 +1038,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
         |> clear_other_assignees(assign_type)
         |> maybe_apply_status_mode(params, project, fx)
         |> apply_project_type(params, project, socket.assigns[:can_manage_modules] == true)
+        |> apply_new_completion(params, socket.assigns.live_action)
         |> strip_gated_project_attrs(fx)
 
       socket =
@@ -1466,6 +1469,32 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
     do: Map.put(settings, "completion", mode)
 
   defp put_completion(settings, _), do: settings
+
+  # A new project is its creator's to shape: "Ongoing" under its name is
+  # written whoever creates it. "Has an end" is the default, so it writes
+  # nothing — a template's own choice still comes through its settings.
+  defp apply_new_completion(attrs, %{"completion" => "manual"}, :new) do
+    settings = Map.get(attrs, "settings") || %{}
+    Map.put(attrs, "settings", Map.put(settings, "completion", "manual"))
+  end
+
+  defp apply_new_completion(attrs, _params, _live_action), do: attrs
+
+  # "Has an end | Ongoing" (the panel, 2026-10-31): what the control shows —
+  # the project's own setting, then what the form last posted.
+  defp assign_completion_choice(socket) do
+    assign(socket, completion_choice: Project.completion(socket.assigns[:project]))
+  end
+
+  defp assign_completion_choice(socket, posted) when posted in ["auto", "manual"],
+    do: assign(socket, completion_choice: posted)
+
+  defp assign_completion_choice(socket, _posted), do: socket
+
+  # The pane a popup opens on (the header's "∞ Ongoing" badge asks for the
+  # first one, where the control is); anything else is the first.
+  defp session_pane(%{"pane" => pane}) when pane in @panes, do: pane
+  defp session_pane(_session), do: "project"
 
   # How the task list looks (`Web.OutlineList`): the style, whether the last
   # subtask ticked ticks its parent, and which features stay off the rows.
@@ -2383,6 +2412,78 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
   attr(:ai_translate, :any, required: true)
   attr(:key_field, :any, default: nil)
 
+  attr(:choice, :string, required: true)
+  attr(:project, :map, required: true)
+  attr(:editing?, :boolean, default: false)
+
+  # How the project ends, as an explicit choice instead of a select on the
+  # Schedule tab nobody found (Max, 2026-10-31: "I just couldn't find a way
+  # to make a project into ongoing"). Posts `completion` like the select it
+  # replaces (`apply_project_type/4`).
+  defp completion_control(assigns) do
+    ~H"""
+    <div id="project-completion" class="flex flex-col gap-1.5">
+      <div class="join" role="radiogroup" aria-label={gettext("How it ends")}>
+        <label
+          :for={{value, label} <- [{"auto", gettext("Has an end")}, {"manual", "∞ " <> gettext("Ongoing")}]}
+          class={[
+            "btn btn-sm join-item",
+            if(@choice == value, do: "btn-primary", else: "btn-outline border-base-300 font-normal")
+          ]}
+        >
+          <input
+            type="radio"
+            name="completion"
+            value={value}
+            checked={@choice == value}
+            class="sr-only"
+            id={"project-completion-#{value}"}
+          />
+          {label}
+        </label>
+      </div>
+      <p class="text-xs text-base-content/60">
+        <%= if @choice == "manual" do %>
+          {gettext("It never finishes on its own: with every task done it is all caught up, and it ends only when someone ends it.")}
+        <% else %>
+          {gettext("It finishes when its last task is done.")}
+        <% end %>
+      </p>
+      <%!-- Ongoing work has no end to reach, so nothing on its page
+           ends it; the one way is here, beside the setting that makes
+           it ongoing (Max, 2026-10-13: "we could just hide the way to
+           end it in the settings"). --%>
+      <div
+        :if={@editing? and @choice == "manual" and Project.ongoing?(@project)}
+        id="project-end"
+        class="flex flex-wrap items-center gap-2 text-sm"
+      >
+        <%= if @project.completed_at do %>
+          <span class="opacity-70">
+            {gettext("Ended %{when}", when: L10n.format_date(@project.completed_at))}
+          </span>
+          <button type="button" phx-click="resume_project" class="btn btn-ghost btn-xs">
+            {gettext("Reopen it")}
+          </button>
+        <% else %>
+          <span class="opacity-60">{gettext("Finished with it for good?")}</span>
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs text-error"
+            {ConfirmAction.ask("end_project",
+              title: gettext("End this project?"),
+              message: gettext("The project is marked completed and leaves the active lists. Its tasks stay as they are, and it can be reopened here."),
+              confirm: gettext("End project")
+            )}
+          >
+            {gettext("End this project")}
+          </button>
+        <% end %>
+      </div>
+    </div>
+    """
+  end
+
   defp translatable_card(assigns) do
     ~H"""
     <div class="flex flex-col gap-3">
@@ -2421,6 +2522,10 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
                 readonly={@current_lang in @ai_in_flight}
               />
           </.words_block>
+
+          <%!-- "Has an end | Ongoing", right under the name (the panel,
+               2026-10-31): not translated, so outside the language block. --%>
+          <.completion_control :if={assigns[:completion]} {@completion} />
 
           <%!-- The project's short name (`ACME`): its tasks are ACME-1,
                ACME-2, … in links, search and on the API. Not translated,
@@ -2494,6 +2599,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
                create form uses — all languages fillable from the start. --%>
           <.translatable_card
           key_field={assigns[:key_field]}
+            completion={%{choice: @completion_choice, project: @project, editing?: false}}
             form={@form}
             multilang_enabled={@multilang_enabled}
             language_tabs={@language_tabs}
@@ -2921,6 +3027,10 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
           <.form_pane prefix="project" pane="project" active={@pane}>
             <.translatable_card
               key_field={assigns[:key_field]}
+              completion={
+                @can_manage_modules &&
+                  %{choice: @completion_choice, project: @project, editing?: true}
+              }
               form={@form}
               multilang_enabled={@multilang_enabled}
               language_tabs={@language_tabs}
@@ -2978,21 +3088,6 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
           <.form_pane prefix="project" pane="schedule" active={@pane}>
               <.start_block form={@form} lifecycle={@flag_states["lifecycle"] != false} />
 
-              <%!-- How the project ends (Max, 2026-10-05: "some projects have a
-                   defined end while this one is more of an ongoing one… it
-                   should be a setting"). Ongoing work never completes on its
-                   own; every task done is "all caught up". --%>
-              <.select
-                :if={@can_manage_modules}
-                name="completion"
-                label={gettext("Ends")}
-                value={Project.completion(@project)}
-                options={[
-                  {gettext("When the last task is done"), "auto"},
-                  {gettext("Only when someone ends it — ongoing work"), "manual"}
-                ]}
-              />
-
               <%!-- Schedule math config — gated on `scheduling` (start mode /
                    date below stay: they're lifecycle, not schedule math). --%>
               <.checkbox
@@ -3001,38 +3096,6 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
                 label={gettext("Count weekends in schedule")}
                 class="checkbox-primary checkbox-sm"
               />
-              <%!-- Ongoing work has no end to reach, so nothing on its page
-                   ends it; the one way is here, beside the setting that makes
-                   it ongoing (Max, 2026-10-13: "we could just hide the way to
-                   end it in the settings"). --%>
-              <div
-                :if={@live_action == :edit and @can_manage_modules and Project.ongoing?(@project) and not @project.is_template}
-                id="project-end"
-                class="flex flex-wrap items-center gap-2 text-sm"
-              >
-                <%= if @project.completed_at do %>
-                  <span class="opacity-70">
-                    {gettext("Ended %{when}", when: L10n.format_date(@project.completed_at))}
-                  </span>
-                  <button type="button" phx-click="resume_project" class="btn btn-ghost btn-xs">
-                    {gettext("Reopen it")}
-                  </button>
-                <% else %>
-                  <span class="opacity-60">{gettext("Finished with it for good?")}</span>
-                  <button
-                    type="button"
-                    class="btn btn-ghost btn-xs text-error"
-                    {ConfirmAction.ask("end_project",
-                      title: gettext("End this project?"),
-                      message: gettext("The project is marked completed and leaves the active lists. Its tasks stay as they are, and it can be reopened here."),
-                      confirm: gettext("End project")
-                    )}
-                  >
-                    {gettext("End this project")}
-                  </button>
-                <% end %>
-              </div>
-
           </.form_pane>
 
           <.form_pane prefix="project" pane="settings" active={@pane}>
