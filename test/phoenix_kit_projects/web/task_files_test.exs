@@ -158,6 +158,27 @@ defmodule PhoenixKitProjects.Web.TaskFilesTest do
 
     render_click(view, "confirm_action_ok", %{})
     assert Attachments.list_task_files(ctx.a.uuid) == []
-    assert file.uuid
+
+    assert_activity_logged("projects.task_file_removed",
+      resource_uuid: ctx.a.uuid,
+      actor_uuid: ctx.me,
+      metadata_has: %{"file_uuid" => file.uuid}
+    )
+  end
+
+  test "a removal that fails is recorded as an attempt", ctx do
+    {:ok, view, _html} =
+      live(ctx.conn, "/en/admin/projects/#{ctx.project.uuid}/assignments/#{ctx.a.uuid}/edit")
+
+    stranger = Ecto.UUID.generate()
+
+    assert render_click(view, "remove_task_file", %{"uuid" => stranger}) =~
+             "Could not remove the file."
+
+    assert_activity_logged("projects.task_file_removed",
+      resource_uuid: ctx.a.uuid,
+      actor_uuid: ctx.me,
+      metadata_has: %{"file_uuid" => stranger, "db_pending" => true}
+    )
   end
 end

@@ -732,8 +732,10 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
     load_task_files(socket)
   end
 
-  defp after_upload(socket, _error, _inline?),
-    do: put_flash(socket, :error, gettext("Upload failed. Please try again."))
+  defp after_upload(socket, _error, _inline?) do
+    log_task_file_failed(socket, "projects.task_file_added", nil)
+    put_flash(socket, :error, gettext("Upload failed. Please try again."))
+  end
 
   # A pasted image arrives as a data URL; its bytes are written to a
   # temporary file and stored like an upload. Only an image, at most the
@@ -770,6 +772,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
           load_task_files(socket)
 
         _ ->
+          log_task_file_failed(socket, "projects.task_file_added", nil)
           put_flash(socket, :error, gettext("Upload failed. Please try again."))
       end
     else
@@ -807,6 +810,17 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
 
   defp log_task_file(socket, action, file_uuid) do
     Activity.log(action,
+      actor_uuid: Activity.actor_uuid(socket),
+      resource_type: "assignment",
+      resource_uuid: socket.assigns.assignment.uuid,
+      metadata: %{"file_uuid" => file_uuid, "project_uuid" => socket.assigns.project.uuid}
+    )
+  end
+
+  # The attempt is recorded when the write fails too (the audit covers what
+  # the person asked for, not only what landed).
+  defp log_task_file_failed(socket, action, file_uuid) do
+    Activity.log_failed(action,
       actor_uuid: Activity.actor_uuid(socket),
       resource_type: "assignment",
       resource_uuid: socket.assigns.assignment.uuid,
@@ -1767,6 +1781,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
           {:noreply, socket |> load_task_files() |> put_flash(:info, gettext("File removed."))}
 
         {:error, _} ->
+          log_task_file_failed(socket, "projects.task_file_removed", file_uuid)
           {:noreply, put_flash(socket, :error, gettext("Could not remove the file."))}
       end
     else
