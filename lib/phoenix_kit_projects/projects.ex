@@ -2813,7 +2813,7 @@ defmodule PhoenixKitProjects.Projects do
 
         PhoenixKitProjects.Handoffs.batch(fn ->
           broadcast_status_changed(updated, link.status, :auto)
-          release_after_subproject(next_up)
+          release_after_subproject(next_up, link.project_uuid)
         end)
 
         recompute_project_completion(updated.project_uuid, depth + 1)
@@ -2828,7 +2828,9 @@ defmodule PhoenixKitProjects.Projects do
   # dialog's default: the waiting rows nothing else holds up any more are
   # released ("can be started"), and their people are told it is their turn
   # after the sub-project (`Handoffs`, in the same batch as the finish). No
-  # one sees a dialog for a rollup, so no one could have kept one idle.
+  # one sees a dialog for a rollup, so no one could have kept one idle —
+  # but the dialog's rights still apply: only the rows the acting person may
+  # move are released (`release_after_subproject/2`).
   defp subproject_next_up(%Assignment{status: "done"}, _rollup), do: []
 
   defp subproject_next_up(%Assignment{} = link, %{status: "done"}),
@@ -2836,9 +2838,20 @@ defmodule PhoenixKitProjects.Projects do
 
   defp subproject_next_up(_link, _rollup), do: []
 
-  defp release_after_subproject(rows) do
+  # Only the rows the person whose tick finished the sub-project may move
+  # themselves — the dialog's rule (`:update_status` on the row, checked
+  # in the row's project), so a rollup never releases on someone's behalf
+  # what they could not have released by hand. A process that names no one
+  # (`Actor.get/0` nil: a job, a script) releases nothing; those rows stay
+  # waiting for a person to start them.
+  defp release_after_subproject([], _project_uuid), do: :ok
+
+  defp release_after_subproject(rows, project_uuid) do
+    may? = release_check(PhoenixKitProjects.Actor.get(), project_uuid)
+
     for %{uuid: uuid, status: "waiting"} <- rows,
-        %Assignment{status: "waiting"} = a <- [get_assignment(uuid)] do
+        %Assignment{status: "waiting"} = a <- [get_assignment(uuid)],
+        may?.(a) do
       case update_assignment_status(a, %{status: "todo"}, expect: "waiting") do
         {:ok, _} ->
           PhoenixKitProjects.Activity.log("projects.assignment_made_ready",
@@ -2860,6 +2873,21 @@ defmodule PhoenixKitProjects.Projects do
     end
 
     :ok
+  end
+
+  defp release_check(nil, _project_uuid), do: fn _ -> false end
+
+  defp release_check(actor_uuid, project_uuid) do
+    with %PhoenixKit.Users.Auth.User{is_active: true} = user <-
+           PhoenixKit.Users.Auth.get_user(actor_uuid),
+         %Project{} = project <- get_project(project_uuid) do
+      scope = PhoenixKit.Users.Auth.Scope.for_user(user)
+      &PhoenixKitProjects.Authz.can?(scope, project, :update_status, &1)
+    else
+      _ -> fn _ -> false end
+    end
+  rescue
+    _ -> fn _ -> false end
   end
 
   # Computes the denormalized rollup a sub-project's linking assignment carries.

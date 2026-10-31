@@ -1211,6 +1211,52 @@ defmodule PhoenixKitProjects.Integration.HandoffsTest do
       assert notice.metadata["after_uuid"] == link.uuid
     end
 
+    test "releases only the rows the finishing person may move themselves", ctx do
+      # carl, not alice: the first account registered is the site Owner
+      %{carl: carl, bob: bob} = ctx.people
+
+      {:ok, project} =
+        Projects.update_project(ctx.project, %{
+          "settings" =>
+            Map.put(ctx.project.settings || %{}, "authz", %{"update_status" => "managers"})
+        })
+
+      {:ok, %{child_project: child, assignment: link}} =
+        Projects.create_subproject(project.uuid, %{"name" => "Kitchen"})
+
+      fit = task!(project, "Fit the worktop", bob, status: "waiting")
+      own = task!(project, "Carl's next", carl, status: "waiting")
+      {:ok, _} = Projects.add_dependency(fit.uuid, link.uuid)
+      {:ok, _} = Projects.add_dependency(own.uuid, link.uuid)
+      cut = task!(child, "Cut the boards", carl)
+
+      set_status!(cut, "done", carl.user)
+      Projects.recompute_project_completion(child.uuid)
+
+      assert Projects.get_assignment(link.uuid).status == "done"
+      # Carl is a member: under "managers" only his own task is his to move
+      assert Projects.get_assignment(fit.uuid).status == "waiting"
+      assert Projects.get_assignment(own.uuid).status == "todo"
+      assert notices("projects.assignment_ready", bob.user) == []
+    end
+
+    test "a finish nobody is named for releases nothing", ctx do
+      %{alice: alice} = ctx.people
+
+      {:ok, %{child_project: child, assignment: link}} =
+        Projects.create_subproject(ctx.project.uuid, %{"name" => "Kitchen"})
+
+      fit = task!(ctx.project, "Fit the worktop", alice, status: "waiting")
+      {:ok, _} = Projects.add_dependency(fit.uuid, link.uuid)
+      cut = task!(child, "Cut the boards", alice)
+
+      set_status!(cut, "done", nil)
+      Projects.recompute_project_completion(child.uuid)
+
+      assert Projects.get_assignment(link.uuid).status == "done"
+      assert Projects.get_assignment(fit.uuid).status == "waiting"
+    end
+
     test "with its status set by hand, nothing is released", ctx do
       %{alice: alice, bob: bob} = ctx.people
       {:ok, _} = PhoenixKitProjects.Features.set_flags(ctx.project, %{"subproject_auto" => false})
