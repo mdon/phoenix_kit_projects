@@ -23,6 +23,7 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
   alias PhoenixKitProjects.GanttDisplay
   alias PhoenixKitProjects.ListControls
   alias PhoenixKitProjects.Statuses
+  alias PhoenixKitProjects.Web.Components.ConfirmAction
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
 
   require Logger
@@ -121,6 +122,27 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
   # Expand/collapse the demo sub-project (preview only — not a persisted setting).
   def handle_event("toggle_demo_subproject", %{"event-id" => id}, socket) do
     {:noreply, update(socket, :demo_expanded, &PhoenixLiveGantt.toggle_expanded(&1, id))}
+  end
+
+  # An action that asks first through core's confirm modal
+  # (`Components.ConfirmAction`); only these events may be put behind it.
+  def handle_event("request_confirm", params, socket),
+    do:
+      {:noreply,
+       ConfirmAction.request(
+         socket,
+         params,
+         ~w(reset_list_controls reset_gantt_display reset_calendar_anim)
+       )}
+
+  def handle_event("confirm_action_cancel", _params, socket),
+    do: {:noreply, ConfirmAction.clear(socket)}
+
+  def handle_event("confirm_action_ok", _params, socket) do
+    case ConfirmAction.take(socket) do
+      {nil, socket} -> {:noreply, socket}
+      {%{event: event, params: params}, socket} -> handle_event(event, params, socket)
+    end
   end
 
   # Every other event writes a setting: each re-checks `projects.settings`
@@ -832,9 +854,10 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
             type="button"
             variant="ghost"
             size="xs"
-            phx-click="reset_list_controls"
-            phx-disable-with={gettext("Resetting…")}
-            data-confirm={gettext("Reset the task list controls to their defaults?")}
+            {ConfirmAction.ask("reset_list_controls",
+              title: gettext("Reset the task list controls to their defaults?"),
+              confirm: gettext("Reset")
+            )}
           >
             {gettext("Reset to defaults")}
           </.button>
@@ -888,9 +911,10 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
             type="button"
             variant="ghost"
             size="xs"
-            phx-click="reset_gantt_display"
-            phx-disable-with={gettext("Resetting…")}
-            data-confirm={gettext("Reset all Timeline chart settings to their defaults?")}
+            {ConfirmAction.ask("reset_gantt_display",
+              title: gettext("Reset all Timeline chart settings to their defaults?"),
+              confirm: gettext("Reset")
+            )}
           >
             {gettext("Reset to defaults")}
           </.button>
@@ -1093,9 +1117,10 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
             type="button"
             variant="ghost"
             size="xs"
-            phx-click="reset_calendar_anim"
-            phx-disable-with={gettext("Resetting…")}
-            data-confirm={gettext("Reset the calendar overdue animation to its defaults?")}
+            {ConfirmAction.ask("reset_calendar_anim",
+              title: gettext("Reset the calendar overdue animation to its defaults?"),
+              confirm: gettext("Reset")
+            )}
           >
             {gettext("Reset to defaults")}
           </.button>
@@ -1314,6 +1339,7 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
             </div>
           </div>
       </.form_section>
+      <.confirm_action_modal confirm={assigns[:confirm_action]} />
     </div>
     """
   end

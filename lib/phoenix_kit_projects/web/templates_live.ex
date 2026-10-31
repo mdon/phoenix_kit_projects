@@ -656,8 +656,7 @@ defmodule PhoenixKitProjects.Web.TemplatesLive do
               <.table_row_menu_button
                 {ConfirmAction.ask("delete",
                   uuid: t.uuid,
-                  title: gettext("Delete template"),
-                  message: gettext("Delete template \"%{name}\"?", name: Project.localized_name(t, @lang)),
+                  title: gettext("Delete template “%{name}”?", name: Project.localized_name(t, @lang)),
                   confirm: gettext("Delete")
                 )}
                 icon="hero-trash"

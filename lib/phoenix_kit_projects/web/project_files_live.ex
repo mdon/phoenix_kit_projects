@@ -275,8 +275,7 @@ defmodule PhoenixKitProjects.Web.ProjectFilesLive do
                   class="btn btn-ghost btn-xs btn-circle text-error"
                   {ConfirmAction.ask("remove_file",
                     uuid: file.uuid,
-                    title: gettext("Remove file"),
-                    message: gettext("Remove this file from the project?"),
+                    title: gettext("Remove “%{name}” from the project?", name: file.original_file_name || file.file_name),
                     confirm: gettext("Remove")
                   )}
                   aria-label={gettext("Remove file")}

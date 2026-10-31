@@ -594,8 +594,7 @@ defmodule PhoenixKitProjects.Web.ProjectMembersLive do
                   class="btn-circle text-error"
                   {ConfirmAction.ask("revoke_grant",
                     uuid: grant.uuid,
-                    title: gettext("Remove access"),
-                    message: gettext("Remove this group's access?"),
+                    title: gettext("Remove the access of “%{name}”?", name: grant.subject_label || gettext("(deleted group)")),
                     confirm: gettext("Remove")
                   )}
                   aria-label={gettext("Remove access")}
@@ -638,8 +637,7 @@ defmodule PhoenixKitProjects.Web.ProjectMembersLive do
                 class="btn-circle text-error"
                 {ConfirmAction.ask("remove_member",
                   user: member.user_uuid,
-                  title: gettext("Remove member"),
-                  message: gettext("Remove this member from the project?"),
+                  title: gettext("Remove “%{name}” from the project?", name: member_label(member)),
                   confirm: gettext("Remove")
                 )}
                 aria-label={gettext("Remove member")}
@@ -681,6 +679,10 @@ defmodule PhoenixKitProjects.Web.ProjectMembersLive do
   end
 
   # A role's label in the viewer's language; the stored value is the key.
+  # How a member is named in a question about them.
+  defp member_label(%{user: %{email: email}}) when is_binary(email), do: email
+  defp member_label(_member), do: gettext("(deleted account)")
+
   defp role_label("owner"), do: gettext("Owner")
   defp role_label("manager"), do: gettext("Manager")
   defp role_label("member"), do: gettext("Member")

@@ -1063,8 +1063,8 @@ defmodule PhoenixKitProjects.Web.TasksLive do
               <.table_row_menu_button
                 {ConfirmAction.ask("delete",
                   uuid: task.uuid,
-                  title: gettext("Delete task"),
-                  message: gettext("Delete task \"%{title}\"? Assignments using it will also be removed.", title: TaskSchema.localized_title(task, @lang)),
+                  title: gettext("Delete task “%{title}”?", title: TaskSchema.localized_title(task, @lang)),
+                  message: gettext("The projects' tasks made from it are deleted too."),
                   confirm: gettext("Delete")
                 )}
                 icon="hero-trash"

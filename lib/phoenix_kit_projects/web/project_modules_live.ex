@@ -55,7 +55,10 @@ defmodule PhoenixKitProjects.Web.ProjectModulesLive do
       |> WebHelpers.attach_open_embed_hook()
       |> assign(
         wrapper_class: Map.get(session, "wrapper_class", @default_wrapper_class),
-        embedded_in_form: Map.get(session, "embedded_in_form", false)
+        embedded_in_form: Map.get(session, "embedded_in_form", false),
+        # Bumped when a question is cancelled: the access radios carry it in
+        # their ids, so the one the browser ticked is drawn afresh, unticked.
+        confirm_rev: 0
       )
 
     with %Project{} = project <- Projects.get_project(id) || :not_found,
@@ -217,10 +220,16 @@ defmodule PhoenixKitProjects.Web.ProjectModulesLive do
   # A destructive action asks first through core's confirm modal
   # (`Components.ConfirmAction`); only these events may be put behind it.
   def handle_event("request_confirm", params, socket),
-    do: {:noreply, ConfirmAction.request(socket, params, ~w(delete_label))}
+    do:
+      {:noreply,
+       ConfirmAction.request(
+         socket,
+         params,
+         ~w(delete_label apply_preset rotate_portal_link set_portal_access_mode)
+       )}
 
   def handle_event("confirm_action_cancel", _params, socket),
-    do: {:noreply, ConfirmAction.clear(socket)}
+    do: {:noreply, socket |> ConfirmAction.clear() |> update(:confirm_rev, &(&1 + 1))}
 
   def handle_event("confirm_action_ok", _params, socket) do
     case ConfirmAction.take(socket) do
@@ -353,7 +362,7 @@ defmodule PhoenixKitProjects.Web.ProjectModulesLive do
     with true <- socket.assigns.labels_on,
          %{} = label <- Enum.find(socket.assigns.labels, &(&1.uuid == uuid)),
          :ok <- Labels.delete(label, actor_uuid: Activity.actor_uuid(socket)) do
-      {:noreply, socket |> reload() |> put_flash(:info, gettext("Label removed."))}
+      {:noreply, socket |> reload() |> put_flash(:info, gettext("Label deleted."))}
     else
       false ->
         {:noreply,
@@ -526,14 +535,12 @@ defmodule PhoenixKitProjects.Web.ProjectModulesLive do
             :for={preset <- @presets}
             type="button"
             class="btn btn-outline btn-xs"
-            phx-click="apply_preset"
-            phx-value-key={preset.key}
-            phx-disable-with={gettext("Applying…")}
-            data-confirm={
-              gettext("Apply the \"%{name}\" preset? This overwrites this project's feature toggles.",
-                name: preset.name
-              )
-            }
+            {ConfirmAction.ask("apply_preset",
+              key: preset.key,
+              title: gettext("Apply the “%{name}” preset?", name: preset.name),
+              message: gettext("It overwrites this project's feature toggles."),
+              confirm: gettext("Apply")
+            )}
             title={preset.description}
           >
             {preset.name}
@@ -620,9 +627,11 @@ defmodule PhoenixKitProjects.Web.ProjectModulesLive do
                   </code>
                   <button
                     type="button"
-                    phx-click="rotate_portal_link"
-                    phx-disable-with={gettext("Rotating…")}
-                    data-confirm={gettext("Rotate the portal link? The current link stops working immediately.")}
+                    {ConfirmAction.ask("rotate_portal_link",
+                      title: gettext("Rotate the portal link?"),
+                      message: gettext("The current link stops working at once."),
+                      confirm: gettext("Rotate")
+                    )}
                     class="btn btn-ghost btn-sm gap-1"
                   >
                     <span class="hero-arrow-path w-4 h-4"></span> {gettext("Rotate link")}
@@ -643,14 +652,22 @@ defmodule PhoenixKitProjects.Web.ProjectModulesLive do
                       :for={{mode, title, hint} <- access_mode_choices()}
                       class="flex cursor-pointer items-start gap-2 rounded-lg border border-base-300 p-2 transition-colors has-[:checked]:border-primary has-[:checked]:bg-primary/5"
                     >
+                      <% ask = access_mode_confirm(mode, @portal, @board_exposure) %>
                       <input
+                        id={"portal-access-#{mode}-#{@confirm_rev}"}
                         type="radio"
                         name="portal_access_mode"
                         value={mode}
                         checked={@portal.access_mode == mode}
-                        phx-click="set_portal_access_mode"
-                        phx-value-mode={mode}
-                        data-confirm={access_mode_confirm(mode, @portal, @board_exposure)}
+                        {if ask,
+                          do:
+                            ConfirmAction.ask("set_portal_access_mode",
+                              mode: mode,
+                              title: elem(ask, 0),
+                              message: elem(ask, 1),
+                              confirm: gettext("Change")
+                            ),
+                          else: %{"phx-click" => "set_portal_access_mode", "phx-value-mode" => mode}}
                         class="radio radio-primary radio-xs mt-0.5 shrink-0"
                       />
                       <span class="min-w-0">
@@ -765,11 +782,11 @@ defmodule PhoenixKitProjects.Web.ProjectModulesLive do
                 type="button"
                 {ConfirmAction.ask("delete_label",
                   uuid: label.uuid,
-                  title: gettext("Remove label"),
-                  message: gettext("Remove the \"%{name}\" label from this project?", name: label.name),
-                  confirm: gettext("Remove")
+                  title: gettext("Delete label “%{name}”?", name: label.name),
+                  message: gettext("It comes off every task that has it."),
+                  confirm: gettext("Delete")
                 )}
-                aria-label={gettext("Remove %{name}", name: label.name)}
+                aria-label={gettext("Delete label “%{name}”", name: label.name)}
                 class="cursor-pointer opacity-60 hover:opacity-100"
               >
                 <.icon name="hero-x-mark" class="w-3 h-3" />
@@ -938,30 +955,31 @@ defmodule PhoenixKitProjects.Web.ProjectModulesLive do
   # expose work retroactively, so it is the only one that stops to say so —
   # and it names the number, because "some tasks" is not a thing anyone can
   # make a decision about.
+  # The question a change of who may reach the board asks first, as
+  # `{title, consequence}`; nil when the change needs no question.
   defp access_mode_confirm("public", portal, exposure) when portal.access_mode != "public" do
-    base =
-      gettext(
-        "Make this board public? It gets a findable address and search engines may index it."
-      )
+    base = gettext("It gets a findable address and search engines may index it.")
 
-    if exposure > 0 do
-      base <>
-        "\n\n" <>
-        ngettext(
-          "%{count} task is currently marked public for link-holders. It will NOT be published to the board — you publish tasks to a public board one at a time.",
-          "%{count} tasks are currently marked public for link-holders. They will NOT be published to the board — you publish tasks to a public board one at a time.",
-          exposure,
-          count: exposure
-        )
-    else
-      base
-    end
+    consequence =
+      if exposure > 0 do
+        base <>
+          " " <>
+          ngettext(
+            "%{count} task is currently marked public for link-holders. It will NOT be published to the board — you publish tasks to a public board one at a time.",
+            "%{count} tasks are currently marked public for link-holders. They will NOT be published to the board — you publish tasks to a public board one at a time.",
+            exposure,
+            count: exposure
+          )
+      else
+        base
+      end
+
+    {gettext("Make this board public?"), consequence}
   end
 
   defp access_mode_confirm("link", portal, _exposure) when portal.access_mode == "public" do
-    gettext(
-      "Go back to a private link? The current public address stops working and cannot be reused as a secret."
-    )
+    {gettext("Go back to a private link?"),
+     gettext("The current public address stops working and cannot be reused as a secret.")}
   end
 
   defp access_mode_confirm(_mode, _portal, _exposure), do: nil

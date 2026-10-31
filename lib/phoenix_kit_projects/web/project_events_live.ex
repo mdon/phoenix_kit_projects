@@ -569,12 +569,11 @@ defmodule PhoenixKitProjects.Web.ProjectEventsLive do
               class="text-error"
               {ConfirmAction.ask("delete_event",
                 uuid: @selected.uuid,
-                title: gettext("Remove event"),
-                message: gettext("Remove \"%{title}\"?", title: @selected.title),
-                confirm: gettext("Remove")
+                title: gettext("Delete event “%{title}”?", title: @selected.title),
+                confirm: gettext("Delete")
               )}
             >
-              <.icon name="hero-trash" class="w-4 h-4" /> {gettext("Remove")}
+              <.icon name="hero-trash" class="w-4 h-4" /> {gettext("Delete")}
             </.button>
             <.button type="button" size="sm" phx-click="close_detail">
               {gettext("Close")}
