@@ -142,6 +142,11 @@ defmodule PhoenixKitProjects.Handoffs do
   defp run(tagged) do
     actor = Actor.get()
 
+    # A repeating task finished comes back as its next occurrence
+    # (`Repeats`), on every path that announces a finish — the page, the
+    # form, the API, the tick rules.
+    PhoenixKitProjects.Repeats.next(Enum.map(tagged, &elem(&1, 0)))
+
     tagged
     |> Enum.group_by(fn {change, _cause} -> change.project_uuid end)
     |> Enum.each(fn {project_uuid, pairs} ->

@@ -1,0 +1,277 @@
+defmodule PhoenixKitProjects.Repeats do
+  @moduledoc """
+  Tasks that repeat (the boss, via Max, 2026-10-31: "checking in on the
+  client … you have to do it every week"; low priority, and no clutter).
+
+  A task's `repeat_rule` (chain V28) says how it comes back:
+  `%{"every" => n, "unit" => "day" | "week" | "month"}`, nil for a task
+  that does not. The panel (2 of 3 seats) chose one task per occurrence:
+  when a repeating task is done, it **stays done** with its comments,
+  files and logged time, and ONE new task is made for the next date —
+  the same title, description, assignee and estimate, its subtasks again
+  and not done, the deadline moved on by the rule from the old deadline
+  (from when it was done, for a task with none). The rule moves to the
+  new task, so reopening and finishing the old one again makes no second.
+
+  `next/1` is called with the status changes every write announces (the
+  same ones `Handoffs` reacts to). Nothing here raises into the writer: a
+  status change is never lost to a repeat.
+  """
+
+  use Gettext, backend: PhoenixKitProjects.Gettext
+
+  import Ecto.Query
+
+  require Logger
+
+  alias PhoenixKit.RepoHelper
+  alias PhoenixKitProjects.{Outline, Projects}
+  alias PhoenixKitProjects.Schemas.{Assignment, Task}
+
+  @units ~w(day week month)
+  @max_every 365
+
+  defp repo, do: RepoHelper.repo()
+
+  # ── The rule ───────────────────────────────────────────────────────
+
+  @doc "The units a rule counts in."
+  @spec units() :: [String.t()]
+  def units, do: @units
+
+  @doc """
+  A rule as stored: `%{"every" => 1..365, "unit" => unit}`, or nil for
+  anything else (no rule, a bad number, an unknown unit).
+  """
+  @spec normalize(term()) :: map() | nil
+  def normalize(%{} = rule) do
+    with unit when unit in @units <- to_string(rule["unit"] || rule[:unit] || ""),
+         {n, ""} when n in 1..@max_every <-
+           Integer.parse(to_string(rule["every"] || rule[:every] || "")) do
+      %{"every" => n, "unit" => unit}
+    else
+      _ -> nil
+    end
+  end
+
+  def normalize(_), do: nil
+
+  @doc """
+  The rule the task form's one control posts: `"repeat"` is `"none"`,
+  `"week"`, `"2weeks"`, `"month"` or `"custom"` (then `"repeat_every"` and
+  `"repeat_unit"`). Puts `"repeat_rule"` in `attrs` (nil: does not
+  repeat) and takes the control's own keys out; attrs without the control
+  pass unchanged.
+  """
+  @spec from_params(map()) :: map()
+  def from_params(%{"repeat" => choice} = attrs) do
+    rule =
+      case choice do
+        "week" -> %{"every" => 1, "unit" => "week"}
+        "2weeks" -> %{"every" => 2, "unit" => "week"}
+        "month" -> %{"every" => 1, "unit" => "month"}
+        "custom" -> normalize(%{"every" => attrs["repeat_every"], "unit" => attrs["repeat_unit"]})
+        _ -> nil
+      end
+
+    attrs
+    |> Map.drop(["repeat", "repeat_every", "repeat_unit"])
+    |> Map.put("repeat_rule", rule)
+  end
+
+  def from_params(attrs), do: attrs
+
+  @doc "Which of the control's choices a rule is."
+  @spec choice(map() | nil) :: String.t()
+  def choice(%{"every" => 1, "unit" => "week"}), do: "week"
+  def choice(%{"every" => 2, "unit" => "week"}), do: "2weeks"
+  def choice(%{"every" => 1, "unit" => "month"}), do: "month"
+  def choice(%{"every" => _, "unit" => _}), do: "custom"
+  def choice(_), do: "none"
+
+  @doc "The rule in words — the ↻'s tooltip and the control's summary."
+  @spec label(map() | nil) :: String.t() | nil
+  def label(rule) do
+    case normalize(rule) do
+      %{"every" => 1, "unit" => "day"} ->
+        pgettext("repeat", "Every day")
+
+      %{"every" => 1, "unit" => "week"} ->
+        pgettext("repeat", "Every week")
+
+      %{"every" => 1, "unit" => "month"} ->
+        pgettext("repeat", "Every month")
+
+      %{"every" => n, "unit" => "day"} ->
+        pngettext("repeat", "Every %{count} day", "Every %{count} days", n)
+
+      %{"every" => n, "unit" => "week"} ->
+        pngettext("repeat", "Every %{count} week", "Every %{count} weeks", n)
+
+      %{"every" => n, "unit" => "month"} ->
+        pngettext("repeat", "Every %{count} month", "Every %{count} months", n)
+
+      nil ->
+        nil
+    end
+  end
+
+  @doc "`at` moved on by `rule` (whole days, weeks or calendar months)."
+  @spec shift(DateTime.t(), map()) :: DateTime.t()
+  def shift(%DateTime{} = at, rule) do
+    %{"every" => n, "unit" => unit} = normalize(rule)
+    DateTime.shift(at, [{String.to_existing_atom(unit), n}])
+  end
+
+  @doc "A `Date` moved on by `rule`."
+  @spec shift_date(Date.t() | nil, map()) :: Date.t() | nil
+  def shift_date(nil, _rule), do: nil
+
+  def shift_date(%Date{} = d, rule) do
+    %{"every" => n, "unit" => unit} = normalize(rule)
+    Date.shift(d, [{String.to_existing_atom(unit), n}])
+  end
+
+  # ── The next occurrence ────────────────────────────────────────────
+
+  @doc """
+  For each change that finished a repeating task (`to: "done"`), makes its
+  next occurrence. Returns the new tasks.
+  """
+  @spec next([map()]) :: [Assignment.t()]
+  def next(changes) when is_list(changes) do
+    for %{uuid: uuid, to: "done", from: from} <- changes,
+        from != "done",
+        %Assignment{repeat_rule: %{}} = done <- [repo().get(Assignment, uuid)],
+        %{} = rule <- [normalize(done.repeat_rule)],
+        {:ok, made} <- [occur(done, rule)] do
+      made
+    end
+  rescue
+    error ->
+      Logger.warning("[Projects] repeat failed: #{inspect(error.__struct__)}")
+      []
+  catch
+    :exit, _ -> []
+  end
+
+  defp occur(%Assignment{} = done, rule) do
+    result =
+      repo().transaction(fn ->
+        # Taken off the done one first, under its row lock: two writes
+        # announcing the same finish make one next task, not two.
+        {count, _} =
+          from(a in Assignment, where: a.uuid == ^done.uuid and not is_nil(a.repeat_rule))
+          |> repo().update_all(set: [repeat_rule: nil])
+
+        if count == 1, do: copy!(done, rule, done.parent_uuid), else: repo().rollback(:taken)
+      end)
+
+    with {:ok, made} <- result do
+      PhoenixKitProjects.PubSub.broadcast_assignment(:assignment_created, %{
+        uuid: made.uuid,
+        project_uuid: made.project_uuid
+      })
+
+      PhoenixKitProjects.PubSub.broadcast_assignment(:assignment_reordered, %{
+        project_uuid: made.project_uuid
+      })
+
+      {:ok, made}
+    end
+  end
+
+  # The task again, not done, with the rule (only on the top one) and its
+  # dates moved on; then its subtasks, the same way, under it.
+  defp copy!(%Assignment{} = a, rule, parent_uuid, top? \\ true) do
+    base = a.deadline || a.completed_at || DateTime.utc_now()
+
+    attrs =
+      %{
+        "project_uuid" => a.project_uuid,
+        "position" => Projects.next_assignment_position(a.project_uuid),
+        "task_uuid" => task_for(a),
+        "status" => "todo",
+        "description" => a.description,
+        "translations" => a.translations,
+        "priority" => a.priority,
+        "estimated_duration" => a.estimated_duration,
+        "estimated_duration_unit" => a.estimated_duration_unit,
+        "counts_weekends" => a.counts_weekends,
+        "assigned_person_uuid" => a.assigned_person_uuid,
+        "assigned_team_uuid" => a.assigned_team_uuid,
+        "assigned_department_uuid" => a.assigned_department_uuid,
+        "start_date" => shift_date(a.start_date, rule),
+        "end_date" => shift_date(a.end_date, rule),
+        "start_time" => a.start_time,
+        "end_time" => a.end_time,
+        "deadline" => if(top? or a.deadline, do: shift(base, rule))
+      }
+
+    made =
+      case %Assignment{}
+           |> Assignment.changeset(attrs)
+           |> Ecto.Changeset.put_change(:repeat_rule, if(top?, do: rule))
+           |> repo().insert() do
+        {:ok, made} -> made
+        {:error, cs} -> repo().rollback(cs)
+      end
+
+    made = place!(made, parent_uuid)
+
+    a.project_uuid
+    |> project_rows()
+    |> Enum.filter(&(&1.parent_uuid == a.uuid and &1.review_status == "accepted"))
+    |> Enum.each(&copy!(&1, rule, made.uuid, false))
+
+    made
+  end
+
+  # Right under the parent the done one had (the top level when none),
+  # last there.
+  defp place!(%Assignment{} = made, nil), do: made
+
+  defp place!(%Assignment{} = made, parent_uuid) do
+    case Outline.move(Projects.get_assignment(made.uuid), parent_uuid, :last) do
+      {:ok, moved} -> moved
+      _ -> made
+    end
+  end
+
+  # A library task is the same task each time; a one-off one gets its own
+  # copy, so renaming one occurrence never renames the others.
+  defp task_for(%Assignment{task_uuid: nil}), do: nil
+
+  defp task_for(%Assignment{task_uuid: uuid}) do
+    case repo().get(Task, uuid) do
+      %Task{ad_hoc: true} = t ->
+        attrs = %{
+          "title" => t.title,
+          "description" => t.description,
+          "translations" => t.translations,
+          "estimated_duration" => t.estimated_duration,
+          "estimated_duration_unit" => t.estimated_duration_unit,
+          "ad_hoc" => true
+        }
+
+        case %Task{} |> Task.changeset(attrs) |> repo().insert() do
+          {:ok, copy} -> copy.uuid
+          {:error, cs} -> repo().rollback(cs)
+        end
+
+      %Task{} = t ->
+        t.uuid
+
+      nil ->
+        repo().rollback(:no_task)
+    end
+  end
+
+  defp project_rows(project_uuid) do
+    from(a in Assignment,
+      where: a.project_uuid == ^project_uuid,
+      order_by: [asc: a.position, asc: a.inserted_at]
+    )
+    |> repo().all()
+  end
+end

@@ -43,7 +43,7 @@ defmodule PhoenixKitProjects.Migrations.Schema do
 
   alias PhoenixKit.Migrations.Postgres.Helpers
 
-  @current_version 27
+  @current_version 28
   @marker_prefix "pkp_schema:"
 
   @doc "Target schema version of the projects module chain."
@@ -124,6 +124,7 @@ defmodule PhoenixKitProjects.Migrations.Schema do
     v25_key_usage(p)
     v26_deadlines_and_times(p)
     v27_task_files(p, prefix)
+    v28_repeating_tasks(p)
 
     execute("COMMENT ON TABLE #{p}phoenix_kit_projects IS '#{@marker_prefix}#{@current_version}'")
   end
@@ -1046,6 +1047,7 @@ defmodule PhoenixKitProjects.Migrations.Schema do
   # V19–V21 each added columns to the assignments table (and V20 the link
   # table); newest first.
   defp down_task_columns(p, target) do
+    if target < 28, do: down_v28(p)
     if target < 27, do: down_v27(p)
     if target < 26, do: down_v26(p)
     if target < 25, do: down_v25(p)
@@ -1111,6 +1113,23 @@ defmodule PhoenixKitProjects.Migrations.Schema do
           ~w(created_by_uuid created_by_key_uuid started_by_uuid started_by_key_uuid waiting_on origin checklist) do
       execute("ALTER TABLE #{p}phoenix_kit_project_assignments DROP COLUMN IF EXISTS #{col}")
     end
+  end
+
+  # V28 — tasks that repeat (the boss, via Max, 2026-10-31: "checking in on
+  # the client … you have to do it every week"; the panel chose one new
+  # task per occurrence). `repeat_rule` is how the task comes back once it
+  # is done — `{"every": n, "unit": "day" | "week" | "month"}` — NULL for a
+  # task that does not repeat. The occurrence that was done stays done; the
+  # next one is a task of its own (`PhoenixKitProjects.Repeats`).
+  defp v28_repeating_tasks(p) do
+    execute("""
+    ALTER TABLE #{p}phoenix_kit_project_assignments
+      ADD COLUMN IF NOT EXISTS repeat_rule JSONB
+    """)
+  end
+
+  defp down_v28(p) do
+    execute("ALTER TABLE #{p}phoenix_kit_project_assignments DROP COLUMN IF EXISTS repeat_rule")
   end
 
   # V27 — a task's own files and images (the boss, via Max, 2026-10-30:

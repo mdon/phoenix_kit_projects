@@ -1393,6 +1393,20 @@ defmodule PhoenixKitProjects.ExpectedSchema do
         backfill: :default
       },
       %{
+        id: "column:phoenix_kit_project_assignments.repeat_rule",
+        owner: :phoenix_kit_projects,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_project_assignments", column: "repeat_rule", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_project_assignments ADD COLUMN IF NOT EXISTS \"repeat_rule\" jsonb",
+        since: 1,
+        class: :column,
+        revisions: [{1, %{default: nil, type: "jsonb", pos: 42, not_null: false}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
         id: "column:phoenix_kit_project_assignments.review_status",
         owner: :phoenix_kit_projects,
         check:

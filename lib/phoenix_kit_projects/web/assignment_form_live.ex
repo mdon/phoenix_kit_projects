@@ -58,6 +58,8 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
 
   alias PhoenixKitProjects.Schemas.{Assignment, Project, Task}
 
+  alias PhoenixKitProjects.Repeats
+
   alias PhoenixKitProjects.Web.Components.{
     AssigneePicker,
     ConfirmAction,
@@ -1474,6 +1476,8 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
     |> DurationInput.estimate_attrs()
     |> drop_unchanged_wall(socket.assigns[:assignment], ["deadline"])
     |> normalize_form_attrs()
+    # "Does not repeat ▾" posts a choice; the task keeps a rule (`Repeats`).
+    |> Repeats.from_params()
   end
 
   defp drop_unchanged_wall(attrs, record, fields) do
@@ -1797,6 +1801,14 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
       |> take_times_params(params)
       |> maybe_move(params)
       |> assign_title_suggestions(params)
+
+    # The repeat choice as picked, so "Custom" keeps its number and unit
+    # open while they are typed.
+    socket =
+      case attrs do
+        %{"repeat" => choice} -> assign(socket, :repeat_choice, choice)
+        _ -> socket
+      end
 
     attrs = form_attrs(attrs, socket)
     assign_type = Map.get(params, "assign_type", socket.assigns.assign_type)
@@ -4686,6 +4698,16 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
               />
             </fieldset>
 
+            <%!-- Repeating (the boss, via Max, 2026-10-31: low priority, and
+                 not on the first tab — "the UI is too cluttered"): one row,
+                 last here. Done, the task stays done and its next
+                 occurrence is made (`Repeats`). --%>
+            <.repeat_row
+              :if={not Map.get(@project, :is_template, false)}
+              choice={assigns[:repeat_choice] || Repeats.choice(@form[:repeat_rule].value)}
+              rule={@form[:repeat_rule].value}
+            />
+
         </section>
 
         <%!-- ── Connections: what it waits on, what it lets start ── --%>
@@ -5171,6 +5193,79 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
       <.assignee_picker_outside search_form="assignment-assignee-form" staff_confirm={@staff_confirm} />
       <%!-- The shared confirm (`Components.ConfirmAction`): removing a file. --%>
       <.confirm_action_modal confirm={assigns[:confirm_action]} />
+    </div>
+    """
+  end
+
+  attr(:choice, :string, required: true)
+  attr(:rule, :any, default: nil)
+
+  defp repeat_row(assigns) do
+    rule = Repeats.normalize(assigns.rule)
+
+    assigns =
+      assign(assigns,
+        every: (rule && rule["every"]) || 1,
+        unit: (rule && rule["unit"]) || "week"
+      )
+
+    ~H"""
+    <div id="assignment-repeat" class="flex flex-wrap items-center gap-2">
+      <.icon name="hero-arrow-path" class="w-4 h-4 opacity-60" />
+      <select
+        name="assignment[repeat]"
+        id="assignment-repeat-choice"
+        aria-label={gettext("Repeats")}
+        class="select select-sm select-bordered w-auto"
+      >
+        <option
+          :for={
+            {value, label} <- [
+              {"none", gettext("Does not repeat")},
+              {"week", pgettext("repeat", "Every week")},
+              {"2weeks", pngettext("repeat", "Every %{count} week", "Every %{count} weeks", 2)},
+              {"month", pgettext("repeat", "Every month")},
+              {"custom", gettext("Every…")}
+            ]
+          }
+          value={value}
+          selected={@choice == value}
+        >
+          {label}
+        </option>
+      </select>
+      <%= if @choice == "custom" do %>
+        <input
+          type="number"
+          name="assignment[repeat_every]"
+          id="assignment-repeat-every"
+          value={@every}
+          min="1"
+          max="365"
+          aria-label={gettext("How often")}
+          class="input input-sm input-bordered w-20"
+        />
+        <select
+          name="assignment[repeat_unit]"
+          id="assignment-repeat-unit"
+          aria-label={gettext("Unit")}
+          class="select select-sm select-bordered w-auto"
+        >
+          <option
+            :for={
+              {value, label} <- [
+                {"day", pgettext("repeat unit", "days")},
+                {"week", pgettext("repeat unit", "weeks")},
+                {"month", pgettext("repeat unit", "months")}
+              ]
+            }
+            value={value}
+            selected={@unit == value}
+          >
+            {label}
+          </option>
+        </select>
+      <% end %>
     </div>
     """
   end

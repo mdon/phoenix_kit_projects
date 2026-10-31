@@ -61,6 +61,7 @@ defmodule PhoenixKitProjects.Schemas.Assignment do
           completed_at: DateTime.t() | nil,
           started_at: DateTime.t() | nil,
           deadline: DateTime.t() | nil,
+          repeat_rule: map() | nil,
           start_time: Time.t() | nil,
           end_time: Time.t() | nil,
           parent_uuid: UUIDv7.t() | nil,
@@ -134,6 +135,9 @@ defmodule PhoenixKitProjects.Schemas.Assignment do
     field(:end_time, :time)
     field(:deadline, :utc_datetime)
     field(:started_at, :utc_datetime)
+    # How the task comes back once done (V28, `PhoenixKitProjects.Repeats`):
+    # `%{"every" => n, "unit" => "day" | "week" | "month"}`, nil: it does not.
+    field(:repeat_rule, :map)
 
     belongs_to(:project, Project, foreign_key: :project_uuid, references: :uuid)
     belongs_to(:task, Task, foreign_key: :task_uuid, references: :uuid)
@@ -179,7 +183,8 @@ defmodule PhoenixKitProjects.Schemas.Assignment do
   @optional ~w(task_uuid child_project_uuid position description estimated_duration
                estimated_duration_unit counts_weekends progress_pct track_progress priority
                translations assigned_team_uuid assigned_department_uuid assigned_person_uuid
-               waiting_on origin start_date end_date start_time end_time deadline)a
+               waiting_on origin start_date end_date start_time end_time deadline
+               repeat_rule)a
 
   # Server-only fields: set by trusted server code (completion tracking,
   # provenance), never cast from untrusted form params. Use `status_changeset/2`.
@@ -224,6 +229,7 @@ defmodule PhoenixKitProjects.Schemas.Assignment do
     |> validate_length(:waiting_on, max: 200)
     |> validate_length(:origin, max: 40)
     |> validate_dates()
+    |> validate_repeat_rule()
     |> check_constraint(:end_date,
       name: :phoenix_kit_project_assignments_dates_check,
       message: dates_message()
@@ -512,6 +518,21 @@ defmodule PhoenixKitProjects.Schemas.Assignment do
       add_error(changeset, :assigned_team_uuid, single_assignee_message())
     else
       changeset
+    end
+  end
+
+  # A rule `Repeats` can read, or none: a rule it could not is refused
+  # rather than stored to be ignored.
+  defp validate_repeat_rule(changeset) do
+    case get_change(changeset, :repeat_rule) do
+      nil ->
+        changeset
+
+      rule ->
+        case PhoenixKitProjects.Repeats.normalize(rule) do
+          nil -> add_error(changeset, :repeat_rule, gettext("is not a way a task can repeat"))
+          normal -> put_change(changeset, :repeat_rule, normal)
+        end
     end
   end
 

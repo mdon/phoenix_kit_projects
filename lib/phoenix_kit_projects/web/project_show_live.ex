@@ -93,6 +93,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   alias PhoenixKitProjects.Refs
   alias PhoenixKitProjects.Schemas.{Assignment, Project}
   alias PhoenixKitProjects.Schemas.Task, as: TaskSchema
+  alias PhoenixKitProjects.Repeats
   alias PhoenixKitProjects.TaskConversion
   alias PhoenixKitProjects.TaskNotes
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
@@ -1961,6 +1962,17 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
               >
                 <.ref_chip ref={Refs.task_ref(@project.key, @a.number)} />
               </.smart_link>
+              <%!-- A repeating task: a small ↻ before its title, the rule as
+                   its tooltip (`Repeats`). --%>
+              <span
+                :if={@a.repeat_rule}
+                class="shrink-0 text-base-content/50"
+                title={Repeats.label(@a.repeat_rule)}
+                aria-label={Repeats.label(@a.repeat_rule)}
+                data-repeat
+              >
+                ↻
+              </span>
               <%!-- The title is typed into where it stands (Enter adds the
                    next task, Tab makes it a subtask); the arrow opens the
                    form. Read-only rows keep the title as the link. --%>
