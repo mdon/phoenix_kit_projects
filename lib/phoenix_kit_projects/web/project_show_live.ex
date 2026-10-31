@@ -5455,6 +5455,17 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         />
       </div>
 
+      <%!-- Tabs never jump (the panel, 2026-10-31): the views are ONE
+           scroll area under their strip, filling the window from where it
+           starts, so the strip stays put whatever height a view has; it
+           goes back to the top only when the view changes (`PkpTabScroll`). --%>
+      <div
+        id={"project-views-#{@project.uuid}"}
+        phx-hook="PkpTabScroll"
+        data-pkp-fill
+        data-active={@active_tab}
+        class="min-h-0 overflow-y-auto overscroll-contain"
+      >
       <%!-- List tab --%>
       <div id={"project-list-tab-#{@project.uuid}"} class={if(@active_tab != :list, do: "hidden")}>
       <%!-- Timeline --%>
@@ -6278,6 +6289,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
               "step_intents" => "1"
             })}
         <% end %>
+      </div>
       </div>
       </div>
 

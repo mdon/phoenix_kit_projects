@@ -122,6 +122,21 @@ defmodule PhoenixKitProjects.Web.Components.PopupHost do
       .popup-host-frame-spinner {
         animation: popup-host-frame-spinner-fade 600ms ease-out forwards;
       }
+      /* Tabs never jump (the panel, 2026-10-31): a drawer holding a tab
+         strip (`FormParts.form_tabs/1`) is one full-height column. Every
+         box from the frame down to the strip is a flex column that fills
+         what is left; beside the strip, the open pane is the ONE scroll
+         area; everything else (the header, the form's buttons) keeps its
+         height. The strip is outside what scrolls, so it cannot move. */
+      .pkp-frame *:has([data-pkp-tabs]) {
+        display: flex; flex-direction: column; flex: 1 1 0%; min-height: 0;
+      }
+      .pkp-frame *:has([data-pkp-tabs]) > *:not(:has([data-pkp-tabs])):not([role="tabpanel"]) {
+        flex-shrink: 0;
+      }
+      .pkp-frame *:has(> [data-pkp-tabs]) > [role="tabpanel"]:not(.hidden) {
+        flex: 1 1 0%; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+      }
     </style>
     <div class={@class}>
       {render_slot(@inner_block)}
@@ -137,7 +152,11 @@ defmodule PhoenixKitProjects.Web.Components.PopupHost do
         close_guard={:input}
         placement={@placement}
         max_width={@max_width}
-        class={Enum.join(Enum.reject([@modal_box_class, "relative"], &is_nil/1), " ")}
+        class={
+          [@modal_box_class, "relative", @placement == :end && "pkp-frame"]
+          |> Enum.reject(&(&1 in [nil, false]))
+          |> Enum.join(" ")
+        }
         phx-value-frame-ref={frame.frame_ref}
         data-frame-ref={frame.frame_ref}
       >

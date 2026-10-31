@@ -18,6 +18,9 @@
  * PkpTitle: one task title edited in place on a card row.
  *
  * PkpBoard: one column of the board, its cards dragged between columns.
+ *
+ * PkpTabScroll: the one scroll area under a tab strip, back to its top
+ * only when the open tab changes.
  */
 (function () {
   "use strict";
@@ -1646,5 +1649,61 @@
     }
   };
 
-  window.PhoenixKitProjectsHooks = { PkpOutline: Outline, PkpTitle: Title, PkpLinks: Links, PkpBoard: Board };
+  // PkpTabScroll: tabs never jump (the panel, 2026-10-31). Under every tab
+  // strip there is ONE scroll area holding only the open tab, and the strip
+  // sits outside it. This takes that area back to its top when the open tab
+  // changes — never on any other update, so a patch while someone reads
+  // halfway down a tab leaves them there.
+  //   * on a form's strip (`FormParts.form_tabs/1`, `data-active` the open
+  //     pane) the area is the open pane, found through its tab;
+  //   * with `data-pkp-fill` (the project page's views) the area is the
+  //     element itself, sized from where it starts to the window's bottom,
+  //     so the page around it has nothing to scroll and the strip above it
+  //     stays where it is. Too far down the page to be worth it (an embed
+  //     under a host's own content): left at its own height.
+  var FILL_MIN_PX = 320;
+  var FILL_GAP_PX = 16;
+
+  var TabScroll = {
+    mounted: function () {
+      var self = this;
+      this.tab = this.el.dataset.active;
+      if (this.el.hasAttribute("data-pkp-fill")) {
+        this.onResize = function () { self.fill(); };
+        window.addEventListener("resize", this.onResize);
+        this.fill();
+      }
+    },
+    updated: function () {
+      var tab = this.el.dataset.active;
+      if (tab !== this.tab) {
+        this.tab = tab;
+        var area = this.area();
+        if (area) area.scrollTop = 0;
+      }
+      if (this.onResize) this.fill();
+    },
+    destroyed: function () {
+      if (this.onResize) window.removeEventListener("resize", this.onResize);
+    },
+    area: function () {
+      if (this.el.hasAttribute("data-pkp-fill")) return this.el;
+      var tab = this.el.querySelector('[role="tab"][aria-selected="true"]');
+      var id = tab && tab.getAttribute("aria-controls");
+      return id ? document.getElementById(id) : null;
+    },
+    fill: function () {
+      var top = this.el.getBoundingClientRect().top + window.scrollY;
+      var height = window.innerHeight - top - FILL_GAP_PX;
+      this.el.style.height = height < FILL_MIN_PX ? "" : height + "px";
+    }
+  };
+
+  window.PhoenixKitProjectsHooks = {
+    PkpOutline: Outline,
+    PkpTitle: Title,
+    PkpLinks: Links,
+    PkpBoard: Board,
+    PkpTabScroll: TabScroll
+  };
 })();

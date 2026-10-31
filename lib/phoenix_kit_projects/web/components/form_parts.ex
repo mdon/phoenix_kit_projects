@@ -96,6 +96,12 @@ defmodule PhoenixKitProjects.Web.Components.FormParts do
   open one, `errors` the panes holding an error (a `MapSet`). Each tab sends
   `event` with `pane`. Nothing is drawn for fewer than two panes. Tab ids
   are `<prefix>-tab-<pane>`, pane ids `<prefix>-pane-<pane>`.
+
+  Tabs never jump (the panel, 2026-10-31): in a drawer (`PopupHost`) the
+  form is a column — header, this strip, then the open pane as the one
+  scroll area — so the strip sits outside what scrolls, and a switch to a
+  shorter tab moves nothing. The `PkpTabScroll` hook takes the newly
+  opened pane to its top, and does nothing on any other update.
   """
   attr(:id, :string, required: true)
   attr(:prefix, :string, required: true)
@@ -106,7 +112,15 @@ defmodule PhoenixKitProjects.Web.Components.FormParts do
 
   def form_tabs(assigns) do
     ~H"""
-    <div :if={match?([_, _ | _], @panes)} role="tablist" class="tabs tabs-border" id={@id}>
+    <div
+      :if={match?([_, _ | _], @panes)}
+      role="tablist"
+      class="tabs tabs-border shrink-0"
+      id={@id}
+      phx-hook="PkpTabScroll"
+      data-pkp-tabs
+      data-active={@active}
+    >
       <button
         :for={{pane, label} <- @panes}
         type="button"
