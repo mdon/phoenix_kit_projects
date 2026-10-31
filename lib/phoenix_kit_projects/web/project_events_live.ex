@@ -341,8 +341,8 @@ defmodule PhoenixKitProjects.Web.ProjectEventsLive do
     all_day = params["all_day"] in ["true", "on"]
     starts_at = parse_moment(params["date"], params["start_time"], all_day)
 
-    # A timed end WITHOUT an end date means "same day": the form labels
-    # End date optional, so 09:00–10:00 on one day silently persisted as
+    # A timed end WITHOUT an end date means "same day": the End date is
+    # not required, so 09:00–10:00 on one day silently persisted as
     # open-ended before (panel round, Grok).
     end_date =
       case blank_to_nil(params["end_date"]) do
@@ -657,7 +657,7 @@ defmodule PhoenixKitProjects.Web.ProjectEventsLive do
                 type="date"
                 name="end_date"
                 value=""
-                label={gettext("End date (optional)")}
+                label={gettext("End date")}
                 class="input-sm"
                 wrapper_class="flex-1"
               />
@@ -689,7 +689,7 @@ defmodule PhoenixKitProjects.Web.ProjectEventsLive do
               id={"event-location-#{@project.uuid}"}
               name="location"
               value=""
-              label={gettext("Location (optional)")}
+              label={gettext("Location")}
               maxlength="200"
               class="input-sm"
             />
@@ -697,7 +697,7 @@ defmodule PhoenixKitProjects.Web.ProjectEventsLive do
               id={"event-description-#{@project.uuid}"}
               name="description"
               value=""
-              label={gettext("Description (optional)")}
+              label={gettext("Description")}
               rows="2"
               class="textarea-sm"
             />

@@ -463,7 +463,7 @@ defmodule PhoenixKitProjects.Web.PortalLive do
           <.file_upload
             upload={@uploads.screenshot}
             standalone={false}
-            label={gettext("Screenshots (optional)")}
+            label={gettext("Screenshots")}
             icon="hero-photo"
             accept_description={gettext("PNG, JPEG, WebP or GIF")}
             max_size_description={

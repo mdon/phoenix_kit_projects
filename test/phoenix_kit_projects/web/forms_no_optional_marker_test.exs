@@ -8,7 +8,7 @@ defmodule PhoenixKitProjects.Web.FormsNoOptionalMarkerTest do
   use PhoenixKitProjects.LiveCase, async: false
 
   alias PhoenixKitProjects.Projects
-  alias PhoenixKitProjects.Web.ProjectHoursLive
+  alias PhoenixKitProjects.Web.{ProjectEventsLive, ProjectHoursLive}
 
   setup %{conn: conn} do
     me = embed_user_uuid!()
@@ -60,5 +60,37 @@ defmodule PhoenixKitProjects.Web.FormsNoOptionalMarkerTest do
     html = render_click(view, "open_log", %{})
     assert html =~ "Log time"
     refute html =~ "(optional)"
+  end
+
+  test "the Events tab's New event dialog", %{conn: conn, project: project} do
+    {:ok, view, _html} =
+      live_isolated(conn, ProjectEventsLive,
+        session: %{
+          "project_uuid" => project.uuid,
+          "ext_key" => "events",
+          "instance_key" => "default",
+          "config" => %{},
+          "current_user_uuid" => Ecto.UUID.generate(),
+          "can_write" => true,
+          "locale" => "en"
+        }
+      )
+
+    html = render_click(view, "open_new_event", %{})
+    assert html =~ "New event"
+    refute html =~ "(optional)"
+  end
+
+  # Every screen at once, the ones no test above opens included (the
+  # portal's issue form, a dialog behind a feature switch): no string the
+  # module translates says "(optional)", so no label or placeholder can.
+  test "no translated string of any screen says \"(optional)\"" do
+    offenders =
+      for path <- Path.wildcard("lib/**/*.{ex,heex}"),
+          {line, n} <- path |> File.read!() |> String.split("\n") |> Enum.with_index(1),
+          line =~ ~r/gettext\(\s*"[^"]*\((optional|not required)\)/i,
+          do: "#{path}:#{n}"
+
+    assert offenders == []
   end
 end
