@@ -30,6 +30,7 @@ defmodule PhoenixKitProjects.Web.PortalLive do
 
   alias PhoenixKit.Mentions.Token
   alias PhoenixKit.Utils.Routes
+  alias PhoenixKitProjects.L10n
   alias PhoenixKitProjects.Paths
   alias PhoenixKitProjects.Portal
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
@@ -742,7 +743,8 @@ defmodule PhoenixKitProjects.Web.PortalLive do
   end
 
   defp short_date(nil), do: ""
-  defp short_date(dt), do: Calendar.strftime(dt, "%-d %b %Y")
+  # Translated (strftime's %b is always English).
+  defp short_date(dt), do: L10n.format_date(dt)
 
   defp issue_path(slug, uuid), do: Routes.path("/portal/#{slug}/i/#{uuid}")
 

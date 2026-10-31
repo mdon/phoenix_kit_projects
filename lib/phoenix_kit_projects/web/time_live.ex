@@ -827,11 +827,20 @@ defmodule PhoenixKitProjects.Web.TimeLive do
 
     if first < e do
       for m <- first..(e - 1)//step do
-        {:io_lib.format("~2..0B", [div(m, 60)]) |> IO.iodata_to_binary(),
-         Float.round((m - s) / span * 100, 3)}
+        {hour_tick(div(m, 60)), Float.round((m - s) / span * 100, 3)}
       end
     else
       []
+    end
+  end
+
+  # An axis label on the site's clock: "08" on 24 hours, "8 AM" on 12.
+  defp hour_tick(h) do
+    if L10n.twelve_hour?() do
+      {h12, suffix} = L10n.to_twelve_hour(rem(h, 24))
+      "#{h12} #{suffix}"
+    else
+      h |> rem(24) |> Integer.to_string() |> String.pad_leading(2, "0")
     end
   end
 
@@ -966,8 +975,8 @@ defmodule PhoenixKitProjects.Web.TimeLive do
       else: :erlang.float_to_binary(h * 1.0, decimals: 1)
   end
 
-  defp hhmm(%NaiveDateTime{hour: h, minute: m}),
-    do: :io_lib.format("~2..0B:~2..0B", [h, m]) |> IO.iodata_to_binary()
+  # On the site's clock (core's `time_format`: 24-hour or AM/PM).
+  defp hhmm(%NaiveDateTime{} = t), do: L10n.format_time(t)
 
   defp deadline_value(%{deadline: %NaiveDateTime{} = d}),
     do: d |> NaiveDateTime.truncate(:second) |> NaiveDateTime.to_iso8601() |> String.slice(0, 16)

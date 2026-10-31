@@ -157,10 +157,10 @@ defmodule PhoenixKitProjects.Web.Widgets.Helpers do
     if rounded == trunc(rounded), do: "#{trunc(rounded)}h", else: "#{rounded}h"
   end
 
-  @doc "Format a datetime as `YYYY-MM-DD`, or `—`."
+  @doc "A datetime as the module prints dates (`L10n.format_date/1`, translated), or `—`."
   @spec date(DateTime.t() | nil) :: String.t()
   def date(nil), do: "—"
-  def date(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d")
+  def date(%DateTime{} = dt), do: PhoenixKitProjects.L10n.format_date(dt)
 
   @doc """
   A shared widget card frame: header (icon + title + optional link) + body slot.

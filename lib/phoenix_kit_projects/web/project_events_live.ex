@@ -17,11 +17,13 @@ defmodule PhoenixKitProjects.Web.ProjectEventsLive do
 
   # A destructive action that asks through core's confirm modal.
   import PhoenixKitProjects.Web.Components.ConfirmAction, only: [confirm_action_modal: 1]
+  import PhoenixKitProjects.Web.Components.TimeInput, only: [clock_input: 1]
 
   alias PhoenixKitProjects.{Extensions, L10n, Paths, ProjectEvents, Projects}
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Schemas.ProjectEvent
   alias PhoenixKitProjects.Web.Components.ConfirmAction
+  alias PhoenixKitProjects.Web.Components.TimeInput
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
 
   require Logger
@@ -334,6 +336,8 @@ defmodule PhoenixKitProjects.Web.ProjectEventsLive do
   end
 
   defp event_attrs(params) do
+    # The clock selects post their parts; folded back to "HH:MM" (or "").
+    params = TimeInput.normalize(params, ~w(start_time end_time))
     all_day = params["all_day"] in ["true", "on"]
     starts_at = parse_moment(params["date"], params["start_time"], all_day)
 
@@ -463,7 +467,8 @@ defmodule PhoenixKitProjects.Web.ProjectEventsLive do
               <.icon name="hero-chevron-left" class="w-4 h-4" />
             </button>
             <span class="font-medium text-sm min-w-32 text-center">
-              {Calendar.strftime(@anchor_date, "%B %Y")}
+              <%!-- Translated month (strftime's %B is always English). --%>
+              {"#{L10n.short_month(@anchor_date.month)} #{@anchor_date.year}"}
             </span>
             <button type="button" class="btn btn-ghost btn-sm" phx-click="next_month" aria-label={gettext("Next month")}>
               <.icon name="hero-chevron-right" class="w-4 h-4" />
@@ -665,24 +670,19 @@ defmodule PhoenixKitProjects.Web.ProjectEventsLive do
               class="checkbox-primary checkbox-sm"
               wrapper_class="gap-2"
             />
-            <div class="flex items-start gap-2">
-              <.input
+            <%!-- The site's clock (24-hour, or AM/PM when core's
+                 `time_format` says so), not the browser's time field,
+                 which drew the device's clock (the boss, 2026-10-30). --%>
+            <div class="flex flex-wrap items-start gap-4">
+              <.clock_input
                 id={"event-start-time-#{@project.uuid}"}
-                type="time"
                 name="start_time"
-                value=""
                 label={gettext("Start time")}
-                class="input-sm"
-                wrapper_class="flex-1"
               />
-              <.input
+              <.clock_input
                 id={"event-end-time-#{@project.uuid}"}
-                type="time"
                 name="end_time"
-                value=""
                 label={gettext("End time")}
-                class="input-sm"
-                wrapper_class="flex-1"
               />
             </div>
             <.input
