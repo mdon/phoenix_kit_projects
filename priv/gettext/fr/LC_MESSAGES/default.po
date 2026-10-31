@@ -2770,7 +2770,7 @@ msgstr "Donnez un titre à l'événement (200 caractères max)."
 msgid "Give the whiteboard a name (up to 160 characters)."
 msgstr "Donnez un nom au tableau blanc (160 caractères max)."
 
-#: lib/phoenix_kit_projects/web/assignment_form_live.ex:4921 lib/phoenix_kit_projects/web/components/access_panel.ex:177 lib/phoenix_kit_projects/web/project_hours_live.ex:1286 lib/phoenix_kit_projects/web/project_hours_live.ex:2050 lib/phoenix_kit_projects/web/project_hours_live.ex:2161 lib/phoenix_kit_projects/web/project_show_live.ex:2090 lib/phoenix_kit_projects/web/project_show_live.ex:5358 lib/phoenix_kit_projects/web/project_show_live.ex:5399
+#: lib/phoenix_kit_projects/web/assignment_form_live.ex:4921 lib/phoenix_kit_projects/web/project_hours_live.ex:1286 lib/phoenix_kit_projects/web/project_hours_live.ex:2050 lib/phoenix_kit_projects/web/project_hours_live.ex:2161 lib/phoenix_kit_projects/web/project_show_live.ex:2090 lib/phoenix_kit_projects/web/project_show_live.ex:5358 lib/phoenix_kit_projects/web/project_show_live.ex:5399
 #, elixir-autogen, elixir-format
 msgid "Log time"
 msgstr "Saisir le temps"
@@ -9264,3 +9264,9 @@ msgstr "Toutes"
 msgctxt "task filter"
 msgid "Done"
 msgstr "Terminées"
+
+#: lib/phoenix_kit_projects/web/components/access_panel.ex:177
+#, elixir-autogen, elixir-format
+msgctxt "permission"
+msgid "Log time"
+msgstr "Saisir le temps"

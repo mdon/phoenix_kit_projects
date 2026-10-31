@@ -3401,7 +3401,6 @@ msgid "Give the whiteboard a name (up to 160 characters)."
 msgstr ""
 
 #: lib/phoenix_kit_projects/web/assignment_form_live.ex:4921
-#: lib/phoenix_kit_projects/web/components/access_panel.ex:177
 #: lib/phoenix_kit_projects/web/project_hours_live.ex:1286
 #: lib/phoenix_kit_projects/web/project_hours_live.ex:2050
 #: lib/phoenix_kit_projects/web/project_hours_live.ex:2161
@@ -10272,4 +10271,10 @@ msgstr ""
 #, elixir-autogen, elixir-format
 msgctxt "task filter"
 msgid "Done"
+msgstr ""
+
+#: lib/phoenix_kit_projects/web/components/access_panel.ex:177
+#, elixir-autogen, elixir-format
+msgctxt "permission"
+msgid "Log time"
 msgstr ""
