@@ -1371,6 +1371,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     %{
       mode: mode,
       task_uuid: a.uuid,
+      subproject?: Assignment.subproject?(a),
       force: force?,
       after: Assignment.label(a, L10n.current_content_lang()),
       uuids: Enum.map(rows, & &1.uuid),
@@ -1925,20 +1926,20 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                 :if={@fx.dependencies and @a.status == "in_progress" and open_deps != []}
                 class="badge badge-warning badge-sm gap-1 shrink-0"
                 title={
-                  gettext("On hold — waiting for %{tasks}",
-                    tasks:
-                      Enum.map_join(
-                        open_deps,
-                        ", ",
-                        &gettext("“%{task}”",
-                          task: Assignment.label(&1.depends_on, L10n.current_content_lang())
-                        )
+                  AssignmentStatusBadge.on_hold_waiting_label(
+                    Enum.map_join(
+                      open_deps,
+                      ", ",
+                      &gettext("“%{task}”",
+                        task: Assignment.label(&1.depends_on, L10n.current_content_lang())
                       )
+                    ),
+                    Assignment.subproject?(@a)
                   )
                 }
               >
                 <.icon name="hero-pause-circle" class="w-3.5 h-3.5" />
-                {gettext("On hold")}
+                {AssignmentStatusBadge.on_hold_label(Assignment.subproject?(@a))}
               </span>
               <%!-- The ID opens the task's view, like its title. --%>
               <.smart_link
@@ -6648,7 +6649,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
           <%= if @next_up.mode == :release do %>
             {gettext("Allow “%{task}” to start?", task: @next_up.after)}
           <% else %>
-            {gettext("Mark “%{task}” done?", task: @next_up.after)}
+            {AssignmentStatusBadge.mark_done_question(@next_up.after, @next_up.subproject?)}
           <% end %>
         </:title>
         <% next_rows = next_up_rows(@next_up, @assignments) %>

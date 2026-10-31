@@ -19,7 +19,8 @@ defmodule PhoenixKitProjects.History do
   `list/2` answers `%{entries: [entry], total: n}`, newest first. An entry is
   a map with `:at`, `:kind` (`:activity | :comment | :note | :time`),
   `:action`, `:actor` (name), `:actor_uuid`, `:target` (the name of whom a
-  row is about, e.g. a member added), `:task` (`%{uuid, label}` or nil), `:quote`, `:told` (`[%{name, seen_at}]`), `:auto` (a row the tick
+  row is about, e.g. a member added), `:task` (`%{uuid, label, subproject}`
+  or nil), `:quote`, `:told` (`[%{name, seen_at}]`), `:auto` (a row the tick
   rules moved), `:icon` and `:meta`. The sentence is the page's to write
   (`Web.ProjectHistoryLive`), in the viewer's language.
 
@@ -145,15 +146,25 @@ defmodule PhoenixKitProjects.History do
 
   # ── Sources ─────────────────────────────────────────────────────────
 
-  # Every task the project has: uuid → label. Deleted tasks are gone from
-  # here; their rows still say what they were through `metadata["task"]`.
+  # Every task the project has: uuid → `%{uuid, label, subproject}`, the
+  # line's task ref (`subproject` picks the wording that agrees with it — ru
+  # "Приостановлена" for a task, "Приостановлен" for a sub-project). Deleted
+  # tasks are gone from here; their rows still say what they were through
+  # `metadata["task"]`.
   defp task_index(project_uuid) do
     from(a in Assignment,
       where: a.project_uuid == ^project_uuid,
       preload: [:task, :child_project]
     )
     |> RepoHelper.repo().all()
-    |> Map.new(&{&1.uuid, Assignment.label(&1, L10n.current_content_lang()) || ""})
+    |> Map.new(fn a ->
+      {a.uuid,
+       %{
+         uuid: a.uuid,
+         label: Assignment.label(a, L10n.current_content_lang()) || "",
+         subproject: Assignment.subproject?(a)
+       }}
+    end)
   end
 
   defp activity(project, task_uuids, only) do
@@ -305,7 +316,7 @@ defmodule PhoenixKitProjects.History do
       target_uuid: nil,
       task:
         if(c.resource_type in ["assignment", TaskNotes.resource_type()],
-          do: %{uuid: c.resource_uuid, label: Map.get(tasks, c.resource_uuid, "")}
+          do: Map.get(tasks, c.resource_uuid, %{uuid: c.resource_uuid, label: ""})
         ),
       quote: c.content,
       told: [],
@@ -326,7 +337,7 @@ defmodule PhoenixKitProjects.History do
       target_uuid: nil,
       task:
         if(w.assignment_uuid,
-          do: %{uuid: w.assignment_uuid, label: Map.get(tasks, w.assignment_uuid, "")}
+          do: Map.get(tasks, w.assignment_uuid, %{uuid: w.assignment_uuid, label: ""})
         ),
       quote: w.note,
       told: [],
@@ -341,7 +352,7 @@ defmodule PhoenixKitProjects.History do
   # A task deleted since keeps the name its rows recorded, and no link.
   defp task_ref("assignment", uuid, meta, tasks) when is_binary(uuid) do
     case Map.fetch(tasks, uuid) do
-      {:ok, label} -> %{uuid: uuid, label: label}
+      {:ok, ref} -> ref
       :error -> %{uuid: uuid, label: meta["task"] || "", gone: true}
     end
   end

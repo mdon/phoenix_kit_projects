@@ -147,8 +147,14 @@ defmodule PhoenixKitProjects.Web.Components.HistoryFeed do
 
   defp compact_activity("projects.assignment_completed", _), do: gettext("finished")
 
-  defp compact_activity("projects.assignment_reopened", %{auto: true}),
-    do: gettext("Open again, because work under it was reopened")
+  # A line that agrees with its item says which kind it is (ru "Открыта" for
+  # a task, "Открыт" for a sub-project): the two share every other line.
+  defp compact_activity("projects.assignment_reopened", %{auto: true} = e),
+    do:
+      if(subproject?(e),
+        do: pgettext("sub-project", "Open again, because work under it was reopened"),
+        else: pgettext("task", "Open again, because work under it was reopened")
+      )
 
   defp compact_activity("projects.assignment_reopened", %{quote: q})
        when is_binary(q) and q != "",
@@ -171,8 +177,12 @@ defmodule PhoenixKitProjects.Web.Components.HistoryFeed do
 
   defp compact_activity("projects.assignment_ready", _), do: gettext("It can start now")
 
-  defp compact_activity("projects.assignment_on_hold", _),
-    do: gettext("On hold, because work before it was reopened")
+  defp compact_activity("projects.assignment_on_hold", e),
+    do:
+      if(subproject?(e),
+        do: pgettext("sub-project", "On hold, because work before it was reopened"),
+        else: pgettext("task", "On hold, because work before it was reopened")
+      )
 
   defp compact_activity(action, %{meta: %{"waiting_on" => w}})
        when action in ["projects.assignment_waiting", "projects.assignment_updated"] and
@@ -208,6 +218,9 @@ defmodule PhoenixKitProjects.Web.Components.HistoryFeed do
   defp compact_activity("projects.task_file_added", _), do: gettext("added a file")
   defp compact_activity("projects.task_file_removed", _), do: gettext("removed a file")
   defp compact_activity(_action, _), do: gettext("changed it")
+
+  defp subproject?(%{task: %{subproject: true}}), do: true
+  defp subproject?(_), do: false
 
   # ── The sentence ────────────────────────────────────────────────────
   #
@@ -277,8 +290,12 @@ defmodule PhoenixKitProjects.Web.Components.HistoryFeed do
 
   defp activity_sentence("projects.assignment_completed", _), do: gettext("finished")
 
-  defp activity_sentence("projects.assignment_reopened", %{auto: true}),
-    do: gettext("Open again, because work under it was reopened:")
+  defp activity_sentence("projects.assignment_reopened", %{auto: true} = e),
+    do:
+      if(subproject?(e),
+        do: pgettext("sub-project", "Open again, because work under it was reopened:"),
+        else: pgettext("task", "Open again, because work under it was reopened:")
+      )
 
   defp activity_sentence("projects.assignment_reopened", _), do: gettext("reopened")
   defp activity_sentence("projects.assignment_removed", _), do: gettext("removed the task")
@@ -309,8 +326,12 @@ defmodule PhoenixKitProjects.Web.Components.HistoryFeed do
 
   defp activity_sentence("projects.assignment_ready", _), do: gettext("Ready to start:")
 
-  defp activity_sentence("projects.assignment_on_hold", _),
-    do: gettext("On hold, because work before it was reopened:")
+  defp activity_sentence("projects.assignment_on_hold", e),
+    do:
+      if(subproject?(e),
+        do: pgettext("sub-project", "On hold, because work before it was reopened:"),
+        else: pgettext("task", "On hold, because work before it was reopened:")
+      )
 
   defp activity_sentence("projects.assignment_progress_updated", _),
     do: gettext("updated the progress of")

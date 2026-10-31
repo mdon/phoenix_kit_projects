@@ -154,6 +154,30 @@ defmodule PhoenixKitProjects.Web.Components.AssignmentStatusBadge do
   def action_label(:mark_done, _), do: pgettext("task action", "Mark done")
   def action_label(:reopen, _), do: pgettext("task action", "Reopen")
 
+  @doc """
+  ON HOLD — work that started and then had something before it reopened. A
+  derived state, never stored, so it has no `label/2` entry; it agrees with
+  its item like the stored ones (ru "Приостановлена" / "Приостановлен").
+  """
+  @spec on_hold_label(boolean()) :: String.t()
+  def on_hold_label(true), do: pgettext("sub-project status", "On hold")
+  def on_hold_label(_), do: pgettext("task status", "On hold")
+
+  @doc "`on_hold_label/1` naming what it waits for (`tasks`, already quoted)."
+  @spec on_hold_waiting_label(String.t(), boolean()) :: String.t()
+  def on_hold_waiting_label(tasks, true),
+    do: pgettext("sub-project status", "On hold — waiting for %{tasks}", tasks: tasks)
+
+  def on_hold_waiting_label(tasks, _),
+    do: pgettext("task status", "On hold — waiting for %{tasks}", tasks: tasks)
+
+  @doc "The question before `:mark_done` hands work on, in the item's gender."
+  @spec mark_done_question(String.t(), boolean()) :: String.t()
+  def mark_done_question(task, true),
+    do: pgettext("sub-project action", "Mark “%{task}” done?", task: task)
+
+  def mark_done_question(task, _), do: pgettext("task action", "Mark “%{task}” done?", task: task)
+
   attr(:status, :string, required: true)
   attr(:subproject, :boolean, default: false, doc: "a sub-project's row (the word's gender)")
   attr(:size, :string, default: "sm", values: ~w(xs sm md lg))

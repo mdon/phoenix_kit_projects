@@ -438,12 +438,17 @@ defmodule PhoenixKitProjects.Web.AssignmentViewLive do
         </h2>
 
         <div :if={not @project.is_template} class="flex flex-wrap items-center gap-2">
-          <.assignment_status_badge status={@assignment.status} size="md" />
+          <.assignment_status_badge
+            status={@assignment.status}
+            subproject={Assignment.subproject?(@assignment)}
+            size="md"
+          />
           <span
             :if={@assignment.status == "in_progress" and Enum.any?(@waits_on, &(&1.status != "done"))}
             class="badge badge-warning gap-1"
           >
-            <.icon name="hero-pause-circle" class="w-3.5 h-3.5" /> {gettext("On hold")}
+            <.icon name="hero-pause-circle" class="w-3.5 h-3.5" />
+            {AssignmentStatusBadge.on_hold_label(Assignment.subproject?(@assignment))}
           </span>
           <.next_step
             :if={@can_step?}
@@ -488,7 +493,7 @@ defmodule PhoenixKitProjects.Web.AssignmentViewLive do
             <dt :if={@assignment.started_at} class="text-base-content/60">{gettext("Started")}</dt>
             <dd :if={@assignment.started_at}>{L10n.format_datetime(@assignment.started_at)}</dd>
 
-            <dt :if={@assignment.completed_at} class="text-base-content/60">{gettext("Finished")}</dt>
+            <dt :if={@assignment.completed_at} class="text-base-content/60">{if Assignment.subproject?(@assignment), do: pgettext("sub-project", "Finished"), else: pgettext("task", "Finished")}</dt>
             <dd :if={@assignment.completed_at}>{L10n.format_datetime(@assignment.completed_at)}</dd>
 
             <% estimate = estimate_label(@assignment) %>
