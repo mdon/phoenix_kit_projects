@@ -989,6 +989,9 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
       },
       # The Billable box only where the project tracks billable time.
       billable?: is_binary(project_uuid) and billable_on?(project_uuid),
+      # An entry with no task only where the project keeps time on itself
+      # (`log_task/2`), so the picker offers "the project itself" only there.
+      project_time?: is_binary(project_uuid) and feature_on?(project_uuid, "project_time"),
       # The task picked, as its chip says it (nil = the project itself).
       task_label:
         case Hours.task_option(params["task"], lang) do
@@ -2131,7 +2134,8 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
           />
         </div>
         <%!-- Searched, not listed: a project can hold any number of
-             tasks. Empty means the project itself. --%>
+             tasks. Empty means the project itself, where it keeps time
+             on itself (`project_time`). --%>
         <div>
           <span class="label mb-2 block"><span class="font-semibold">{gettext("Task")}</span></span>
           <input type="hidden" name="task" value={@form.values["task"]} />
@@ -2146,7 +2150,11 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
             search_on_focus
             close_on_pick
             row_layout="stacked"
-            placeholder={gettext("The project itself — or search a task")}
+            placeholder={
+              if @form[:project_time?],
+                do: gettext("The project itself — or search a task"),
+                else: gettext("Search a task")
+            }
             class="input input-sm w-full"
             searching_label={gettext("Searching…")}
             more_label={gettext("Load more")}

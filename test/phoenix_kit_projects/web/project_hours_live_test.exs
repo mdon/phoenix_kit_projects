@@ -383,7 +383,13 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLiveTest do
           end
 
         {:ok, view, _html} = mount_tab(conn, project, admin)
-        render_click(view, "open_log", %{})
+        opened = render_click(view, "open_log", %{})
+
+        # The task picker offers "the project itself" only where it may be
+        assert opened =~ ~s(placeholder="The project itself — or search a task") ==
+                 (unquote(outcome) == :logged)
+
+        assert opened =~ ~s(placeholder="Search a task") == (unquote(outcome) == :refused)
 
         html =
           render_submit(view, "save_log", %{
