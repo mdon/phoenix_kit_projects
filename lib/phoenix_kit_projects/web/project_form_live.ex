@@ -2513,6 +2513,9 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
               required
             />
 
+            <%!-- Pictures are intercepted (`uploads`) and refused: a project's description
+                 keeps no files, and a `data:` address in the text is never
+                 stored. No image button for the same reason. --%>
             <.description_editor
                 id={DescriptionEditor.editor_id("project-description", @current_lang)}
                 name={DescriptionEditor.field_name("project", @current_lang, @primary_language, @multilang_enabled)}
@@ -2520,6 +2523,8 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
                 label={gettext("Description")}
                 mention_context={mention_context(assigns[:project])}
                 readonly={@current_lang in @ai_in_flight}
+                uploads
+                image_button={false}
               />
           </.words_block>
 
@@ -3343,6 +3348,17 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
          msg,
          DescriptionEditor.decode_context(mention_context(socket.assigns[:project]))
        )}
+
+  # An image pasted into the description: refused, never kept as a `data:`
+  # URL — a project keeps no pictures in its description, as a sub-project's editor says (the walk-through, 2026-10-31).
+  def handle_info({:leaf_paste_image, %{editor_id: "project-description--" <> _}}, socket) do
+    {:noreply,
+     put_flash(
+       socket,
+       :error,
+       gettext("A project's description cannot hold images. Add them to one of its tasks.")
+     )}
+  end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
 

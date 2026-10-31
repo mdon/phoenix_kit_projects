@@ -346,4 +346,53 @@ defmodule PhoenixKitProjects.Web.ConsistencyWalkthroughTest do
       end)
     end
   end
+
+  describe "a picture pasted into a description that cannot hold one (item 10)" do
+    @png <<137, 80, 78, 71, 13, 10, 26, 10>>
+
+    defp paste_refused(view, html, base) do
+      [id] =
+        Regex.run(~r/data-description-editor="(#{base}--[^"]+)"/, html, capture: :all_but_first)
+
+      # The editor intercepts pastes: the host is asked, nothing goes in as data.
+      assert html =~ ~s(data-has-upload="true")
+
+      send(
+        view.pid,
+        {:leaf_paste_image,
+         %{
+           editor_id: id,
+           data_url: "data:image/png;base64," <> Base.encode64(@png),
+           name: "shot.png",
+           mime: "image/png"
+         }}
+      )
+
+      html = render(view)
+      assert html =~ "cannot hold images"
+      refute html =~ "data:image/png"
+    end
+
+    setup %{conn: conn} do
+      {:ok, conn: put_test_scope(conn, fake_scope(user_uuid: embed_user_uuid!()))}
+    end
+
+    test "the library task editor refuses it", %{conn: conn} do
+      task = fixture_task()
+      {:ok, view, html} = live(conn, "/en/admin/projects/tasks/#{task.uuid}/edit")
+      paste_refused(view, html, "task-description")
+    end
+
+    test "the template editor refuses it", %{conn: conn} do
+      template = fixture_project(%{"is_template" => true})
+      {:ok, view, html} = live(conn, "/en/admin/projects/templates/#{template.uuid}/edit")
+      paste_refused(view, html, "template-description")
+    end
+
+    test "the project editor refuses it", %{conn: conn} do
+      project = fixture_project()
+      {:ok, view, html} = live(conn, "/en/admin/projects/#{project.uuid}/edit")
+      paste_refused(view, html, "project-description")
+    end
+  end
 end

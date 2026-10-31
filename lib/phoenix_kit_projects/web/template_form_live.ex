@@ -297,6 +297,17 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
   def handle_info({:leaf_suggest, _} = msg, socket),
     do: {:noreply, DescriptionEditor.suggest(socket, msg, nil)}
 
+  # An image pasted into the description: refused, never kept as a `data:`
+  # URL — a template, like a project, keeps no pictures in its description (the walk-through, 2026-10-31).
+  def handle_info({:leaf_paste_image, %{editor_id: "template-description--" <> _}}, socket) do
+    {:noreply,
+     put_flash(
+       socket,
+       :error,
+       gettext("A template's description cannot hold images. Add them to one of its tasks.")
+     )}
+  end
+
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   defp put_description(%{assigns: %{form: form}} = socket, lang, markdown) do
@@ -456,12 +467,17 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
               required
             />
 
+            <%!-- Pictures are intercepted (`uploads`) and refused: a template, like a project,
+                 keeps no files, and a `data:` address in the text is never
+                 stored. No image button for the same reason. --%>
             <.description_editor
                 id={DescriptionEditor.editor_id("template-description", @current_lang)}
                 name={DescriptionEditor.field_name("project", @current_lang, @primary_language, @multilang_enabled)}
                 value={description_value(@form, @current_lang, @primary_language, @multilang_enabled)}
                 label={gettext("Description")}
                 readonly={@current_lang in @ai_in_flight}
+                uploads
+                image_button={false}
               />
         </.words_block>
 
