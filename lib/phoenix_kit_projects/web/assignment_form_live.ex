@@ -3361,6 +3361,18 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
     {:noreply, store_pasted_image(socket, id, paste)}
   end
 
+  # An image pasted into a sub-project's description: refused, never kept
+  # as a `data:` URL (the sub-project's text is its project's, which keeps
+  # no pictures).
+  def handle_info({:leaf_paste_image, %{editor_id: "subproject-description--" <> _}}, socket) do
+    {:noreply,
+     put_flash(
+       socket,
+       :error,
+       gettext("A sub-project's description cannot hold images. Add them to one of its tasks.")
+     )}
+  end
+
   # `@` and `#` typed in a description: the mentions the textarea offered.
   def handle_info({:leaf_suggest, _} = msg, socket) do
     context = DescriptionEditor.decode_context(mention_context(socket.assigns[:project]))
@@ -4179,12 +4191,18 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
                 label={gettext("Sub-project name")}
                 required
               />
+              <%!-- Pictures are intercepted (`uploads`) and refused: a
+                   sub-project's description is its project's, which holds
+                   no inline pictures, and a `data:` address in the text is
+                   never stored. No image button for the same reason. --%>
               <.description_editor
                 id={DescriptionEditor.editor_id("subproject-description", @current_lang)}
                 name={DescriptionEditor.field_name("subproject", @current_lang, @primary_language, @multilang_enabled)}
                 value={description_value(@sp_form, @current_lang, @primary_language, @multilang_enabled)}
                 label={gettext("Description")}
                 mention_context={mention_context(@project)}
+                uploads
+                image_button={false}
               />
             </.words_block>
 

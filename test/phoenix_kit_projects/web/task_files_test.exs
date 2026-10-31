@@ -134,6 +134,31 @@ defmodule PhoenixKitProjects.Web.TaskFilesTest do
     assert Attachments.list_task_files(ctx.a.uuid) == []
   end
 
+  test "an image pasted into a sub-project's description is refused, not kept as data", ctx do
+    {:ok, view, html} =
+      live(ctx.conn, "/en/admin/projects/#{ctx.project.uuid}/assignments/new?kind=subproject")
+
+    [id] =
+      Regex.run(~r/data-description-editor="(subproject-description--[^"]+)"/, html,
+        capture: :all_but_first
+      )
+
+    send(
+      view.pid,
+      {:leaf_paste_image,
+       %{
+         editor_id: id,
+         data_url: "data:image/png;base64," <> Base.encode64(@png),
+         name: "shot.png",
+         mime: "image/png"
+       }}
+    )
+
+    html = render(view)
+    assert html =~ "cannot hold images"
+    refute html =~ "data:image/png"
+  end
+
   # LiveViewTest's upload client needs a PubSub on the test endpoint, which
   # this suite's has not: the input and its drop zone are checked here, the
   # storing path through `store_task_file/4` and the paste above.
