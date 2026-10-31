@@ -1953,12 +1953,12 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
                   <.table_row_menu_button
                     {ConfirmAction.ask("delete_entry",
                       uuid: row.entry.uuid,
-                      title: gettext("Remove entry"),
-                      message: gettext("Remove %{amount} logged by %{name}? The project's activity keeps a record of it.", amount: Format.duration(Decimal.to_float(row.entry.amount)), name: row.worker.name),
-                      confirm: gettext("Remove")
+                      title: gettext("Delete %{amount} logged by %{name}?", amount: Format.duration(Decimal.to_float(row.entry.amount)), name: row.worker.name),
+                      message: gettext("The project's activity keeps a record of it."),
+                      confirm: gettext("Delete")
                     )}
                     icon="hero-trash"
-                    label={gettext("Remove")}
+                    label={gettext("Delete")}
                     variant="error"
                   />
                 </.table_row_menu>

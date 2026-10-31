@@ -3030,7 +3030,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
                     type="button"
                     class="btn btn-ghost btn-xs text-error"
                     {ConfirmAction.ask("end_project",
-                      title: gettext("End this project"),
+                      title: gettext("End this project?"),
                       message: gettext("The project is marked completed and leaves the active lists. Its tasks stay as they are, and it can be reopened here."),
                       confirm: gettext("End project")
                     )}
