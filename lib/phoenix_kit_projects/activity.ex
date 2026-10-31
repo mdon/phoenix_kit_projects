@@ -83,7 +83,7 @@ defmodule PhoenixKitProjects.Activity do
                        projects.subproject_ projects.dependency_ projects.event_
                        projects.task_list_edited projects.health_updated
                        projects.comment_added projects.work_amended
-                       projects.work_removed)
+                       projects.work_removed projects.task_file_)
 
   @doc "Whether `action` is part of a project's lasting history."
   @spec history?(binary()) :: boolean()

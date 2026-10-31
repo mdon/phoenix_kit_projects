@@ -5354,12 +5354,14 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
           aria-label={gettext("Unit")}
           class="select select-sm select-bordered w-auto"
         >
+          <%!-- The word agrees with the number beside it (ru "2 недели",
+               "5 недель"; pl "2 tygodnie", "5 tygodni"). --%>
           <option
             :for={
               {value, label} <- [
-                {"day", pgettext("repeat unit", "days")},
-                {"week", pgettext("repeat unit", "weeks")},
-                {"month", pgettext("repeat unit", "months")}
+                {"day", pngettext("repeat unit", "day", "days", @every)},
+                {"week", pngettext("repeat unit", "week", "weeks", @every)},
+                {"month", pngettext("repeat unit", "month", "months", @every)}
               ]
             }
             value={value}

@@ -44,7 +44,6 @@ defmodule PhoenixKitProjects.Integration.TaskConversionTest do
     {:ok, _} = Projects.add_dependency(after_.uuid, fit.uuid)
     {:ok, _} = Ledger.log_time(p.uuid, 30, assignment_uuid: cut.uuid)
 
-    assert TaskConversion.moving_count(fit) == 3
     assert {:ok, %{project: child, moved: 3}} = TaskConversion.to_subproject(fit)
 
     link = Projects.get_assignment(fit.uuid)
@@ -87,7 +86,6 @@ defmodule PhoenixKitProjects.Integration.TaskConversionTest do
     seal = task!(child, "Seal", status: "done")
 
     link = Projects.get_assignment(fit.uuid)
-    assert TaskConversion.moving_count(link) == 2
     assert {:ok, %{moved: 2}} = TaskConversion.to_task(link)
 
     row = Projects.get_assignment(fit.uuid)

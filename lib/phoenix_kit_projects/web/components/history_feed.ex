@@ -205,6 +205,8 @@ defmodule PhoenixKitProjects.Web.Components.HistoryFeed do
   defp compact_activity("projects.work_removed", _), do: gettext("removed a usage entry")
 
   defp compact_activity("projects.assignment_removed", _), do: gettext("removed the task")
+  defp compact_activity("projects.task_file_added", _), do: gettext("added a file")
+  defp compact_activity("projects.task_file_removed", _), do: gettext("removed a file")
   defp compact_activity(_action, _), do: gettext("changed it")
 
   # ── The sentence ────────────────────────────────────────────────────
@@ -280,6 +282,8 @@ defmodule PhoenixKitProjects.Web.Components.HistoryFeed do
 
   defp activity_sentence("projects.assignment_reopened", _), do: gettext("reopened")
   defp activity_sentence("projects.assignment_removed", _), do: gettext("removed the task")
+  defp activity_sentence("projects.task_file_added", _), do: gettext("added a file to")
+  defp activity_sentence("projects.task_file_removed", _), do: gettext("removed a file from")
 
   defp activity_sentence(action, e)
        when action in ["projects.assignment_waiting", "projects.assignment_updated"] do

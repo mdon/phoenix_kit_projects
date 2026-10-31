@@ -221,8 +221,13 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
 
   # A project feature's site default (`Features.site_flags/0`): what every
   # project inherits unless it sets its own on its Modules & Features page.
-  defp settings_write("toggle_site_flag", %{"key" => key}, socket) do
-    new_value = not Map.get(socket.assigns.site_flag_values, key, false)
+  #
+  # The box sends the value it is switched TO, never "flip": a flip reads the
+  # value this page last showed, so with a second tab (or another admin)
+  # having changed it since, a press meant to turn it on turned it off.
+  defp settings_write("toggle_site_flag", %{"key" => key, "enabled" => enabled}, socket)
+       when enabled in ["true", "false"] do
+    new_value = enabled == "true"
 
     case PhoenixKitProjects.Features.set_site_default(key, new_value) do
       {:ok, _} ->
@@ -239,6 +244,8 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
         {:noreply, put_flash(socket, :error, gettext("Could not save the settings."))}
     end
   end
+
+  defp settings_write("toggle_site_flag", _params, socket), do: {:noreply, socket}
 
   defp settings_write("toggle_status_translations", _params, socket) do
     new_value = not socket.assigns.use_status_translations
@@ -784,6 +791,7 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
               checked={Map.get(@site_flag_values, flag.key, false)}
               phx-click="toggle_site_flag"
               phx-value-key={flag.key}
+              phx-value-enabled={to_string(not Map.get(@site_flag_values, flag.key, false))}
             />
           </label>
         </div>

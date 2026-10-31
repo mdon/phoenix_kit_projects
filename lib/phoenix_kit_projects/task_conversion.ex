@@ -40,21 +40,6 @@ defmodule PhoenixKitProjects.TaskConversion do
   @typedoc "What a conversion moved."
   @type result :: %{assignment: Assignment.t(), project: Project.t(), moved: non_neg_integer()}
 
-  # ── Counting, for the confirm ──────────────────────────────────────
-
-  @doc """
-  How many tasks a conversion of `row` moves: the rows under a task, or
-  the rows of a sub-project's project.
-  """
-  @spec moving_count(Assignment.t()) :: non_neg_integer()
-  def moving_count(%Assignment{child_project_uuid: nil} = a) do
-    a.project_uuid |> project_rows() |> Outline.descendants(a.uuid) |> length()
-  end
-
-  def moving_count(%Assignment{child_project_uuid: child}) do
-    repo().aggregate(from(x in Assignment, where: x.project_uuid == ^child), :count)
-  end
-
   # ── Task → sub-project ─────────────────────────────────────────────
 
   @doc """

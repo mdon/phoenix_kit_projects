@@ -54,4 +54,22 @@ defmodule PhoenixKitProjects.Web.RepeatControlTest do
     assert html =~ "data-repeat"
     assert html =~ "Every 3 days"
   end
+
+  test "the custom unit's word agrees with the number beside it", ctx do
+    path = "/en/admin/projects/#{ctx.project.uuid}/assignments/#{ctx.a.uuid}/edit"
+    {:ok, view, _html} = live(ctx.conn, path)
+
+    unit = fn every ->
+      view
+      |> form("#assignment-form")
+      |> render_change(%{
+        "assignment" => %{"repeat" => "custom", "repeat_every" => every, "repeat_unit" => "week"}
+      })
+
+      view |> element("#assignment-repeat-unit option[value=week]") |> render() |> String.trim()
+    end
+
+    assert unit.("1") =~ ~r/>\s*week\s*</
+    assert unit.("5") =~ ~r/>\s*weeks\s*</
+  end
 end

@@ -922,6 +922,42 @@ defmodule PhoenixKitProjects.Integration.HandoffsTest do
       assert html =~ "30 min"
     end
 
+    test "a task's files are part of its story, in words of their own", ctx do
+      %{alice: alice} = ctx.people
+      t = task!(ctx.project, "Measure", alice)
+
+      for action <- ~w(projects.task_file_added projects.task_file_removed) do
+        {:ok, _} =
+          PhoenixKitProjects.Activity.log(action,
+            actor_uuid: alice.user,
+            resource_type: "assignment",
+            resource_uuid: t.uuid,
+            metadata: %{"file_uuid" => Ecto.UUID.generate(), "project_uuid" => ctx.project.uuid}
+          )
+      end
+
+      assert Repo.all(
+               from(e in Entry,
+                 where: like(e.action, "projects.task_file_%"),
+                 select: e.permanent
+               )
+             ) == [true, true]
+
+      require Phoenix.LiveViewTest
+
+      html =
+        Phoenix.LiveViewTest.render_component(
+          &HistoryFeed.history_feed/1,
+          id: "h",
+          entries: History.list(ctx.project).entries,
+          project: ctx.project,
+          links: false
+        )
+
+      assert html =~ "added a file to"
+      assert html =~ "removed a file from"
+    end
+
     test "History leaves out what the project switched off", ctx do
       %{alice: alice} = ctx.people
       t = task!(ctx.project, "T", alice)

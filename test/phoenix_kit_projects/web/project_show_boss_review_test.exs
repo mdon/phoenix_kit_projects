@@ -200,6 +200,21 @@ defmodule PhoenixKitProjects.Web.ProjectShowBossReviewTest do
       {:ok, project} = Features.set_flags(project, %{"project_time" => false})
       refute Features.gates(project).project_time
     end
+
+    test "the site default's box sets the value it is switched to, never a flip",
+         %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/en/admin/settings/projects")
+
+      # Two presses sent from the same drawing (a double click, a resent
+      # event) both mean "on": the second must not turn it off again.
+      press = %{"key" => "project_time", "enabled" => "true"}
+      render_click(view, "toggle_site_flag", press)
+      render_click(view, "toggle_site_flag", press)
+      assert Features.site_default_values()["project_time"] == true
+
+      # The box itself carries the value it switches to.
+      assert has_element?(view, ~s(#site-flag-project_time[phx-value-enabled="false"]))
+    end
   end
 
   describe "the header line instead of full-width bars (item 32)" do
