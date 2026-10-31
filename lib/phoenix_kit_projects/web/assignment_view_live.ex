@@ -28,6 +28,8 @@ defmodule PhoenixKitProjects.Web.AssignmentViewLive do
 
   require Logger
 
+  alias PhoenixKitProjects.Web.Components.AssignmentStatusBadge
+
   alias PhoenixKitProjects.{
     Assignees,
     Attachments,
@@ -688,16 +690,20 @@ defmodule PhoenixKitProjects.Web.AssignmentViewLive do
   defp step_for(%Assignment{child_project_uuid: child}, _fx) when is_binary(child), do: nil
 
   defp step_for(%Assignment{status: "waiting"}, _fx),
-    do: {"ask_ready", gettext("Ready to start"), "btn-info", "hero-play-circle"}
+    do:
+      {"ask_ready", AssignmentStatusBadge.action_label(:allow_start), "btn-info",
+       "hero-play-circle"}
 
   defp step_for(%Assignment{status: "todo"}, %{in_progress: true}),
-    do: {"start_task", gettext("Start"), "btn-warning", "hero-play"}
+    do: {"start_task", AssignmentStatusBadge.action_label(:start), "btn-warning", "hero-play"}
 
   defp step_for(%Assignment{status: status}, _fx) when status in ["todo", "in_progress"],
-    do: {"complete", gettext("Done"), "btn-success", "hero-check"}
+    do: {"complete", AssignmentStatusBadge.action_label(:mark_done), "btn-success", "hero-check"}
 
   defp step_for(%Assignment{status: "done"}, _fx),
-    do: {"ask_reopen", gettext("Reopen"), "btn-ghost", "hero-arrow-uturn-left"}
+    do:
+      {"ask_reopen", AssignmentStatusBadge.action_label(:reopen), "btn-ghost",
+       "hero-arrow-uturn-left"}
 
   defp step_for(_assignment, _fx), do: nil
 

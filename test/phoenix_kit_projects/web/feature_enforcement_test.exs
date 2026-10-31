@@ -283,6 +283,32 @@ defmodule PhoenixKitProjects.Web.FeatureEnforcementTest do
     end
   end
 
+  describe "contributed tabs in the reader's language" do
+    # The Hours tab is the Tasks extension's contributed tab: its label is
+    # a msgid, and the strip drew it raw — English on every /ru/ page.
+    test "the Hours tab is translated", %{conn: conn, project: project} do
+      {:ok, _} = Features.set_flags(project, %{"ledger" => true})
+
+      {:ok, u} =
+        Auth.register_user(%{
+          "email" => "hours-ru-#{System.unique_integer([:positive])}@example.com",
+          "password" => "HoursRuPass123!"
+        })
+
+      {:ok, _} = Members.add_member(project, u.uuid, role: "manager")
+
+      # The page as the host embeds it, in Russian (the test router serves /en only).
+      {:ok, view, _html} =
+        live_isolated(conn, PhoenixKitProjects.Web.ProjectShowLive,
+          session: %{"id" => project.uuid, "current_user_uuid" => u.uuid, "locale" => "ru"}
+        )
+
+      tab = ~s([phx-value-tab="ext:tasks:hours"])
+      assert has_element?(view, tab, "Часы")
+      refute has_element?(view, tab, "Hours")
+    end
+  end
+
   describe "dependencies flag off (assignment form)" do
     setup %{project: project} do
       {:ok, project} = Features.set_flags(project, %{"dependencies" => false})

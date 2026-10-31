@@ -26,6 +26,8 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
   use Gettext, backend: PhoenixKitProjects.Gettext
   use PhoenixKitProjects.Web.Components
 
+  alias PhoenixKitProjects.Web.Components.AssignmentStatusBadge
+
   alias PhoenixKitProjects.{
     Assignees,
     CalendarDisplay,
@@ -826,19 +828,19 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
                 <p class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
                   <span class="inline-flex items-center gap-1.5">
                     <span class="inline-block w-2.5 h-2.5 rounded-full bg-neutral"></span>
-                    {gettext("waiting")}
+                    {AssignmentStatusBadge.label("waiting")}
                   </span>
                   <span class="inline-flex items-center gap-1.5">
                     <span class="inline-block w-2.5 h-2.5 rounded-full bg-primary"></span>
-                    {gettext("can be started")}
+                    {AssignmentStatusBadge.label("todo")}
                   </span>
                   <span class="inline-flex items-center gap-1.5">
                     <span class="inline-block w-2.5 h-2.5 rounded-full bg-warning"></span>
-                    {gettext("in progress")}
+                    {AssignmentStatusBadge.label("in_progress")}
                   </span>
                   <span class="inline-flex items-center gap-1.5">
                     <span class="inline-block w-2.5 h-2.5 rounded-full bg-success"></span>
-                    {gettext("done")}
+                    {AssignmentStatusBadge.label("done")}
                   </span>
                 </p>
                 <p class="mt-1.5">

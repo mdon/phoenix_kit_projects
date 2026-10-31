@@ -693,12 +693,11 @@ defmodule PhoenixKitProjects.Web.PortalLive do
 
     [{"all", gettext("All"), length(view.issues)}]
     |> Kernel.++(
-      for {status, label} <- [
-            {"waiting", gettext("Waiting")},
-            {"todo", gettext("Open")},
-            {"in_progress", gettext("In progress")},
-            {"done", gettext("Done")}
-          ],
+      # The same names the issues' own badges carry (`AssignmentStatusBadge`):
+      # a filter called "Open" over rows marked "Can be started" read as two
+      # different states.
+      for status <- ~w(waiting todo in_progress done),
+          label = PhoenixKitProjects.Web.Components.AssignmentStatusBadge.label(status),
           Map.has_key?(counts, status),
           do: {status, label, Map.fetch!(counts, status)}
     )

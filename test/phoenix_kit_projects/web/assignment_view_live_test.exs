@@ -78,7 +78,7 @@ defmodule PhoenixKitProjects.Web.AssignmentViewLiveTest do
       assert html =~ "Unassigned"
       refute html =~ "None"
       # On its own page the next step takes you to the project to run it.
-      assert html =~ "Ready to start"
+      assert html =~ "Allow start"
     end
 
     test "draws the description as written and lists the task's own files", ctx do
@@ -171,7 +171,7 @@ defmodule PhoenixKitProjects.Web.AssignmentViewLiveTest do
       refute has_element?(view, ~s(button[phx-click="step"]))
 
       href = PhoenixKitProjects.Paths.task(ctx.project, ctx.measure)
-      assert has_element?(view, ~s(a[href="#{href}"]), "Ready to start")
+      assert has_element?(view, ~s(a[href="#{href}"]), "Allow start")
 
       # A forged click asks nobody: no intent nobody would answer, and the
       # view stays open.
@@ -219,7 +219,7 @@ defmodule PhoenixKitProjects.Web.AssignmentViewLiveTest do
         )
 
       assert html =~ "Take kitchen measurements"
-      refute html =~ "Ready to start"
+      refute html =~ "Allow start"
       refute has_element?(view, ~s(button[phx-click="edit"]))
 
       render_click(view, "edit", %{})
@@ -325,7 +325,7 @@ defmodule PhoenixKitProjects.Web.AssignmentViewLiveTest do
       assert html =~ "step_intents"
 
       send(view.pid, {:projects, :intent, %{event: "ask_ready", uuid: ctx.measure.uuid}})
-      assert render(view) =~ "ready to start?"
+      assert render(view) =~ "Allow “"
     end
 
     test "a step the page does not own is ignored", ctx do

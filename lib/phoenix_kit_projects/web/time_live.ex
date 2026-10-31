@@ -504,7 +504,7 @@ defmodule PhoenixKitProjects.Web.TimeLive do
       </span>
       <span class="inline-flex items-center gap-1.5">
         <span class="inline-block w-6 h-2.5 rounded-sm bg-success"></span>
-        {gettext("Done")}
+        {PhoenixKitProjects.Web.Components.AssignmentStatusBadge.label("done")}
       </span>
       <span class="inline-flex items-center gap-1.5">
         <span class="inline-block w-6 h-2.5 rounded-sm bg-error"></span>

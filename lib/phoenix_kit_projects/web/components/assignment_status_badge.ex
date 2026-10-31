@@ -12,7 +12,8 @@ defmodule PhoenixKitProjects.Web.Components.AssignmentStatusBadge do
 
     * `color/1` — Tailwind `bg-*` class for filled circles/dots.
     * `badge_class/1` — daisyUI `badge-*` variant class.
-    * `label/1` — gettext'd human label (falls back to the raw value).
+    * `label/2` — the status's name (falls back to the raw value).
+    * `action_label/2` — the step into a status.
 
   ## Component
 
@@ -61,23 +62,48 @@ defmodule PhoenixKitProjects.Web.Components.AssignmentStatusBadge do
   def badge_class("done"), do: "badge-success"
   def badge_class(_), do: "badge-ghost"
 
-  @doc "Localized human label for an assignment status."
-  @spec label(String.t() | nil) :: String.t()
-  def label("waiting"), do: gettext("waiting")
-  def label("todo"), do: gettext("can be started")
-  def label("in_progress"), do: gettext("in progress")
-  def label("done"), do: gettext("done")
-  def label(other) when is_binary(other), do: other
-  def label(_), do: gettext("waiting")
+  @doc """
+  The status as it is NAMED — the one word used for it everywhere: the
+  badge, the board's columns, the filters, the Change status popup and the
+  form's status buttons (`pgettext "task status"`). Never the step that
+  leads to it: that is `action_label/2`.
+
+  `subproject?` picks the form a sub-project's row takes where a language
+  agrees the word with the noun (ru "Выполнена" for a задача, "Выполнен"
+  for a подпроект).
+  """
+  @spec label(String.t() | nil, boolean()) :: String.t()
+  def label(status, subproject? \\ false)
+  def label("waiting", _), do: pgettext("task status", "Waiting")
+  def label("todo", _), do: pgettext("task status", "Can be started")
+  def label("in_progress", _), do: pgettext("task status", "In progress")
+  def label("done", true), do: pgettext("sub-project status", "Done")
+  def label("done", _), do: pgettext("task status", "Done")
+  def label(other, _) when is_binary(other), do: other
+  def label(_, _), do: pgettext("task status", "Waiting")
+
+  @doc """
+  The step that moves a task INTO a status, phrased on the status's own
+  root (`pgettext "task action"`): Можно начинать ← Разрешить начать, В работе ← Взять в работу, Выполнена ←
+  Отметить выполненной, and Открыть заново out of done.
+  """
+  @spec action_label(:allow_start | :start | :mark_done | :reopen, boolean()) :: String.t()
+  def action_label(action, subproject? \\ false)
+  def action_label(:allow_start, _), do: pgettext("task action", "Allow start")
+  def action_label(:start, _), do: pgettext("task action", "Start")
+  def action_label(:mark_done, true), do: pgettext("sub-project action", "Mark done")
+  def action_label(:mark_done, _), do: pgettext("task action", "Mark done")
+  def action_label(:reopen, _), do: pgettext("task action", "Reopen")
 
   attr(:status, :string, required: true)
+  attr(:subproject, :boolean, default: false, doc: "a sub-project's row (the word's gender)")
   attr(:size, :string, default: "sm", values: ~w(xs sm md lg))
   attr(:class, :string, default: nil)
 
   def assignment_status_badge(assigns) do
     ~H"""
     <span class={["badge", size_class(@size), badge_class(@status), @class]}>
-      {label(@status)}
+      {label(@status, @subproject)}
     </span>
     """
   end

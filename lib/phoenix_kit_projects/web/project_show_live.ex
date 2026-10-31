@@ -54,6 +54,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   # "Post Comment" silently submits empty content. comments is a hard dep here.
   use PhoenixKitComments.Embed
 
+  alias PhoenixKitProjects.Web.Components.AssignmentStatusBadge
   alias PhoenixKit.Users.Auth.User, as: AuthUser
   alias PhoenixKit.Utils.Routes
 
@@ -993,11 +994,14 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     middle? = fx.in_progress or Enum.any?(assignments, &(&1.status == "in_progress"))
 
     [
-      {"waiting", gettext("Waiting"), "border-t-base-300"},
-      {"todo", gettext("Can be started"), "border-t-info"}
+      {"waiting", AssignmentStatusBadge.label("waiting"), "border-t-base-300"},
+      {"todo", AssignmentStatusBadge.label("todo"), "border-t-info"}
     ] ++
-      if(middle?, do: [{"in_progress", gettext("In progress"), "border-t-warning"}], else: []) ++
-      [{"done", gettext("Done"), "border-t-success"}]
+      if(middle?,
+        do: [{"in_progress", AssignmentStatusBadge.label("in_progress"), "border-t-warning"}],
+        else: []
+      ) ++
+      [{"done", AssignmentStatusBadge.label("done"), "border-t-success"}]
   end
 
   @doc """
@@ -1924,7 +1928,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
               >
                 <.icon name={if @ol.folded, do: "hero-chevron-right", else: "hero-chevron-down"} class="w-4 h-4" />
               </button>
-              <.assignment_status_badge :if={not @is_template} status={@a.status} />
+              <.assignment_status_badge :if={not @is_template} status={@a.status} subproject={Assignment.subproject?(@a)} />
               <%!-- Work that started and then had something before it
                    reopened is ON HOLD — derived, never stored: it clears
                    itself when what it waits on is done again. Beside the
@@ -2952,6 +2956,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
              uuid: a.uuid,
              status: status,
              label: Assignment.label(a, L10n.current_content_lang()),
+             subproject?: Assignment.subproject?(a),
              choices: status_choices(socket, a)
            }
          )}
@@ -4833,13 +4838,6 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
 
   # ── Priority display (Phase C) ───────────────────────────────────
 
-  # The status as it is named (`pgettext "task status"`): the same word
-  # wherever the status is shown, never the step that leads to it.
-  defp status_word("waiting"), do: pgettext("task status", "Waiting")
-  defp status_word("todo"), do: pgettext("task status", "Can be started")
-  defp status_word("in_progress"), do: pgettext("task status", "In progress")
-  defp status_word("done"), do: pgettext("task status", "Done")
-
   defp priority_class("urgent"), do: "badge-error"
   defp priority_class("high"), do: "badge-warning"
   defp priority_class("low"), do: "badge-ghost"
@@ -5651,9 +5649,9 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
           active_tab={@list_status}
           on_change="list_filter_status"
           tabs={[
-            %{id: "active", label: gettext("Active"), badge: @assignment_counts.active},
-            %{id: "done", label: gettext("Done"), badge: @assignment_counts.done},
-            %{id: "all", label: gettext("All"), badge: @assignment_counts.total}
+            %{id: "active", label: pgettext("task filter", "Active"), badge: @assignment_counts.active},
+            %{id: "done", label: pgettext("task filter", "Done"), badge: @assignment_counts.done},
+            %{id: "all", label: pgettext("task filter", "All"), badge: @assignment_counts.total}
           ]}
         >
           <:trailing>
@@ -5857,7 +5855,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                           <span class="badge badge-secondary badge-sm gap-1 shrink-0">
                             <.icon name="hero-folder" class="w-3 h-3" /> {gettext("Sub-project")}
                           </span>
-                          <.assignment_status_badge :if={not @is_template} status={a.status} />
+                          <.assignment_status_badge :if={not @is_template} status={a.status} subproject={Assignment.subproject?(a)} />
                           <%!-- A sub-project is known by its OWN key, not by
                                the number its row has in this list. --%>
                           <.ref_chip :if={not @is_template} ref={child.key} />
@@ -6056,7 +6054,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                               <%= if Assignment.subproject?(ct) do %>
                                 <%!-- A nested sub-project: a compact link (open it to drill in). --%>
                                 <div class="flex items-center gap-2 text-xs">
-                                  <.assignment_status_badge status={ct.status} />
+                                  <.assignment_status_badge status={ct.status} subproject />
                                   <span class="badge badge-secondary badge-xs shrink-0">{gettext("Sub-project")}</span>
                                   <.smart_link
                                     navigate={Paths.project(ct.child_project.uuid)}
@@ -6351,14 +6349,14 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                             class="btn btn-info btn-xs"
                             title={gettext("Release it: its people are told they can start")}
                           >
-                            {gettext("Ready to start")}
+                            {AssignmentStatusBadge.action_label(:allow_start)}
                           </button>
                         <%!-- A sub-project that follows its tasks moves by
                              them once released. --%>
                         <% Assignment.subproject?(a) and @fx.subproject_auto -> %>
                         <% a.status == "todo" and @fx.in_progress -> %>
                           <button phx-click="start_task" phx-value-uuid={a.uuid} phx-disable-with="…" class="btn btn-warning btn-xs">
-                            {gettext("Start")}
+                            {AssignmentStatusBadge.action_label(:start)}
                           </button>
                         <% a.status in ["todo", "in_progress"] -> %>
                           <button
@@ -6366,14 +6364,14 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                             phx-value-uuid={a.uuid}
                             phx-disable-with="…"
                             class="btn btn-success btn-xs"
-                            title={gettext("Mark done")}
-                            aria-label={gettext("Mark done")}
+                            title={AssignmentStatusBadge.action_label(:mark_done, Assignment.subproject?(a))}
+                            aria-label={AssignmentStatusBadge.action_label(:mark_done, Assignment.subproject?(a))}
                           >
                             <.icon name="hero-check" class="w-3.5 h-3.5" />
                           </button>
                         <% a.status == "done" -> %>
                           <button phx-click="ask_reopen" phx-value-uuid={a.uuid} class="btn btn-ghost btn-xs">
-                            {gettext("Reopen")}
+                            {AssignmentStatusBadge.action_label(:reopen)}
                           </button>
                         <% true -> %>
                       <% end %>
@@ -6617,7 +6615,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         <FormParts.status_buttons
           id={"status-change-choices-#{@status_change.uuid}"}
           value={@status_change.status}
-          options={Enum.map(@status_change.choices, &{status_word(&1), &1})}
+          options={Enum.map(@status_change.choices, &{AssignmentStatusBadge.label(&1, @status_change.subproject?), &1})}
           event="set_status"
           values={%{"uuid" => @status_change.uuid, "from" => @status_change.status}}
         />
@@ -6644,7 +6642,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
               {gettext("Cancel")}
             </button>
             <button type="submit" phx-disable-with={gettext("Reopening…")} class="btn btn-warning btn-sm">
-              <.icon name="hero-arrow-uturn-left" class="w-4 h-4" /> {gettext("Reopen")}
+              <.icon name="hero-arrow-uturn-left" class="w-4 h-4" /> {AssignmentStatusBadge.action_label(:reopen)}
             </button>
           </div>
         </.form>
@@ -6662,7 +6660,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       >
         <:title>
           <%= if @next_up.mode == :release do %>
-            {gettext("“%{task}” — ready to start?", task: @next_up.after)}
+            {gettext("Allow “%{task}” to start?", task: @next_up.after)}
           <% else %>
             {gettext("Mark “%{task}” done?", task: @next_up.after)}
           <% end %>
@@ -6769,7 +6767,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
               phx-disable-with={gettext("Saving…")}
               class="btn btn-info btn-sm"
             >
-              <.icon name="hero-play-circle" class="w-4 h-4" /> {gettext("Ready to start")}
+              <.icon name="hero-play-circle" class="w-4 h-4" /> {AssignmentStatusBadge.action_label(:allow_start)}
             </button>
             <button
               :if={@next_up.mode == :complete}

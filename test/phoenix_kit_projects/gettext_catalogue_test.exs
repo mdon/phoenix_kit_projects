@@ -185,6 +185,38 @@ defmodule PhoenixKitProjects.GettextCatalogueTest do
     locale |> po() |> messages() |> Enum.any?(&(id(&1) == label and forms(&1) == [label]))
   end
 
+  # The status vocabulary the owner agreed (boss's list, item 1): ONE name
+  # per status wherever it is shown, and each step into it phrased on the
+  # status's own root. A catalogue edit that drifts from it fails here.
+  alias PhoenixKitProjects.Web.Components.AssignmentStatusBadge, as: Words
+
+  @vocabulary %{
+    "ru" => {
+      ["Ожидает", "Можно начинать", "В работе", "Выполнена"],
+      ["Разрешить начать", "Взять в работу", "Отметить выполненной", "Открыть заново"]
+    },
+    "et" => {
+      ["Ootel", "Saab alustada", "Töös", "Tehtud"],
+      ["Luba alustada", "Võta töösse", "Märgi tehtuks", "Ava uuesti"]
+    }
+  }
+
+  test "task statuses and their steps use the agreed words" do
+    for {locale, {statuses, actions}} <- @vocabulary do
+      Gettext.with_locale(PhoenixKitProjects.Gettext, locale, fn ->
+        assert Enum.map(~w(waiting todo in_progress done), &Words.label/1) == statuses
+
+        assert Enum.map([:allow_start, :start, :mark_done, :reopen], &Words.action_label/1) ==
+                 actions
+      end)
+    end
+
+    Gettext.with_locale(PhoenixKitProjects.Gettext, "ru", fn ->
+      assert Words.label("done", true) == "Выполнен"
+      assert Words.action_label(:mark_done, true) == "Отметить выполненным"
+    end)
+  end
+
   test "\"+N more\" is translated in every locale, as a plural and as a plain gettext" do
     for locale <- @locales do
       Gettext.with_locale(PhoenixKitProjects.Gettext, locale, fn ->

@@ -157,7 +157,7 @@ defmodule PhoenixKitProjects.Web.Components.HistoryFeed do
   defp compact_activity("projects.assignment_reopened", _), do: gettext("reopened")
 
   defp compact_activity("projects.assignment_made_ready", _),
-    do: gettext("marked it as can be started")
+    do: gettext("allowed it to start")
 
   defp compact_activity("projects.assignment_made_idle", _), do: gettext("kept it idle")
 
@@ -291,7 +291,7 @@ defmodule PhoenixKitProjects.Web.Components.HistoryFeed do
   end
 
   defp activity_sentence("projects.assignment_made_ready", _),
-    do: gettext("marked as can be started:")
+    do: gettext("allowed to start:")
 
   defp activity_sentence("projects.assignment_made_idle", _), do: gettext("kept idle:")
 

@@ -894,7 +894,7 @@ defmodule PhoenixKitProjects.Web.ProjectModulesLive do
                   {PhoenixKitProjects.Web.ProjectApiLive.access_label(row.access)}
                 </div>
                 <div :if={row.access} class="text-xs text-base-content/60 mt-0.5">
-                  {gettext("acts as %{role}", role: row.access.role)} · {PhoenixKitProjects.Web.ProjectApiLive.source_label(row.source)}
+                  {gettext("acts as %{role}", role: PhoenixKitProjects.Web.ProjectApiLive.role_name(row.access.role))} · {PhoenixKitProjects.Web.ProjectApiLive.source_label(row.source)}
                 </div>
               </td>
               <td class="align-top text-xs">

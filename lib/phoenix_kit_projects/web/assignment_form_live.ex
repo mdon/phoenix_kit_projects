@@ -35,6 +35,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
 
   require Logger
 
+  alias PhoenixKitProjects.Web.Components.AssignmentStatusBadge
   alias Phoenix.LiveView.JS
   alias PhoenixKit.Mentions
   alias PhoenixKit.Users.Auth.User
@@ -3843,9 +3844,12 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   defp status_options(fx, assignment) do
     middle? = fx.in_progress or match?(%{status: "in_progress"}, assignment)
 
-    [{gettext("Waiting"), "waiting"}, {gettext("Can be started"), "todo"}] ++
-      if(middle?, do: [{gettext("In progress"), "in_progress"}], else: []) ++
-      [{gettext("Done"), "done"}]
+    [
+      {AssignmentStatusBadge.label("waiting"), "waiting"},
+      {AssignmentStatusBadge.label("todo"), "todo"}
+    ] ++
+      if(middle?, do: [{AssignmentStatusBadge.label("in_progress"), "in_progress"}], else: []) ++
+      [{AssignmentStatusBadge.label("done"), "done"}]
   end
 
   defp priority_options do
@@ -4670,7 +4674,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
                     checked={sub.status == "done"}
                     phx-click="subtask_toggle"
                     phx-value-uuid={sub.uuid}
-                    aria-label={gettext("Done")}
+                    aria-label={AssignmentStatusBadge.label("done")}
                   />
                   <.link
                     navigate={Paths.edit_assignment(@project.uuid, sub.uuid)}

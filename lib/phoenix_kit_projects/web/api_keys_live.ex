@@ -594,7 +594,7 @@ defmodule PhoenixKitProjects.Web.ApiKeysLive do
           socket,
           gettext("Saved: %{key} acts as %{role} in %{project}.",
             key: key.name,
-            role: role,
+            role: PhoenixKitProjects.Web.ProjectApiLive.role_name(role),
             project: project_label(project_uuid)
           )
         )

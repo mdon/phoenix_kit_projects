@@ -129,14 +129,16 @@ defmodule PhoenixKitProjects.Web.Components.RunningCard do
   defp breakdown_line(%{task_total: 0}), do: nil
 
   defp breakdown_line(node) do
+    # Each count is its own plural phrase: a number glued to one word
+    # ("5 ожидает") cannot agree with it.
     [
-      {node.task_done, gettext("done")},
-      {node.task_in_progress, gettext("in progress")},
-      {node.task_todo, gettext("can be started")},
-      {Map.get(node, :task_waiting, 0), gettext("waiting")}
+      {node.task_done, &ngettext("%{count} done", "%{count} done", &1)},
+      {node.task_in_progress, &ngettext("%{count} in progress", "%{count} in progress", &1)},
+      {node.task_todo, &ngettext("%{count} can be started", "%{count} can be started", &1)},
+      {Map.get(node, :task_waiting, 0), &ngettext("%{count} waiting", "%{count} waiting", &1)}
     ]
-    |> Enum.filter(fn {n, _label} -> n > 0 end)
-    |> Enum.map_join(" · ", fn {n, label} -> "#{n} #{label}" end)
+    |> Enum.filter(fn {n, _phrase} -> n > 0 end)
+    |> Enum.map_join(" · ", fn {n, phrase} -> phrase.(n) end)
     |> case do
       "" -> nil
       line -> line
