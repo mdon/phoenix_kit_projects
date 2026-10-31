@@ -30,8 +30,9 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   which the router-mounted standalone admin page sets (so its deep-linking
   keeps working) and an embed can opt into via `session["tab_url_sync"]`. When
   on, the strip carries the active tab's canonical address in `data-url` and
-  core's `PkUrlMirror` hook REPLACES the browser's URL with it on every
-  render — deep links / copy / reload land on the right tab, while
+  the `PkpUrlMirror` hook (core's PkUrlMirror, keeping the `?task=` the
+  page's drawer writes — `PopupHostLive`) REPLACES the browser's URL with it
+  on every render — deep links / copy / reload land on the right tab, while
   back/forward return to the previous page. Deliberately no per-tab history
   entries: they'd need this LV to export `handle_params/3` (which would block
   `live_render` embedding), and LiveView's popstate handler treats foreign
@@ -5255,8 +5256,9 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
            not places you live in. Templates get no strip (Tasks only).
            A hidden element carries the active tab's canonical address in
            `data-url` (present whether or not a strip shows — a lone Tasks
-           tab still has /tasks/board); core's PkUrlMirror hook replaces
-           the browser's URL with it on router mounts (`@tab_url_sync?`) so
+           tab still has /tasks/board); the PkpUrlMirror hook (core's
+           PkUrlMirror keeping the drawer's ?task=) replaces the browser's
+           URL with it on router mounts (`@tab_url_sync?`) so
            copy / reload / deep links land on the tab — an embed never
            touches its host's URL. --%>
       <% top_tab = top_tab_of(@active_tab) %>
@@ -5285,7 +5287,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       <div
         :if={@tab_url_sync? and not @is_template}
         id={"project-url-#{@project.uuid}"}
-        phx-hook="PkUrlMirror"
+        phx-hook="PkpUrlMirror"
         data-url={tab_url(@active_tab, @project, @ext_tabs)}
         class="hidden"
       >

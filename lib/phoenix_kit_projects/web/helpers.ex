@@ -396,12 +396,24 @@ defmodule PhoenixKitProjects.Web.Helpers do
   call runs.
 
   Backward-compatible: when `"locale"` is absent, this is a no-op.
+
+  Only where nothing set a locale yet. A router mount has its language
+  from the URL already (core's `on_mount` runs before `mount/3`), and the
+  `session` it gets is the browser's cookie session — where a host's own
+  locale plug, or an older core, may have left a `"locale"` from some
+  earlier page. Applying that one switched the page to another language
+  than its `/et/…` address on the next mount, a Back included (the boss,
+  2026-10-30: "the language changed"). The URL is the language, never the
+  session.
   """
   @spec maybe_put_locale(map()) :: :ok | nil
   def maybe_put_locale(session) do
-    if locale = Map.get(session, "locale") do
+    with locale when is_binary(locale) <- Map.get(session, "locale"),
+         nil <- Process.get(PhoenixKitWeb.Gettext) do
       Gettext.put_locale(PhoenixKitWeb.Gettext, locale)
       Gettext.put_locale(locale)
+    else
+      _ -> nil
     end
   end
 

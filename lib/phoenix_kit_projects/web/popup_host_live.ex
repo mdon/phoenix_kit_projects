@@ -88,14 +88,31 @@ defmodule PhoenixKitProjects.Web.PopupHostLive do
 
   Whenever the embedded LV (or anything it transitively opens) emits
   `:opened`, this LV renders the target inside a modal on the host's
-  existing page. No URL change. No DOM replacement.
+  existing page. No DOM replacement.
+
+  ## A task in the page's address
+
+  A task's view or edit form open in a frame puts the task in the PAGE's
+  URL — `?task=ACME-12`, the host's own path and other parameters kept —
+  so a reload or a shared link opens it again, and the browser's Back
+  closes the frame instead of leaving the page (the boss, 2026-10-30, on
+  an order page: "he refreshed the page, and the task is closed"). The
+  `PkpDrawerUrl` hook owns the address bar: opening pushes one history
+  entry, swapping to another task replaces it, closing goes back over it
+  (or drops the parameter when the page was loaded with it). A `?task=`
+  in the address when the host mounts opens that task (`"pkp_url_task"`),
+  read by the hook since an embedded LiveView never sees the host's URL.
+  Only the `task` parameter is ever written.
   """
 
   use Phoenix.LiveView, layout: false
 
   import PhoenixKitProjects.Web.Components.PopupHost
 
+  alias PhoenixKitProjects.Projects
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
+  alias PhoenixKitProjects.Schemas.Assignment
+  alias PhoenixKitProjects.Web.{AssignmentFormLive, AssignmentViewLive, ProjectShowLive}
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
 
   require Logger
@@ -497,7 +514,85 @@ defmodule PhoenixKitProjects.Web.PopupHostLive do
     end
   end
 
+  # The address bar's `?task=` (`PkpDrawerUrl`): "" — Back went over the
+  # entry the frame pushed, so the task's frames close (and whatever was
+  # opened over them); a ref — a reload or a link: that task's view opens,
+  # unless it is already the one on top.
+  def handle_event("pkp_url_task", %{"task" => ""}, socket) do
+    {:noreply, close_task_frames(socket)}
+  end
+
+  def handle_event("pkp_url_task", %{"task" => ref}, socket) when is_binary(ref) do
+    cond do
+      top_task_ref(socket.assigns.modal_stack) == ref ->
+        {:noreply, socket}
+
+      length(socket.assigns.modal_stack) >= socket.assigns.max_stack_depth ->
+        {:noreply, socket}
+
+      true ->
+        case url_task(ref) do
+          %Assignment{} = a ->
+            {:noreply, push_frame(socket, AssignmentViewLive, task_view(socket, a))}
+
+          _ ->
+            {:noreply, socket}
+        end
+    end
+  end
+
   def handle_event(_event, _params, socket), do: {:noreply, socket}
+
+  # A ref from the address bar, as any link names a task: `ACME-12` or a
+  # uuid. Who may see it is the view's own check when it mounts.
+  defp url_task(ref) when byte_size(ref) <= 80, do: Projects.get_assignment(ref)
+  defp url_task(_ref), do: nil
+
+  # The session the page's own rows open a view with — under a project
+  # page that runs the view's next steps, its `step_intents`.
+  defp task_view(socket, %Assignment{} = a) do
+    case socket.assigns.root_view do
+      %{lv: ProjectShowLive} ->
+        ProjectShowLive.view_session(%{project_uuid: a.project_uuid, uuid: a.uuid})
+
+      _ ->
+        %{"project_id" => a.project_uuid, "id" => a.uuid}
+    end
+  end
+
+  # Every frame from the lowest one showing a task up.
+  defp close_task_frames(socket) do
+    stack = socket.assigns.modal_stack
+
+    case Enum.find_index(stack, &is_binary(&1[:task_ref])) do
+      nil -> socket
+      i -> assign(socket, modal_stack: Enum.take(stack, i))
+    end
+  end
+
+  # The ref the address bar shows: the topmost frame showing a task.
+  defp top_task_ref(stack) do
+    stack |> Enum.reverse() |> Enum.find_value(& &1[:task_ref])
+  end
+
+  # A task's view, or its edit form: the task's `KEY-number` (its uuid
+  # when it has none). Anything else — a new task, a project form — none.
+  defp frame_task_ref(AssignmentFormLive, %{"live_action" => "edit", "id" => id}),
+    do: task_ref_of(id)
+
+  defp frame_task_ref(AssignmentViewLive, %{"id" => id}), do: task_ref_of(id)
+  defp frame_task_ref(_lv, _session), do: nil
+
+  defp task_ref_of(id) when is_binary(id) do
+    case Projects.get_assignment(id) do
+      %Assignment{} = a -> Assignment.row_ref(a) || a.uuid
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp task_ref_of(_id), do: nil
 
   # Tolerant decode — `phx-value-frame-ref` arrives as a string from the
   # DOM. Garbage values (adversarial or pre-stamp) degrade to nil so the
@@ -536,7 +631,8 @@ defmodule PhoenixKitProjects.Web.PopupHostLive do
       frame_ref: frame_ref,
       lv: lv,
       session: stamped_session,
-      id: "embed-#{frame_ref}-#{lv_slug(lv)}"
+      id: "embed-#{frame_ref}-#{lv_slug(lv)}",
+      task_ref: frame_task_ref(lv, child_session)
     }
 
     assign(socket, modal_stack: socket.assigns.modal_stack ++ [frame])
@@ -596,6 +692,14 @@ defmodule PhoenixKitProjects.Web.PopupHostLive do
         )}
       </:frame>
     </.popup_host>
+    <%!-- The open task in the page's address (`PkpDrawerUrl`). --%>
+    <div
+      id={"pkp-drawer-url-#{topic_suffix(@host_topic)}"}
+      phx-hook="PkpDrawerUrl"
+      data-task={top_task_ref(@modal_stack) || ""}
+      hidden
+    >
+    </div>
     """
   end
 end

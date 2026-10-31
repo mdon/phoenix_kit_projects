@@ -21,6 +21,9 @@
  *
  * PkpTabScroll: the one scroll area under a tab strip, back to its top
  * only when the open tab changes.
+ *
+ * PkpDrawerUrl / PkpUrlMirror: the task open in a drawer in the page's
+ * address (`?task=`), and the project page's tab address keeping it.
  */
 (function () {
   "use strict";
@@ -1699,11 +1702,124 @@
     }
   };
 
+  // PkpDrawerUrl: the task open in a drawer is in the page's address
+  // (`?task=ACME-12`, `PopupHostLive`), so a reload or a shared link opens
+  // it again and Back closes it instead of leaving the page. Only the
+  // `task` parameter is ever touched; the host's path and its own
+  // parameters stay as they are.
+  //
+  // Opening pushes ONE history entry (marked `pkpTask`); another task
+  // replaces it; closing goes back over it — or, when the page was loaded
+  // with the parameter (nothing was pushed), drops it in place. A Back or
+  // Forward that changes only `task` is this hook's, not a navigation:
+  // its listener runs in the capture phase and keeps LiveView's own
+  // popstate handler from treating it as one (which would remount the
+  // page), then tells the server what the address now names.
+  var TASK_PARAM = "task";
+
+  function taskOf(loc) {
+    try { return new URLSearchParams(loc.search).get(TASK_PARAM) || ""; } catch (_e) { return ""; }
+  }
+
+  function withTask(loc, ref) {
+    var params = new URLSearchParams(loc.search);
+    if (ref) params.set(TASK_PARAM, ref); else params.delete(TASK_PARAM);
+    var search = params.toString();
+    return loc.pathname + (search ? "?" + search : "") + loc.hash;
+  }
+
+  function withoutTask(loc) {
+    return withTask({ pathname: loc.pathname, search: loc.search, hash: "" }, "");
+  }
+
+  var DrawerUrl = {
+    mounted: function () {
+      var self = this;
+      var wanted = taskOf(window.location);
+      this.ref = this.el.dataset.task || "";
+      this.base = withoutTask(window.location);
+
+      this.onPop = function (e) {
+        // Another page, or another of the host's own parameters: not ours.
+        if (withoutTask(window.location) !== self.base) return;
+        e.stopImmediatePropagation();
+        var now = taskOf(window.location);
+        if (now !== self.ref) {
+          self.ref = now;
+          self.pushEvent("pkp_url_task", { task: now });
+        }
+      };
+      window.addEventListener("popstate", this.onPop, true);
+
+      if (wanted && wanted !== this.ref) {
+        // A reload or a link: the address already says it, so nothing is
+        // pushed when the frame opens.
+        this.ref = wanted;
+        this.pushEvent("pkp_url_task", { task: wanted });
+      } else if (this.ref && !wanted) {
+        this.replace(this.ref);
+      }
+    },
+    updated: function () {
+      var ref = this.el.dataset.task || "";
+      if (ref === this.ref) return;
+      var was = this.ref;
+      this.ref = ref;
+      this.base = withoutTask(window.location);
+      var state = window.history.state;
+
+      try {
+        if (ref && !was) {
+          window.history.pushState({ pkpTask: ref, back: state }, "", withTask(window.location, ref));
+        } else if (ref) {
+          this.replace(ref);
+        } else if (state && state.pkpTask) {
+          window.history.back();
+        } else {
+          this.replace("");
+        }
+      } catch (_e) {
+        // A refused URL: leave the address bar alone.
+      }
+    },
+    destroyed: function () {
+      window.removeEventListener("popstate", this.onPop, true);
+    },
+    replace: function (ref) {
+      try {
+        window.history.replaceState(window.history.state, "", withTask(window.location, ref));
+      } catch (_e) {}
+    }
+  };
+
+  // PkpUrlMirror: core's PkUrlMirror (the address bar follows the project
+  // page's tab, `data-url`, replaced never pushed) keeping the `task`
+  // parameter the page's drawer writes (`PkpDrawerUrl`) — core's would
+  // drop it on the page's next update.
+  var UrlMirror = {
+    mounted: function () { this.sync(); },
+    updated: function () { this.sync(); },
+    sync: function () {
+      var url = this.el.dataset.url;
+      if (typeof url !== "string" || url.charAt(0) !== "/") return;
+      if (url.charAt(1) === "/" || url.charAt(1) === "\\") return;
+      if (/[\u0000-\u001f\u007f#?]/.test(url)) return;
+      var task = taskOf(window.location);
+      var target = task ? url + "?" + TASK_PARAM + "=" + encodeURIComponent(task) : url;
+      if (target === window.location.pathname + window.location.search) return;
+      try {
+        window.history.replaceState(window.history.state, "", target + window.location.hash);
+      } catch (_e) {}
+    }
+  };
+
   window.PhoenixKitProjectsHooks = {
     PkpOutline: Outline,
     PkpTitle: Title,
     PkpLinks: Links,
     PkpBoard: Board,
-    PkpTabScroll: TabScroll
+    PkpTabScroll: TabScroll,
+    PkpDrawerUrl: DrawerUrl,
+    PkpUrlMirror: UrlMirror
   };
 })();

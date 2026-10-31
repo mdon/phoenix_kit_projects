@@ -721,7 +721,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLiveTest do
       # URL sync defaults OFF in embeds: an embed must never rewrite the host
       # page's address bar, so the strip carries no address and no hook.
       refute html =~ "data-url="
-      refute html =~ "PkUrlMirror"
+      refute html =~ "PkpUrlMirror"
     end
 
     test "an embed can opt into URL sync via session[\"tab_url_sync\"]", %{
@@ -736,7 +736,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLiveTest do
         )
 
       html = render_click(view, "switch_tab", %{"tab" => "gantt"})
-      assert html =~ ~s(phx-hook="PkUrlMirror")
+      assert html =~ ~s(phx-hook="PkpUrlMirror")
 
       assert html =~
                ~s(data-url="#{PhoenixKitProjects.DataCase.admin_projects()}/#{project.key}/tasks/timeline")
@@ -757,7 +757,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLiveTest do
       base = "#{PhoenixKitProjects.DataCase.admin_projects()}/#{project.key}"
 
       # The bare page is the list view, whose canonical address is `/tasks`.
-      assert html =~ ~s(phx-hook="PkUrlMirror")
+      assert html =~ ~s(phx-hook="PkpUrlMirror")
       assert html =~ ~s(data-url="#{base}/tasks")
 
       assert render_click(view, "switch_tab", %{"tab" => "gantt"}) =~
