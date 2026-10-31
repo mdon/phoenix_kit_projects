@@ -5799,10 +5799,13 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                    2026-10-30): the number changed with every reorder, so
                    it named nothing, and nothing could be done with it.
                    The ref chip is the task's name; the status badge says
-                   where it is. --%>
+                   where it is. `py-1`: the rows kept the circle's 1.5rem of
+                   air between cards after it went; half a rem is the
+                   spacing of every other card list (the walk-through,
+                   2026-10-31). --%>
               <div
                 id={"task-#{a.uuid}"}
-                class="relative flex py-3 scroll-mt-24 focus:outline-none sortable-item"
+                class="relative flex py-1 scroll-mt-24 focus:outline-none sortable-item"
                 style={"margin-left: #{Map.get(ol_depths, a.uuid, 0) * 2}rem"}
                 data-id={a.uuid}
                 tabindex={assigns[:focus_task] == a.uuid && "-1"}

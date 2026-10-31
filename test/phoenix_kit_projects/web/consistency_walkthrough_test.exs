@@ -59,4 +59,17 @@ defmodule PhoenixKitProjects.Web.ConsistencyWalkthroughTest do
       assert html =~ ~s(id="project-summary-#{project.uuid}")
     end
   end
+
+  describe "task list spacing (item 2)" do
+    test "rows keep half a rem between cards, not the old circle's gap", %{conn: conn} do
+      project = fixture_project()
+      a = assignment!(project)
+
+      {:ok, view, _html} = live(conn, "/en/admin/projects/#{project.uuid}")
+      row = view |> element("#task-#{a.uuid}") |> render()
+
+      assert row =~ ~r/class="relative flex py-1 /
+      refute row =~ ~r/class="relative flex py-3 /
+    end
+  end
 end
