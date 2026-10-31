@@ -66,6 +66,16 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLiveTest do
     project
   end
 
+  # The project's `billable` Tasks flag (off by default).
+  defp billable!(project) do
+    {:ok, project} =
+      Projects.update_project(project, %{
+        "settings" => Map.put(project.settings || %{}, "features", %{"billable" => true})
+      })
+
+    project
+  end
+
   setup %{conn: conn} do
     Extensions.Registry.refresh()
     admin = embed_user_uuid!()
@@ -232,6 +242,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLiveTest do
       project: project,
       admin: admin
     } do
+      project = billable!(project)
       cut = task(project, "Cut the panels")
       {:ok, view, _html} = mount_tab(conn, project, admin)
 
@@ -328,6 +339,22 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLiveTest do
       assert uuid == ann.uuid
     end
 
+    test "without the project's billable flag there is no Billable box and nothing is billable",
+         %{conn: conn, project: project, admin: admin} do
+      {:ok, view, _html} = mount_tab(conn, project, admin)
+      refute render_click(view, "open_log", %{}) =~ "-log-billable"
+
+      render_submit(view, "save_log", %{
+        "project" => project.uuid,
+        "date" => Date.to_iso8601(Date.utc_today()),
+        "duration" => %{"amount" => "1", "unit" => "hours"},
+        "person" => "me",
+        "billable" => "true"
+      })
+
+      assert [%{billable: false}] = Ledger.list_entries(project.uuid)
+    end
+
     test "an account with no name of its own shows by its staff person's name, never its email",
          %{conn: conn, project: project, admin: admin} do
       {:ok, nameless} =
@@ -354,6 +381,8 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLiveTest do
       project: project,
       admin: admin
     } do
+      project = billable!(project)
+
       entry =
         log(project, 30,
           actor_uuid: admin,

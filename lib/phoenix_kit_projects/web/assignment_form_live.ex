@@ -124,6 +124,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
       |> assign_outline(resolved_params)
       |> assign_ai_translate()
       |> assign_task_files()
+      |> assign_billable()
       # Unsaved edits? Flipped by the first change event; the host's
       # dialog (emit mode) stops closing on Esc/backdrop while true and
       # Cancel asks first. See `mark_dirty/1`.
@@ -594,6 +595,14 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
     |> WebHelpers.mark_dirty()
     |> schedule_autosave(params)
   end
+
+  # The project's `billable` Tasks flag (off by default): the log line's
+  # Billable box, and the saved value, only with it on.
+  defp assign_billable(%{assigns: %{project: %Project{uuid: uuid} = project}} = socket)
+       when is_binary(uuid),
+       do: assign(socket, :billable_on?, Features.on?(project, "billable"))
+
+  defp assign_billable(socket), do: assign(socket, :billable_on?, false)
 
   # ── The task's files (V27) ──────────────────────────────────────────
 
@@ -1922,7 +1931,9 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
              [
                assignment_uuid: assignment.uuid,
                note: log_note(params["note"]),
-               billable: params["billable"] in ["true", "on"]
+               # Only where the project tracks billable time (its `billable` flag).
+               billable:
+                 Features.on?(project, "billable") and params["billable"] in ["true", "on"]
              ] ++ actor
            ) do
       {:noreply,
@@ -4860,7 +4871,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
                   wrapper_class="col-span-2"
                 />
                 <div class="col-span-2 flex flex-wrap items-center justify-between gap-2">
-                  <label class="flex items-center gap-2 cursor-pointer text-sm">
+                  <label :if={@billable_on?} class="flex items-center gap-2 cursor-pointer text-sm">
                     <input type="checkbox" name="billable" value="true" form="assignment-log-form" class="checkbox checkbox-sm" />
                     {gettext("Billable")}
                   </label>

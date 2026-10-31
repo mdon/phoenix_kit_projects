@@ -696,7 +696,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
              [
                assignment_uuid: task_uuid,
                note: blank_to_nil(params["note"]),
-               billable: params["billable"] in ["true", "on"]
+               billable: billable_on?(project_uuid) and params["billable"] in ["true", "on"]
              ] ++ actor ++ times
            ) do
       {:noreply,
@@ -715,8 +715,16 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
 
   def handle_event("edit_entry", %{"uuid" => uuid}, socket) do
     case amendable(socket, uuid) do
-      {:ok, entry} -> {:noreply, assign(socket, edit_entry: entry, edit_error: nil)}
-      {:error, message} -> {:noreply, put_flash(socket, :error, message)}
+      {:ok, entry} ->
+        {:noreply,
+         assign(socket,
+           edit_entry: entry,
+           edit_error: nil,
+           edit_billable?: billable_on?(entry.project_uuid)
+         )}
+
+      {:error, message} ->
+        {:noreply, put_flash(socket, :error, message)}
     end
   end
 
@@ -728,7 +736,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
          {:ok, minutes} <- minutes(params["duration"]),
          {:ok, _} <-
            Ledger.update_time(entry, minutes,
-             billable: params["billable"] in ["true", "on"],
+             billable: billable_on?(entry.project_uuid) and params["billable"] in ["true", "on"],
              actor_uuid: Activity.actor_uuid(socket)
            ) do
       {:noreply,
@@ -913,6 +921,19 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
   # `HH:MM` (or `""`, no time).
   defp log_params(params), do: TimeInput.normalize(params, ["time"])
 
+  # The project's `billable` Tasks flag (off by default): without it there is
+  # no Billable box and an entry is never saved as billable.
+  defp billable_on?(project_uuid) when is_binary(project_uuid) do
+    case Projects.get_project(project_uuid) do
+      %Project{} = project -> PhoenixKitProjects.Features.on?(project, "billable")
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
+  defp billable_on?(_), do: false
+
   # The projects the viewer may log time on, as `{name, uuid}`: the tab's
   # own project, or on the site-wide page every listed project that allows
   # it.
@@ -954,6 +975,8 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
         "note" => params["note"] || "",
         "billable" => params["billable"] in ["true", "on"]
       },
+      # The Billable box only where the project tracks billable time.
+      billable?: is_binary(project_uuid) and billable_on?(project_uuid),
       # The task picked, as its chip says it (nil = the project itself).
       task_label:
         case Hours.task_option(params["task"], lang) do
@@ -1311,7 +1334,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
       <% end %>
 
       <.log_modal :if={@log_form} form={@log_form} projects={@log_projects} mode={@mode} dom={@dom} />
-      <.edit_modal :if={@edit_entry} entry={@edit_entry} error={@edit_error} dom={@dom} />
+      <.edit_modal :if={@edit_entry} entry={@edit_entry} error={@edit_error} dom={@dom} billable={assigns[:edit_billable?] == true} />
       <.confirm_action_modal confirm={assigns[:confirm_action]} />
     </div>
     """
@@ -2119,7 +2142,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
           placeholder={gettext("What was the time spent on?")}
           class="input-sm"
         />
-        <label class="label cursor-pointer justify-start gap-2">
+        <label :if={@form[:billable?]} class="label cursor-pointer justify-start gap-2">
           <input type="hidden" name="billable" value="false" />
           <input
             type="checkbox"
@@ -2147,6 +2170,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
   attr(:entry, :map, required: true)
   attr(:error, :string, default: nil)
   attr(:dom, :string, required: true)
+  attr(:billable, :boolean, default: false)
 
   defp edit_modal(assigns) do
     ~H"""
@@ -2160,7 +2184,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
           label={gettext("How long")}
           minutes={Decimal.to_float(@entry.amount)}
         />
-        <label class="label cursor-pointer justify-start gap-2">
+        <label :if={@billable} class="label cursor-pointer justify-start gap-2">
           <input type="hidden" name="billable" value="false" />
           <input
             type="checkbox"
