@@ -71,7 +71,7 @@ defmodule PhoenixKitProjects.Attachments do
 
   alias PhoenixKit.Utils.Format
 
-  alias PhoenixKitProjects.Schemas.Project
+  alias PhoenixKitProjects.Schemas.{Assignment, AssignmentFile, Project}
 
   @list_limit 200
 
@@ -285,6 +285,170 @@ defmodule PhoenixKitProjects.Attachments do
         end
     end
   end
+
+  # ── A task's own files (V27) ────────────────────────────────────────
+  #
+  # The boss, 2026-10-30: "tasks should be able to hold their own images as
+  # well, and files", and a picture pasted into the description stored the
+  # same way. The bytes go into a folder per task (`task-<uuid>`) inside the
+  # project's folder — so they are found in Media where the project's are —
+  # and a `phoenix_kit_project_assignment_files` row says the task holds
+  # the file, so listing them reads no folders and a file moved in Media
+  # stays the task's. Removing one takes the row and the folder's hold on
+  # it, by core's non-destructive rule (`ResourceFolders.detach/2`).
+
+  @task_list_limit 200
+
+  @doc "The task's folder name inside its project's folder."
+  @spec task_folder_name(binary()) :: binary()
+  def task_folder_name(assignment_uuid), do: "task-#{assignment_uuid}"
+
+  @doc """
+  Find-or-create the task's folder under its project's (both created on
+  first use, race-safe).
+  """
+  @spec ensure_task_folder(Assignment.t(), binary() | nil) :: {:ok, binary()} | {:error, term()}
+  def ensure_task_folder(%Assignment{uuid: uuid, project_uuid: project_uuid}, actor_uuid)
+      when is_binary(uuid) do
+    with {:ok, parent} <- ensure_folder(project_uuid, actor_uuid),
+         name = task_folder_name(uuid),
+         {:ok, %Folder{uuid: folder_uuid}} <-
+           ResourceFolders.ensure(name, parent, actor_uuid,
+             lookup: fn -> ResourceFolders.find_under(name, parent) end
+           ) do
+      {:ok, folder_uuid}
+    end
+  end
+
+  @doc """
+  Stores an uploaded file for a task: into core Storage (`store_file/2`
+  options: `:filename`, `:content_type`, `:size_bytes`), placed in the
+  task's folder, and recorded as the task's — `inline: true` for an image
+  placed in its description. `{:ok, %File{}}` or `{:error, reason}`; a file
+  the same person stored before is the one reused.
+  """
+  @spec store_task_file(Assignment.t(), Path.t(), keyword(), binary() | nil) ::
+          {:ok, File.t()} | {:error, term()}
+  def store_task_file(%Assignment{} = assignment, path, opts, actor_uuid) do
+    inline? = Keyword.get(opts, :inline, false)
+
+    store_opts =
+      opts
+      |> Keyword.take([:filename, :content_type, :size_bytes])
+      |> Keyword.put(:user_uuid, actor_uuid)
+
+    with {:ok, folder_uuid} <- ensure_task_folder(assignment, actor_uuid),
+         {:ok, %File{} = file} <- Storage.store_file(path, store_opts),
+         {:ok, file} <- place_in(file, folder_uuid),
+         :ok <- hold(assignment.uuid, file.uuid, inline?, actor_uuid) do
+      {:ok, file}
+    end
+  rescue
+    e ->
+      Logger.warning("[Projects.Attachments] store_task_file failed: #{Exception.message(e)}")
+      {:error, :store_failed}
+  end
+
+  # A duplicate the uploader had trashed comes back into this folder.
+  defp place_in(%File{status: "trashed"} = file, folder_uuid),
+    do: placed(ResourceFolders.place_stored({:ok, file, :duplicate}, folder_uuid), file)
+
+  defp place_in(%File{} = file, folder_uuid),
+    do: placed(ResourceFolders.place_stored({:ok, file}, folder_uuid), file)
+
+  defp placed({:ok, %File{} = file}, _), do: {:ok, file}
+  defp placed({:already_attached, %File{} = file}, _), do: {:ok, file}
+  defp placed({:error, reason}, _), do: {:error, reason}
+
+  # The row saying the task holds the file; a second hold is the first one
+  # (an inline image added as a file too stays one row).
+  defp hold(assignment_uuid, file_uuid, inline?, actor_uuid) do
+    %AssignmentFile{}
+    |> Ecto.Changeset.change(
+      assignment_uuid: assignment_uuid,
+      file_uuid: file_uuid,
+      inline: inline?,
+      added_by_uuid: actor_uuid
+    )
+    |> repo().insert(on_conflict: :nothing, conflict_target: [:assignment_uuid, :file_uuid])
+    |> case do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  The files a task holds, oldest first, live ones only (not trashed, not
+  system-managed), each as `%{file: %File{}, inline: boolean}`. `inline:
+  false` alone gives the files added to the task, not the images in its
+  description.
+  """
+  @spec list_task_files(binary() | nil, keyword()) :: [%{file: File.t(), inline: boolean()}]
+  def list_task_files(assignment_uuid, opts \\ [])
+
+  def list_task_files(assignment_uuid, opts) when is_binary(assignment_uuid) do
+    from(af in AssignmentFile,
+      join: f in File,
+      on: f.uuid == af.file_uuid,
+      where: af.assignment_uuid == ^assignment_uuid,
+      where: f.status != "trashed" and not coalesce(f.system_managed, false),
+      order_by: [asc: af.inserted_at, asc: af.uuid],
+      limit: @task_list_limit,
+      select: %{file: f, inline: af.inline}
+    )
+    |> then(fn q ->
+      case Keyword.fetch(opts, :inline) do
+        {:ok, inline?} -> where(q, [af], af.inline == ^inline?)
+        :error -> q
+      end
+    end)
+    |> repo().all()
+  rescue
+    e ->
+      Logger.warning("[Projects.Attachments] list_task_files failed: #{Exception.message(e)}")
+      []
+  end
+
+  def list_task_files(_assignment_uuid, _opts), do: []
+
+  @doc """
+  Lets go of one of a task's files: the row goes, and the task folder's hold
+  on the file by core's rule (a file homed only there is soft-trashed,
+  recoverable in the media trash). A file the task does not hold is left
+  alone (`{:error, :not_found}`).
+  """
+  @spec remove_task_file(Assignment.t(), binary(), binary() | nil) :: :ok | {:error, term()}
+  def remove_task_file(%Assignment{uuid: uuid, project_uuid: project_uuid}, file_uuid, actor_uuid)
+      when is_binary(file_uuid) do
+    with {:ok, file_uuid} <- Ecto.UUID.cast(file_uuid),
+         {1, _} <-
+           repo().delete_all(
+             from(af in AssignmentFile,
+               where: af.assignment_uuid == ^uuid and af.file_uuid == ^file_uuid
+             )
+           ) do
+      with parent when is_binary(parent) <- folder_uuid(project_uuid, actor_uuid),
+           %Folder{uuid: folder} <- ResourceFolders.find_under(task_folder_name(uuid), parent) do
+        _ = ResourceFolders.detach(file_uuid, folder)
+      end
+
+      :ok
+    else
+      _ -> {:error, :not_found}
+    end
+  rescue
+    e ->
+      Logger.warning("[Projects.Attachments] remove_task_file failed: #{Exception.message(e)}")
+      {:error, :remove_failed}
+  end
+
+  @doc """
+  The address a task's image is shown at in its description: a permanent
+  one (a description is read for as long as the task lives), the same the
+  Files page links.
+  """
+  @spec inline_url(File.t()) :: String.t() | nil
+  def inline_url(%File{} = file), do: download_url(file)
 
   @doc "Heroicon name for a file's Storage type / mime (`Format.file_icon/1`)."
   @spec file_icon(map()) :: String.t()

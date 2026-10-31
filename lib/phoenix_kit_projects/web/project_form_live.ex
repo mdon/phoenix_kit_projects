@@ -33,6 +33,10 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
   alias PhoenixKitProjects.Web.Components.AccessPanel
   alias PhoenixKitProjects.Web.Components.ConfirmAction
   alias PhoenixKitProjects.Web.Components.{AssigneePicker, FormParts, TimeInput}
+  alias PhoenixKitProjects.Web.Components.DescriptionEditor
+
+  import PhoenixKitProjects.Web.Components.DescriptionEditor,
+    only: [description_editor: 1, description_value: 4]
 
   @picker_events AssigneePicker.events()
   alias PhoenixKitProjects.Web.Crumbs
@@ -2408,24 +2412,14 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
               required
             />
 
-            <.translatable_field
-              field_name="description"
-              form_prefix="project"
-              changeset={@form.source}
-              schema_field={:description}
-              multilang_enabled={@multilang_enabled}
-              current_lang={@current_lang}
-              primary_language={@primary_language}
-              lang_data={WebHelpers.lang_data(@form, @current_lang)}
-              secondary_name={"project[translations][#{@current_lang}][description]"}
-              lang_data_key="description"
-              label={gettext("Description")}
-              type="textarea"
-              rows={4}
-              disabled={@current_lang in @ai_in_flight}
-              mentions
-              data-mention-context={mention_context(assigns[:project])}
-            />
+            <.description_editor
+                id={DescriptionEditor.editor_id("project-description", @current_lang)}
+                name={DescriptionEditor.field_name("project", @current_lang, @primary_language, @multilang_enabled)}
+                value={description_value(@form, @current_lang, @primary_language, @multilang_enabled)}
+                label={gettext("Description")}
+                mention_context={mention_context(assigns[:project])}
+                readonly={@current_lang in @ai_in_flight}
+              />
           </.words_block>
 
           <%!-- The project's short name (`ACME`): its tasks are ACME-1,
@@ -3261,6 +3255,51 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
       <.ai_translate_modal ai_translate={FormGlue.ai_translate_config(assigns)} />
     </div>
     """
+  end
+
+  # The description editor (Leaf): its text into the form, as if the field
+  # had posted it; `@` and `#` suggestions as the textarea offered them.
+  @impl true
+  def handle_info({:leaf_changed, _} = msg, socket) do
+    case DescriptionEditor.changed(msg) do
+      {"project-description", lang, markdown} ->
+        {:noreply, put_description(socket, lang, markdown)}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_info({:leaf_suggest, _} = msg, socket),
+    do:
+      {:noreply,
+       DescriptionEditor.suggest(
+         socket,
+         msg,
+         DescriptionEditor.decode_context(mention_context(socket.assigns[:project]))
+       )}
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
+  defp put_description(%{assigns: %{form: form}} = socket, lang, markdown) do
+    %{primary_language: primary, multilang_enabled: multi?} = socket.assigns
+
+    if description_value(form, lang, primary, multi?) == markdown do
+      socket
+    else
+      attrs =
+        (form.params || %{})
+        |> Map.merge(DescriptionEditor.params(markdown, lang, primary, multi?))
+        |> merge_attrs(socket)
+
+      socket
+      |> assign_form(
+        Projects.change_project(socket.assigns.project, attrs,
+          enforce_scheduled_date_required: false
+        )
+      )
+      |> WebHelpers.mark_dirty()
+    end
   end
 
   # Ends ongoing work, or takes that back. The buttons render only for

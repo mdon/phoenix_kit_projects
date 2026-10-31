@@ -43,7 +43,7 @@ defmodule PhoenixKitProjects.Migrations.Schema do
 
   alias PhoenixKit.Migrations.Postgres.Helpers
 
-  @current_version 26
+  @current_version 27
   @marker_prefix "pkp_schema:"
 
   @doc "Target schema version of the projects module chain."
@@ -123,6 +123,7 @@ defmodule PhoenixKitProjects.Migrations.Schema do
     v24_key_grants(p, prefix)
     v25_key_usage(p)
     v26_deadlines_and_times(p)
+    v27_task_files(p, prefix)
 
     execute("COMMENT ON TABLE #{p}phoenix_kit_projects IS '#{@marker_prefix}#{@current_version}'")
   end
@@ -1045,6 +1046,7 @@ defmodule PhoenixKitProjects.Migrations.Schema do
   # V19–V21 each added columns to the assignments table (and V20 the link
   # table); newest first.
   defp down_task_columns(p, target) do
+    if target < 27, do: down_v27(p)
     if target < 26, do: down_v26(p)
     if target < 25, do: down_v25(p)
     if target < 24, do: down_v24(p)
@@ -1109,6 +1111,42 @@ defmodule PhoenixKitProjects.Migrations.Schema do
           ~w(created_by_uuid created_by_key_uuid started_by_uuid started_by_key_uuid waiting_on origin checklist) do
       execute("ALTER TABLE #{p}phoenix_kit_project_assignments DROP COLUMN IF EXISTS #{col}")
     end
+  end
+
+  # V27 — a task's own files and images (the boss, via Max, 2026-10-30:
+  # "tasks should be able to hold their own images as well, and files";
+  # a picture pasted into the description "should also kind of work
+  # upload-wise the same way"). The bytes are core Storage files kept in a
+  # folder per task under the project's folder (`Attachments`); this row
+  # says which task holds which file, so a task lists its files without
+  # reading folders, a file moved in Media stays the task's, and deleting
+  # the task (or the file) drops the row. `inline` marks an image placed
+  # in the description rather than added as a file of the task.
+  defp v27_task_files(p, prefix) do
+    execute("""
+    CREATE TABLE IF NOT EXISTS #{p}phoenix_kit_project_assignment_files (
+      uuid UUID PRIMARY KEY DEFAULT #{prefix}.uuid_generate_v7(),
+      assignment_uuid UUID NOT NULL REFERENCES #{p}phoenix_kit_project_assignments(uuid) ON DELETE CASCADE,
+      file_uuid UUID NOT NULL REFERENCES #{p}phoenix_kit_files(uuid) ON DELETE CASCADE,
+      inline BOOLEAN NOT NULL DEFAULT false,
+      added_by_uuid UUID,
+      inserted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """)
+
+    execute("""
+    CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_project_assignment_files_pair_index
+    ON #{p}phoenix_kit_project_assignment_files (assignment_uuid, file_uuid)
+    """)
+
+    execute("""
+    CREATE INDEX IF NOT EXISTS phoenix_kit_project_assignment_files_file_index
+    ON #{p}phoenix_kit_project_assignment_files (file_uuid)
+    """)
+  end
+
+  defp down_v27(p) do
+    execute("DROP TABLE IF EXISTS #{p}phoenix_kit_project_assignment_files")
   end
 
   # V26 — when a task is due, and when it really happened (the boss, via

@@ -28,6 +28,10 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
     only: [assignee_picker: 1, assignee_picker_outside: 1]
 
   import PhoenixKitProjects.Web.Components.FormParts
+  import PhoenixKitProjects.Web.Components.TaskFiles, only: [task_files: 1]
+
+  import PhoenixKitProjects.Web.Components.DescriptionEditor,
+    only: [description_editor: 1, description_value: 4]
 
   require Logger
 
@@ -38,6 +42,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
 
   alias PhoenixKitProjects.{
     Activity,
+    Attachments,
     Assignees,
     Authz,
     Features,
@@ -52,7 +57,14 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   }
 
   alias PhoenixKitProjects.Schemas.{Assignment, Project, Task}
-  alias PhoenixKitProjects.Web.Components.{AssigneePicker, DurationInput, TimeInput}
+
+  alias PhoenixKitProjects.Web.Components.{
+    AssigneePicker,
+    DescriptionEditor,
+    DurationInput,
+    TimeInput
+  }
+
   alias PhoenixKitProjects.Web.Components.WorkflowStatusFields, as: WSF
   alias PhoenixKitProjects.Web.Crumbs
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
@@ -111,6 +123,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
       |> assign_assignee_picker()
       |> assign_outline(resolved_params)
       |> assign_ai_translate()
+      |> assign_task_files()
       # Unsaved edits? Flipped by the first change event; the host's
       # dialog (emit mode) stops closing on Esc/backdrop while true and
       # Cancel asks first. See `mark_dirty/1`.
@@ -581,6 +594,259 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
     |> WebHelpers.mark_dirty()
     |> schedule_autosave(params)
   end
+
+  # ── The task's files (V27) ──────────────────────────────────────────
+
+  @task_file_max_mb 25
+  @inline_image_max_mb 10
+
+  # Uploads into a task being edited, for someone who may edit it and
+  # upload files in its project; the files it holds, for the More tab.
+  defp assign_task_files(
+         %{assigns: %{live_action: :edit, kind: "task", assignment: %Assignment{uuid: u}}} =
+           socket
+       )
+       when is_binary(u) do
+    if Map.get(socket.assigns.project, :is_template, false) do
+      assign(socket, can_attach?: false, task_files: [], task_file_urls: %{})
+    else
+      socket
+      |> assign(can_attach?: attach_allowed?(socket))
+      |> allow_upload(:task_files,
+        accept: :any,
+        max_entries: 10,
+        max_file_size: @task_file_max_mb * 1_048_576,
+        auto_upload: true,
+        progress: &handle_progress/3
+      )
+      |> allow_upload(:description_images,
+        accept: ~w(image/*),
+        max_entries: 5,
+        max_file_size: @inline_image_max_mb * 1_048_576,
+        auto_upload: true,
+        progress: &handle_progress/3
+      )
+      |> load_task_files()
+    end
+  end
+
+  defp assign_task_files(socket),
+    do: assign(socket, can_attach?: false, task_files: [], task_file_urls: %{})
+
+  defp load_task_files(socket) do
+    rows = Attachments.list_task_files(socket.assigns.assignment.uuid)
+
+    assign(socket,
+      task_files: rows,
+      task_file_urls: Attachments.download_urls(Enum.map(rows, & &1.file))
+    )
+  end
+
+  # Asked of the live scope and of the project as it is now: editing the
+  # task, and uploading files in its project.
+  defp attach_allowed?(%{assigns: %{project: %Project{uuid: uuid}}} = socket)
+       when is_binary(uuid) do
+    WriteGate.allowed?(socket) and
+      case Projects.get_project(uuid) do
+        %Project{} = project ->
+          Authz.can?(socket.assigns[:phoenix_kit_current_scope], project, :upload_files)
+
+        _ ->
+          false
+      end
+  rescue
+    _ -> false
+  end
+
+  defp attach_allowed?(_socket), do: false
+
+  # Each upload stored as it finishes: a file of the task, or an image put
+  # into the description at the cursor.
+  defp handle_progress(upload, entry, socket) when upload in [:task_files, :description_images] do
+    cond do
+      not entry.done? ->
+        {:noreply, socket}
+
+      not attach_allowed?(socket) ->
+        {:noreply,
+         socket
+         |> cancel_upload(upload, entry.ref)
+         |> put_flash(:error, gettext("You don't have permission to manage files here."))}
+
+      true ->
+        inline? = upload == :description_images
+
+        result =
+          consume_uploaded_entry(socket, entry, fn %{path: path} ->
+            {:ok, store_upload(socket, path, entry, inline?)}
+          end)
+
+        {:noreply, after_upload(socket, result, inline?)}
+    end
+  end
+
+  defp store_upload(socket, path, entry, inline?) do
+    size =
+      case Elixir.File.stat(path) do
+        {:ok, %{size: size}} -> size
+        _ -> entry.client_size
+      end
+
+    Attachments.store_task_file(
+      socket.assigns.assignment,
+      path,
+      [
+        filename: safe_filename(entry.client_name),
+        content_type: entry.client_type || "application/octet-stream",
+        size_bytes: size,
+        inline: inline?
+      ],
+      Activity.actor_uuid(socket)
+    )
+  end
+
+  defp after_upload(socket, {:ok, file}, inline?) do
+    log_task_file(socket, "projects.task_file_added", file.uuid)
+
+    if inline? do
+      DescriptionEditor.insert_image(
+        DescriptionEditor.editor_id("assignment-description", socket.assigns.current_lang),
+        Attachments.inline_url(file) || "",
+        file.original_file_name || ""
+      )
+    end
+
+    load_task_files(socket)
+  end
+
+  defp after_upload(socket, _error, _inline?),
+    do: put_flash(socket, :error, gettext("Upload failed. Please try again."))
+
+  # A pasted image arrives as a data URL; its bytes are written to a
+  # temporary file and stored like an upload. Only an image, at most the
+  # inline limit, and only for someone who may attach.
+  defp store_pasted_image(socket, editor_id, %{data_url: "data:" <> rest} = paste) do
+    with true <- attach_allowed?(socket) || :forbidden,
+         [meta, b64] <- String.split(rest, ",", parts: 2),
+         [mime | _] <- String.split(meta, ";"),
+         true <- String.starts_with?(mime, "image/") and String.ends_with?(meta, ";base64"),
+         true <- byte_size(b64) <= div(@inline_image_max_mb * 1_048_576 * 4, 3) + 4,
+         {:ok, bytes} <- Base.decode64(b64, ignore: :whitespace) do
+      path = Path.join(System.tmp_dir!(), "pkp-paste-#{System.unique_integer([:positive])}")
+      Elixir.File.write!(path, bytes)
+
+      result =
+        Attachments.store_task_file(
+          socket.assigns.assignment,
+          path,
+          [
+            filename: safe_filename(paste[:name] || "pasted-image"),
+            content_type: mime,
+            size_bytes: byte_size(bytes),
+            inline: true
+          ],
+          Activity.actor_uuid(socket)
+        )
+
+      Elixir.File.rm(path)
+
+      case result do
+        {:ok, file} ->
+          log_task_file(socket, "projects.task_file_added", file.uuid)
+          DescriptionEditor.insert_image(editor_id, Attachments.inline_url(file) || "", "")
+          load_task_files(socket)
+
+        _ ->
+          put_flash(socket, :error, gettext("Upload failed. Please try again."))
+      end
+    else
+      :forbidden ->
+        put_flash(socket, :error, gettext("You don't have permission to manage files here."))
+
+      _ ->
+        put_flash(socket, :error, gettext("Upload failed. Please try again."))
+    end
+  end
+
+  defp store_pasted_image(socket, _editor_id, _paste), do: socket
+
+  # A browser-supplied filename reaches storage and download headers: path
+  # separators and control characters come out (as the comments' upload).
+  defp safe_filename(name) when is_binary(name) do
+    name
+    |> Path.basename()
+    |> String.replace(~r/[\x00-\x1f\/\\]/, "")
+    |> String.slice(0, 200)
+    |> case do
+      "" -> "attachment"
+      cleaned -> cleaned
+    end
+  end
+
+  defp safe_filename(_), do: "attachment"
+
+  defp upload_error_text(:too_large),
+    do: gettext("Too large (at most %{mb} MB).", mb: @task_file_max_mb)
+
+  defp upload_error_text(:not_accepted), do: gettext("This kind of file is not accepted.")
+  defp upload_error_text(:too_many_files), do: gettext("Too many files at once.")
+  defp upload_error_text(_), do: gettext("Upload failed. Please try again.")
+
+  defp log_task_file(socket, action, file_uuid) do
+    Activity.log(action,
+      actor_uuid: Activity.actor_uuid(socket),
+      resource_type: "assignment",
+      resource_uuid: socket.assigns.assignment.uuid,
+      metadata: %{"file_uuid" => file_uuid, "project_uuid" => socket.assigns.project.uuid}
+    )
+  end
+
+  # A description typed in the editor, as if the field had posted it: on a
+  # task being edited, saved with the rest (`put_form_attrs/3`). Nothing
+  # when it says what the form already holds.
+  defp put_description(%{assigns: %{form: form}} = socket, lang, markdown) do
+    %{current_lang: _, primary_language: primary, multilang_enabled: multi?} = socket.assigns
+
+    if description_value(form, lang, primary, multi?) == markdown do
+      socket
+    else
+      attrs =
+        case DescriptionEditor.params(markdown, lang, primary, multi?) do
+          %{"translations" => %{^lang => fields}} ->
+            current = Ecto.Changeset.get_field(form.source, :translations) || %{}
+
+            %{
+              "translations" => Map.update(current, lang, fields, &Map.merge(&1 || %{}, fields))
+            }
+
+          plain ->
+            plain
+        end
+
+      put_form_attrs(socket, attrs)
+    end
+  end
+
+  defp put_sp_description(%{assigns: %{sp_form: %Phoenix.HTML.Form{} = f}} = socket, lang, md) do
+    %{primary_language: primary, multilang_enabled: multi?} = socket.assigns
+
+    if description_value(f, lang, primary, multi?) == md do
+      socket
+    else
+      attrs =
+        (f.params || %{})
+        |> Map.merge(DescriptionEditor.params(md, lang, primary, multi?))
+        |> sp_translations(socket)
+
+      socket
+      |> assign(
+        sp_form: to_form(Projects.change_project(sp_source(socket), attrs), as: :subproject)
+      )
+      |> WebHelpers.mark_dirty()
+    end
+  end
+
+  defp put_sp_description(socket, _lang, _md), do: socket
 
   # Browsers post a `datetime-local` value as the viewer's wall clock.
   defp normalize_form_attrs(attrs),
@@ -1451,6 +1717,34 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
     end
   end
 
+  # The task's files (`Attachments`, V27): the upload's own form validates
+  # nothing, the bytes are stored as each one finishes (`handle_progress/3`).
+  def handle_event("task_files_validate", _params, socket), do: {:noreply, socket}
+
+  def handle_event("cancel_task_upload", %{"ref" => ref, "upload" => upload}, socket)
+      when upload in ~w(task_files description_images),
+      do: {:noreply, cancel_upload(socket, String.to_existing_atom(upload), ref)}
+
+  def handle_event("remove_task_file", %{"uuid" => file_uuid}, socket) do
+    if attach_allowed?(socket) do
+      case Attachments.remove_task_file(
+             socket.assigns.assignment,
+             file_uuid,
+             Activity.actor_uuid(socket)
+           ) do
+        :ok ->
+          log_task_file(socket, "projects.task_file_removed", file_uuid)
+          {:noreply, socket |> load_task_files() |> put_flash(:info, gettext("File removed."))}
+
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, gettext("Could not remove the file."))}
+      end
+    else
+      {:noreply,
+       put_flash(socket, :error, gettext("You don't have permission to manage files here."))}
+    end
+  end
+
   def handle_event("set_form_pane", %{"pane" => pane}, socket) when pane in @panes,
     do: {:noreply, assign(socket, :form_pane, pane)}
 
@@ -2129,7 +2423,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   def write_events do
     ~w(save delete_task subtask_add subtask_toggle add_assignment_dep remove_assignment_dep
        toggle_board_published toggle_portal_public generate_default_statuses save_subproject
-       staff_create_confirm)
+       staff_create_confirm remove_task_file)
   end
 
   @doc false
@@ -2900,6 +3194,37 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
     end
   end
 
+  # The description editors (Leaf): their text into the form being shown —
+  # the task's (saved as it is changed) or the sub-project's.
+  def handle_info({:leaf_changed, _} = msg, socket) do
+    case DescriptionEditor.changed(msg) do
+      {"assignment-description", lang, markdown} ->
+        {:noreply, put_description(socket, lang, markdown)}
+
+      {"subproject-description", lang, markdown} ->
+        {:noreply, put_sp_description(socket, lang, markdown)}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  # An image pasted into the task's description: stored as the task's file
+  # (`inline`) and placed at the cursor by its address — never kept in the
+  # text as a `data:` URL.
+  def handle_info(
+        {:leaf_paste_image, %{editor_id: "assignment-description--" <> _ = id} = paste},
+        socket
+      ) do
+    {:noreply, store_pasted_image(socket, id, paste)}
+  end
+
+  # `@` and `#` typed in a description: the mentions the textarea offered.
+  def handle_info({:leaf_suggest, _} = msg, socket) do
+    context = DescriptionEditor.decode_context(mention_context(socket.assigns[:project]))
+    {:noreply, DescriptionEditor.suggest(socket, msg, context)}
+  end
+
   def handle_info(message, socket) do
     Logger.debug("[AssignmentFormLive] unexpected handle_info: #{inspect(message)}")
     {:noreply, socket}
@@ -3398,7 +3723,9 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
 
   defp more_pane?(%{live_action: :edit, fx: fx} = assigns) do
     template? = Map.get(assigns.project, :is_template, false) == true
-    (fx.ledger and not template?) or assigns.portal? or show_times?(assigns)
+
+    (fx.ledger and not template?) or assigns.portal? or show_times?(assigns) or
+      assigns[:can_attach?] == true
   end
 
   defp more_pane?(_assigns), do: false
@@ -3720,22 +4047,12 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
                 label={gettext("Sub-project name")}
                 required
               />
-              <.translatable_field
-                field_name="description"
-                form_prefix="subproject"
-                changeset={@sp_form.source}
-                schema_field={:description}
-                multilang_enabled={@multilang_enabled}
-                current_lang={@current_lang}
-                primary_language={@primary_language}
-                lang_data={WebHelpers.lang_data(@sp_form, @current_lang)}
-                secondary_name={"subproject[translations][#{@current_lang}][description]"}
-                lang_data_key="description"
+              <.description_editor
+                id={DescriptionEditor.editor_id("subproject-description", @current_lang)}
+                name={DescriptionEditor.field_name("subproject", @current_lang, @primary_language, @multilang_enabled)}
+                value={description_value(@sp_form, @current_lang, @primary_language, @multilang_enabled)}
                 label={gettext("Description")}
-                type="textarea"
-                rows={3}
-                mentions
-                data-mention-context={mention_context(@project)}
+                mention_context={mention_context(@project)}
               />
             </.words_block>
 
@@ -4097,24 +4414,25 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
                 </div>
               </div>
 
-              <.translatable_field
-                field_name="description"
-                form_prefix="assignment"
-                changeset={@form.source}
-                schema_field={:description}
-                multilang_enabled={@multilang_enabled}
-                current_lang={@current_lang}
-                primary_language={@primary_language}
-                lang_data={WebHelpers.lang_data(@form, @current_lang)}
-                secondary_name={"assignment[translations][#{@current_lang}][description]"}
-                lang_data_key="description"
+              <.description_editor
+                id={DescriptionEditor.editor_id("assignment-description", @current_lang)}
+                name={DescriptionEditor.field_name("assignment", @current_lang, @primary_language, @multilang_enabled)}
+                value={description_value(@form, @current_lang, @primary_language, @multilang_enabled)}
                 label={gettext("Description")}
-                type="textarea"
-                rows={if(@live_action == :edit, do: 6, else: 3)}
-                disabled={@current_lang in @ai_in_flight}
-                mentions
-                data-mention-context={mention_context(@project)}
+                mention_context={mention_context(@project)}
+                readonly={@current_lang in @ai_in_flight}
+                uploads={@can_attach?}
               />
+              <%!-- An image for the description: stored as the task's and
+                   placed at the cursor (a pasted one too). --%>
+              <label
+                :if={@can_attach?}
+                for={@uploads.description_images.ref}
+                id="assignment-description-image"
+                class="btn btn-ghost btn-xs self-start gap-1 font-normal text-base-content/70"
+              >
+                <.icon name="hero-photo" class="w-3.5 h-3.5" /> {gettext("Add an image to the description")}
+              </label>
           </.words_block>
 
           <%!-- Where it stands: the list's own status colours, one press each
@@ -4553,6 +4871,48 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
               </div>
             </fieldset>
 
+          <%!-- The task's own files and images (V27): a button and a drop
+               zone; each is stored as it arrives, in the task's folder
+               inside the project's. Images pasted into the description
+               are listed too. The file input belongs to a form of its own,
+               drawn after this one. --%>
+          <fieldset
+            :if={@can_attach?}
+            id="assignment-files"
+            class="rounded-box border border-base-300 p-3 flex flex-col gap-2"
+            phx-drop-target={@uploads.task_files.ref}
+          >
+            <legend class="px-1 text-sm font-semibold">{gettext("Files")}</legend>
+            <.task_files
+              id="assignment-file-list"
+              files={@task_files}
+              urls={@task_file_urls}
+              remove_event="remove_task_file"
+            />
+            <label class="flex flex-col items-center justify-center gap-1 rounded-box border border-dashed border-base-300 px-3 py-4 text-sm text-base-content/60 cursor-pointer hover:bg-base-200/50">
+              <.icon name="hero-arrow-up-tray" class="w-5 h-5" />
+              <span>{gettext("Drop files here or choose them")}</span>
+              <.live_file_input upload={@uploads.task_files} form="assignment-files-form" class="sr-only" />
+            </label>
+            <div :for={entry <- @uploads.task_files.entries} class="flex items-center gap-2 text-xs">
+              <span class="truncate flex-1">{entry.client_name}</span>
+              <progress class="progress progress-primary w-24" value={entry.progress} max="100"></progress>
+              <button
+                type="button"
+                phx-click="cancel_task_upload"
+                phx-value-ref={entry.ref}
+                phx-value-upload="task_files"
+                class="btn btn-ghost btn-xs btn-circle"
+                aria-label={gettext("Cancel")}
+              >
+                <.icon name="hero-x-mark" class="w-3.5 h-3.5" />
+              </button>
+              <span :for={err <- upload_errors(@uploads.task_files, entry)} class="text-error">
+                {upload_error_text(err)}
+              </span>
+            </div>
+          </fieldset>
+
           <%!-- When it really began and ended: stamped by Start and Done, and
                corrected here — a "Done" pressed late moves back to when the
                work was finished. Saved with the form, through their own
@@ -4769,6 +5129,16 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
       <form id="assignment-log-form" phx-submit="log_time" class="hidden"></form>
       <%!-- Owns the "Add a subtask" line drawn inside the form above. --%>
       <form id="assignment-subtask-form" phx-submit="subtask_add" class="hidden"></form>
+      <%!-- Owns the task's file inputs drawn inside the form above. --%>
+      <form
+        :if={@can_attach?}
+        id="assignment-files-form"
+        phx-change="task_files_validate"
+        phx-submit="task_files_validate"
+        class="hidden"
+      >
+        <.live_file_input upload={@uploads.description_images} />
+      </form>
       <%!-- Owns the assignee search box, and asks before an assignment
            makes a staff record. --%>
       <.assignee_picker_outside search_form="assignment-assignee-form" staff_confirm={@staff_confirm} />

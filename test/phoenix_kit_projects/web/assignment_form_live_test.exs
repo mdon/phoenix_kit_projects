@@ -147,14 +147,13 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLiveTest do
         |> form("#assignment-form",
           assignment: %{
             status: "todo",
-            description: "x",
             estimated_duration: "1",
             estimated_duration_unit: "hours"
           },
           task_mode: "new",
           task: %{title: title}
         )
-        |> render_submit()
+        |> render_submit(%{"assignment" => %{"description" => "x"}})
 
       assert_activity_logged("projects.assignment_created",
         actor_uuid: actor_uuid,
@@ -282,11 +281,10 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLiveTest do
       view
       |> form("#assignment-form",
         assignment: %{
-          status: "in_progress",
-          description: "updated description"
+          status: "in_progress"
         }
       )
-      |> render_submit()
+      |> render_submit(%{"assignment" => %{"description" => "updated description"}})
 
       assert PhoenixKitProjects.Projects.get_assignment(assignment.uuid).description ==
                "updated description"

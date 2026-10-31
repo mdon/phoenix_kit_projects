@@ -31,12 +31,11 @@ defmodule PhoenixKitProjects.Web.TaskFormLiveExtrasTest do
         |> form("#task-form",
           task: %{
             title: title,
-            description: "",
             estimated_duration: "1",
             estimated_duration_unit: "hours"
           }
         )
-        |> render_submit()
+        |> render_submit(%{"task" => %{"description" => ""}})
 
       assert_activity_logged("projects.task_created",
         actor_uuid: actor_uuid,
@@ -68,12 +67,11 @@ defmodule PhoenixKitProjects.Web.TaskFormLiveExtrasTest do
         |> form("#task-form",
           task: %{
             title: new_title,
-            description: "d",
             estimated_duration: "2",
             estimated_duration_unit: "hours"
           }
         )
-        |> render_submit()
+        |> render_submit(%{"task" => %{"description" => "d"}})
 
       assert_activity_logged("projects.task_updated",
         actor_uuid: actor_uuid,

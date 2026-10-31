@@ -63,14 +63,13 @@ defmodule PhoenixKitProjects.Web.AssignmentFormSaveBranchesTest do
         |> form("#assignment-form",
           assignment: %{
             status: "todo",
-            description: "",
             estimated_duration: "1",
             estimated_duration_unit: "hours"
           },
           task_mode: "new",
           task: %{title: "   "}
         )
-        |> render_submit()
+        |> render_submit(%{"assignment" => %{"description" => ""}})
 
       assert html =~ "Task title is required"
     end

@@ -1,0 +1,131 @@
+defmodule PhoenixKitProjects.Web.Components.RichText do
+  @moduledoc """
+  A description as it was written in the Leaf editor: formatted — bold,
+  lists, links, images — with its `@` and `#` mentions resolved for the
+  viewer as `<.mention_text>` resolves them (a link, a lock, or the label).
+
+      <.rich_text text={Assignment.localized_description(a, lang)} scope={@phoenix_kit_current_scope} />
+      <.rich_text text={…} scope={…} compact />   <%!-- a row or a card: smaller, clamped --%>
+
+  The markdown is rendered with MDEx and the comments' options (hard line
+  breaks, so a description written before the editor — plain text with
+  newlines — reads exactly as it did) and sanitised by MDEx's allow-list:
+  the text is whatever the person typed, so nothing it carries is trusted.
+  Mentions are taken out before the render and put back after it, each as
+  `<.mention_text>` draws it, so a token's brackets never reach markdown.
+  """
+
+  use Phoenix.Component
+
+  import Phoenix.HTML, only: [raw: 1]
+
+  alias PhoenixKit.Mentions
+  alias PhoenixKit.Mentions.Token
+  alias PhoenixKitWeb.Components.Core.MentionText
+
+  @render_opts [
+    render: [hardbreaks: true, unsafe: true],
+    sanitize:
+      Keyword.put(
+        MDEx.Document.default_sanitize_options(),
+        :rm_tag_attributes,
+        %{"div" => ["style"]}
+      )
+  ]
+
+  attr(:text, :string, default: nil)
+  attr(:scope, :any, default: nil, doc: "the viewer — decides what each mention resolves to")
+
+  attr(:compact, :boolean,
+    default: false,
+    doc: "smaller text and three lines at most (rows, cards)"
+  )
+
+  attr(:allow_request, :boolean, default: true)
+  attr(:class, :any, default: nil)
+
+  def rich_text(%{text: text} = assigns) when text in [nil, ""], do: ~H""
+
+  def rich_text(assigns) do
+    assigns = assign(assigns, :html, to_html(assigns.text, assigns.scope, assigns.allow_request))
+
+    ~H"""
+    <div class={[
+      "pk-rich-text max-w-none break-words",
+      "[&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0",
+      "[&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5",
+      "[&_a]:link [&_a]:link-primary [&_strong]:font-semibold",
+      "[&_code]:bg-base-200 [&_code]:px-1 [&_code]:rounded",
+      "[&_blockquote]:border-l-2 [&_blockquote]:border-base-300 [&_blockquote]:pl-3",
+      "[&_img]:max-w-full [&_img]:rounded-box [&_img]:my-1",
+      @compact && "text-sm line-clamp-3 [&_img]:max-h-24",
+      @class
+    ]}>
+      {raw(@html)}
+    </div>
+    """
+  end
+
+  @doc """
+  The text as sanitised HTML with its mentions drawn for `scope`. Blank
+  text is `""`; a text the renderer refuses comes back escaped.
+  """
+  @spec to_html(String.t() | nil, term(), boolean()) :: String.t()
+  def to_html(text, scope \\ nil, allow_request \\ true)
+  def to_html(text, _scope, _allow) when text in [nil, ""], do: ""
+
+  def to_html(text, scope, allow_request) when is_binary(text) do
+    pieces = Token.split(text)
+    tokens = for %Token{} = t <- pieces, do: t
+
+    {markdown, _n} =
+      Enum.map_reduce(pieces, 0, fn
+        %Token{}, n -> {placeholder(n), n + 1}
+        piece, n -> {piece, n}
+      end)
+
+    html =
+      case MDEx.to_html(IO.iodata_to_binary(markdown), @render_opts) do
+        {:ok, html} -> html
+        {:error, _} -> text |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
+      end
+
+    if tokens == [], do: html, else: put_mentions(html, tokens, text, scope, allow_request)
+  end
+
+  def to_html(_text, _scope, _allow), do: ""
+
+  # Letters and digits only: markdown leaves it alone, the sanitiser too.
+  defp placeholder(n), do: "PKMENTION#{n}X"
+
+  defp put_mentions(html, tokens, text, scope, allow_request) do
+    context = Mentions.context(text, user_uuid: user_uuid(scope), scope: scope)
+
+    tokens
+    |> Enum.with_index()
+    |> Enum.reduce(html, fn {token, n}, acc ->
+      info = Map.get(context, {token.type, token.uuid}, %{state: :missing})
+
+      rendered =
+        %{
+          pieces: [{token, info}],
+          text: nil,
+          scope: scope,
+          class: nil,
+          allow_request: allow_request,
+          withhold_titles: false,
+          rest: %{}
+        }
+        |> MentionText.mention_text()
+        |> Phoenix.HTML.Safe.to_iodata()
+        |> IO.iodata_to_binary()
+
+      String.replace(acc, placeholder(n), rendered, global: false)
+    end)
+  rescue
+    _ -> html
+  end
+
+  defp user_uuid(%{user: %{uuid: uuid}}), do: uuid
+  defp user_uuid(_), do: nil
+end

@@ -447,7 +447,8 @@ defmodule PhoenixKitProjects.Web.EmbeddingEmitTest do
           }
         )
 
-      assert html =~ "Edit Existing"
+      # The header names the template, as the task popup's does.
+      assert html =~ "Existing" and html =~ "Editing"
 
       view
       |> form("#template-form", project: %{"name" => "Renamed"})
