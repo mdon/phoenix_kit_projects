@@ -83,16 +83,7 @@ defmodule PhoenixKitProjects.InlineImages do
       keep? = Keyword.get(opts, :keep_missing, false)
 
       Regex.replace(@image, text, fn whole, alt, target ->
-        case Regex.run(@ref, target, capture: :all_but_first) do
-          [uuid] ->
-            case Map.get(urls, String.downcase(uuid)) do
-              url when is_binary(url) -> "![#{alt}](#{url})"
-              _ -> if keep?, do: whole, else: ""
-            end
-
-          _ ->
-            whole
-        end
+        resolve_image(whole, alt, target, urls, keep?)
       end)
     else
       text
@@ -100,6 +91,19 @@ defmodule PhoenixKitProjects.InlineImages do
   end
 
   def resolve(text, _scope, _opts), do: text
+
+  defp resolve_image(whole, alt, target, urls, keep?) do
+    case Regex.run(@ref, target, capture: :all_but_first) do
+      [uuid] -> resolved(whole, alt, Map.get(urls, String.downcase(uuid)), keep?)
+      # not a reference: left as written
+      _ -> whole
+    end
+  end
+
+  defp resolved(_whole, alt, url, _keep?) when is_binary(url), do: "![#{alt}](#{url})"
+  # a reference this viewer cannot open: kept for the editor, else left out
+  defp resolved(whole, _alt, _url, true), do: whole
+  defp resolved(_whole, _alt, _url, _keep?), do: ""
 
   @doc """
   `text` without the images of `file_uuid` — by reference or by app

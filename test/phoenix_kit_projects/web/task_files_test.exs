@@ -11,9 +11,14 @@ defmodule PhoenixKitProjects.Web.TaskFilesTest do
 
   import Ecto.Query
 
+  alias PhoenixKit.Modules.Storage.File, as: StorageFile
   alias PhoenixKit.Modules.Storage.Folder
+  alias PhoenixKit.Modules.Storage.URLSigner
+  alias PhoenixKit.Users.Auth
+  alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKitProjects.{Attachments, Projects}
   alias PhoenixKitProjects.Test.Repo
+  alias PhoenixKitProjects.Web.Components.RichText
 
   # A 1×1 PNG.
   @png Base.decode64!(
@@ -226,7 +231,7 @@ defmodule PhoenixKitProjects.Web.TaskFilesTest do
 
     test "an address the editor wrote is stored as the file's reference", ctx do
       file = image!(ctx)
-      url = PhoenixKit.Modules.Storage.URLSigner.signed_url(file.uuid, "original", locale: :none)
+      url = URLSigner.signed_url(file.uuid, "original", locale: :none)
 
       {:ok, a} =
         Projects.update_assignment_form(ctx.a, %{
@@ -246,18 +251,18 @@ defmodule PhoenixKitProjects.Web.TaskFilesTest do
       library = private_library!(ctx.me)
 
       Repo.update_all(
-        from(f in PhoenixKit.Modules.Storage.File, where: f.uuid == ^file.uuid),
+        from(f in StorageFile, where: f.uuid == ^file.uuid),
         set: [library_uuid: library.uuid]
       )
 
       text = "![shot](pkfile:#{file.uuid})"
-      owner = PhoenixKit.Users.Auth.Scope.for_user(PhoenixKit.Users.Auth.get_user(ctx.me))
+      owner = Scope.for_user(Auth.get_user(ctx.me))
 
-      html = PhoenixKitProjects.Web.Components.RichText.to_html(text, owner)
+      html = RichText.to_html(text, owner)
       [token] = Regex.run(~r{/file/[^/]+/original/([^/?"]+)}, html, capture: :all_but_first)
-      assert PhoenixKit.Modules.Storage.URLSigner.private_token?(token)
+      assert URLSigner.private_token?(token)
 
-      refute PhoenixKitProjects.Web.Components.RichText.to_html(text, nil) =~ "<img"
+      refute RichText.to_html(text, nil) =~ "<img"
     end
 
     test "removing a picture of the description takes it out of the text", ctx do

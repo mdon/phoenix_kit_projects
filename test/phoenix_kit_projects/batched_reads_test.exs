@@ -19,6 +19,8 @@ defmodule PhoenixKitProjects.BatchedReadsTest do
   }
 
   alias PhoenixKit.Modules.Storage.{File, FileInstance, Library}
+  alias PhoenixKit.Modules.Storage.URLSigner
+  alias PhoenixKit.Users.Auth
   alias PhoenixKitProjects.LiveCase
   alias PhoenixKitProjects.Test.Repo
 
@@ -165,7 +167,7 @@ defmodule PhoenixKitProjects.BatchedReadsTest do
   describe "Assignees.recent_for_viewer/4" do
     defp staff_person!(name) do
       {:ok, user} =
-        PhoenixKit.Users.Auth.register_user(%{
+        Auth.register_user(%{
           "email" => "#{name}-#{System.unique_integer([:positive])}@example.com",
           "password" => "ValidPassword123!"
         })
@@ -293,7 +295,7 @@ defmodule PhoenixKitProjects.BatchedReadsTest do
       # route takes (its permanent one is refused) — on both paths.
       for url <- [urls[private.uuid], Attachments.download_url(private)] do
         [token] = Regex.run(~r{/original/([^/?]+)}, url, capture: :all_but_first)
-        assert PhoenixKit.Modules.Storage.URLSigner.private_token?(token)
+        assert URLSigner.private_token?(token)
       end
 
       refute Map.has_key?(urls, hidden.uuid)

@@ -9,6 +9,9 @@ defmodule PhoenixKitProjects.Projects do
 
   alias PhoenixKit.Activity.Entry, as: ActivityEntry
   alias PhoenixKit.Mentions.Token
+  alias PhoenixKit.Users.Auth
+  alias PhoenixKit.Users.Auth.Scope
+  alias PhoenixKit.Users.Auth.User, as: AuthUser
   alias PhoenixKit.Utils.Reorder
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Refs
@@ -2878,10 +2881,9 @@ defmodule PhoenixKitProjects.Projects do
   defp release_check(nil, _project_uuid), do: fn _ -> false end
 
   defp release_check(actor_uuid, project_uuid) do
-    with %PhoenixKit.Users.Auth.User{is_active: true} = user <-
-           PhoenixKit.Users.Auth.get_user(actor_uuid),
+    with %AuthUser{is_active: true} = user <- Auth.get_user(actor_uuid),
          %Project{} = project <- get_project(project_uuid) do
-      scope = PhoenixKit.Users.Auth.Scope.for_user(user)
+      scope = Scope.for_user(user)
       &PhoenixKitProjects.Authz.can?(scope, project, :update_status, &1)
     else
       _ -> fn _ -> false end

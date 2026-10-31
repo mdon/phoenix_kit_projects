@@ -97,6 +97,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   alias PhoenixKitProjects.TaskConversion
   alias PhoenixKitProjects.TaskNotes
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
+  alias PhoenixKitProjects.Web.ListUi
   alias PhoenixKitProjects.Web.OutlineList
 
   # Schedule/assignee helpers shared with ProjectGanttLive — imported so the
@@ -5027,9 +5028,9 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   defp blank_to_nil(_), do: nil
 
   # The figures as the Hours page writes them (`ListUI`).
-  defp format_minutes(m), do: PhoenixKitProjects.Web.ListUi.format_minutes(m)
-  defp format_tokens(t), do: PhoenixKitProjects.Web.ListUi.format_tokens(t)
-  defp format_cents(cents), do: PhoenixKitProjects.Web.ListUi.format_cents(cents)
+  defp format_minutes(m), do: ListUi.format_minutes(m)
+  defp format_tokens(t), do: ListUi.format_tokens(t)
+  defp format_cents(cents), do: ListUi.format_cents(cents)
 
   # Modal subtitle: the targeted task's title, or nil for a project-level
   # entry. Searches the same displayed set `scoped_assignment/2` accepts.
