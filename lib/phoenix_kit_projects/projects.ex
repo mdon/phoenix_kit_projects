@@ -2802,6 +2802,10 @@ defmodule PhoenixKitProjects.Projects do
             :ok
 
           rollup ->
+            # What its finish unlocks, read before the write as the page's
+            # "next up" reads it for a task ticked by hand.
+            next_up = subproject_next_up(link, rollup)
+
             case link |> Assignment.subproject_changeset(rollup) |> repo().update() do
               {:ok, updated} ->
                 ProjectsPubSub.broadcast_assignment(:assignment_updated, %{
@@ -2809,7 +2813,11 @@ defmodule PhoenixKitProjects.Projects do
                   project_uuid: updated.project_uuid
                 })
 
-                broadcast_status_changed(updated, link.status, :auto)
+                PhoenixKitProjects.Handoffs.batch(fn ->
+                  broadcast_status_changed(updated, link.status, :auto)
+                  release_after_subproject(next_up)
+                end)
+
                 recompute_project_completion(updated.project_uuid, depth + 1)
 
               {:error, _cs} ->
@@ -2817,6 +2825,45 @@ defmodule PhoenixKitProjects.Projects do
             end
         end
     end
+  end
+
+  # A sub-project that finishes by itself (`subproject_auto`) hands off as a
+  # task ticked by hand does through the page's "next up" dialog, with the
+  # dialog's default: the waiting rows nothing else holds up any more are
+  # released ("can be started"), and their people are told it is their turn
+  # after the sub-project (`Handoffs`, in the same batch as the finish). No
+  # one sees a dialog for a rollup, so no one could have kept one idle.
+  defp subproject_next_up(%Assignment{status: "done"}, _rollup), do: []
+
+  defp subproject_next_up(%Assignment{} = link, %{status: "done"}),
+    do: PhoenixKitProjects.Handoffs.would_ready(link.project_uuid, link.uuid)
+
+  defp subproject_next_up(_link, _rollup), do: []
+
+  defp release_after_subproject(rows) do
+    for %{uuid: uuid, status: "waiting"} <- rows,
+        %Assignment{status: "waiting"} = a <- [get_assignment(uuid)] do
+      case update_assignment_status(a, %{status: "todo"}, expect: "waiting") do
+        {:ok, _} ->
+          PhoenixKitProjects.Activity.log("projects.assignment_made_ready",
+            actor_uuid: PhoenixKitProjects.Actor.get(),
+            resource_type: "assignment",
+            resource_uuid: a.uuid,
+            metadata: %{
+              "task" => Assignment.label(a),
+              "from" => "waiting",
+              "to" => "todo",
+              "auto" => true
+            },
+            tell: false
+          )
+
+        _ ->
+          :ok
+      end
+    end
+
+    :ok
   end
 
   # Computes the denormalized rollup a sub-project's linking assignment carries.

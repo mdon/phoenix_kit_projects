@@ -1189,4 +1189,44 @@ defmodule PhoenixKitProjects.Integration.HandoffsTest do
              )
     end
   end
+
+  describe "a sub-project that finishes by itself (item 26)" do
+    test "releases what waited on it and tells those people it is their turn", ctx do
+      %{alice: alice, bob: bob} = ctx.people
+
+      {:ok, %{child_project: child, assignment: link}} =
+        Projects.create_subproject(ctx.project.uuid, %{"name" => "Kitchen"})
+
+      fit = task!(ctx.project, "Fit the worktop", bob, status: "waiting")
+      {:ok, _} = Projects.add_dependency(fit.uuid, link.uuid)
+      cut = task!(child, "Cut the boards", alice)
+
+      set_status!(cut, "done", alice.user)
+      Projects.recompute_project_completion(child.uuid)
+
+      assert Projects.get_assignment(link.uuid).status == "done"
+      assert Projects.get_assignment(fit.uuid).status == "todo"
+      assert [notice] = notices("projects.assignment_ready", bob.user)
+      assert notice.resource_uuid == fit.uuid
+      assert notice.metadata["after_uuid"] == link.uuid
+    end
+
+    test "with its status set by hand, nothing is released", ctx do
+      %{alice: alice, bob: bob} = ctx.people
+      {:ok, _} = PhoenixKitProjects.Features.set_flags(ctx.project, %{"subproject_auto" => false})
+
+      {:ok, %{child_project: child, assignment: link}} =
+        Projects.create_subproject(ctx.project.uuid, %{"name" => "Kitchen"})
+
+      fit = task!(ctx.project, "Fit the worktop", bob, status: "waiting")
+      {:ok, _} = Projects.add_dependency(fit.uuid, link.uuid)
+      cut = task!(child, "Cut the boards", alice)
+
+      set_status!(cut, "done", alice.user)
+      Projects.recompute_project_completion(child.uuid)
+
+      assert Projects.get_assignment(fit.uuid).status == "waiting"
+      assert notices("projects.assignment_ready", bob.user) == []
+    end
+  end
 end
