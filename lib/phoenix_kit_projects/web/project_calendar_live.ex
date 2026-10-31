@@ -173,6 +173,11 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
       # reports it: a task planned over several days at set hours is one bar
       # on the month and a block on each day of the week and day grids.
       cal_view: :month,
+      # The view a switch to Week / Day came from, until its range report
+      # settles where the grid opens (`snap_to_today/4`).
+      snap_from: nil,
+      # Where Week and Day scroll to when they open (`PkpCalendarWorkday`).
+      workday_start: CalendarDisplay.workday_start(),
       # The project's own events and what its extensions put on a calendar
       # (meetings), as calendar events — drawn while no filter narrows the
       # calendar to tasks.
@@ -201,12 +206,35 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
     {:noreply, navigate_to_target(socket, assignment_uuid)}
   end
 
-  # The Month / Week / Day switcher.
+  # The Month / Week / Day switcher. Week and Day open on TODAY when today
+  # is in what was on screen — they used to open on the grid's own date (the
+  # first day of a schedule that started earlier in the month; the
+  # walk-through, 2026-10-31). The switch is settled when the range report
+  # that follows it arrives (`{:calendar_range, …}`), which carries the date
+  # the component was on.
   def handle_info({:calendar_view, view}, socket) when view in [:month, :week, :day] do
-    {:noreply, socket |> assign(cal_view: view) |> apply_calendar_filter()}
+    snap = if view in [:week, :day], do: socket.assigns.cal_view
+
+    {:noreply, socket |> assign(cal_view: view, snap_from: snap) |> apply_calendar_filter()}
   end
 
   def handle_info({:calendar_view, _view}, socket), do: {:noreply, socket}
+
+  # Where the grid is, as the component reports it after every move: the
+  # `date` prop follows it, so a later change of that prop (the snap to
+  # today) always reaches the component — it only takes a value that differs
+  # from the last one it was given.
+  def handle_info({:calendar_range, _view, %Date{} = date}, socket) do
+    target =
+      case socket.assigns[:snap_from] do
+        nil -> date
+        from -> snap_to_today(from, date, socket.assigns.today, socket.assigns.overdue_anim)
+      end
+
+    {:noreply, assign(socket, anchor_date: target, snap_from: nil)}
+  end
+
+  def handle_info({:calendar_range, _view, _date}, socket), do: {:noreply, socket}
 
   # A day cell or its "+N more" link was clicked — fill the whole-day popup
   # (the dialog already opened client-side in the same frame).
@@ -679,6 +707,21 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
     end
   end
 
+  @doc false
+  # Today when it was on screen in the view being left, else where the
+  # grid was. Public for its test.
+  def snap_to_today(from_view, date, today, anim \\ %{}) do
+    week_start = Map.get(anim, :week_start) || 1
+
+    {first, last} =
+      PhoenixLiveCalendar.Utils.DateHelpers.visible_range(from_view, date, week_start: week_start)
+
+    # `last` is exclusive.
+    if Date.compare(today, first) != :lt and Date.compare(today, last) == :lt,
+      do: today,
+      else: date
+  end
+
   defp initial_anchor([], today), do: today
 
   defp initial_anchor(events, today) do
@@ -769,8 +812,17 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
               if(@overdue_anim, do: CalendarDisplay.animation_style(@overdue_anim), else: "")
             )}
             <div id={"project-calendar-sync-#{@project.uuid}"} phx-hook="SyncAnimations">
+            <%!-- Week and Day open at the start of the work day, not at
+                 midnight (`PkpCalendarWorkday`): their time grid scrolls
+                 inside its own box, so the toolbar stays in sight. --%>
+            <div
+              id={"project-calendar-workday-#{@project.uuid}"}
+              phx-hook="PkpCalendarWorkday"
+              data-start={@workday_start}
+            >
             <.live_component
               module={PhoenixLiveCalendar.CalendarComponent}
+              class={CalendarDisplay.time_grid_class()}
               translations={CalendarDisplay.translations()}
               id={"project-calendar-#{@project.uuid}"}
               events={@events}
@@ -790,6 +842,7 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
               on_date_select={fn date -> send(self(), {:calendar_date_click, date}) end}
               on_more_click={fn date -> send(self(), {:calendar_more_click, date}) end}
               on_view_change={fn %{view: view} -> send(self(), {:calendar_view, view}) end}
+              on_date_range_change={fn %{view: view, date: date} -> send(self(), {:calendar_range, view, date}) end}
             >
               <%!-- Same shared Filters popup as the Overview calendar (person
                    chips with descendant-aware sub-project matching, Unassigned,
@@ -832,6 +885,7 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLive do
                 </p>
               </:info>
             </.live_component>
+            </div>
             </div>
           </div>
 

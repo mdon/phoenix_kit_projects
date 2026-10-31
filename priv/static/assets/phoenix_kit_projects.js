@@ -24,6 +24,9 @@
  *
  * PkpDrawerUrl / PkpUrlMirror: the task open in a drawer in the page's
  * address (`?task=`), and the project page's tab address keeping it.
+ *
+ * PkpCalendarWorkday: a calendar's Week and Day grids open at the start of
+ * the work day instead of midnight.
  */
 (function () {
   "use strict";
@@ -1813,6 +1816,61 @@
     }
   };
 
+  // PkpCalendarWorkday: a calendar's Week and Day grids open at the start
+  // of the work day (`data-start`, "08:00:00"), not at midnight (the
+  // walk-through, 2026-10-31). Each time a time grid appears or shows other
+  // days, the scroll box holding it — the nearest one inside this element,
+  // never the page — is moved so that slot is at its top; scrolling within
+  // the same days is left alone. A MutationObserver, because the calendar
+  // is a LiveComponent: its own patches (prev / next) never reach this
+  // element's `updated`.
+  var CalendarWorkday = {
+    mounted: function () {
+      var self = this;
+      this.key = null;
+      this.queued = false;
+      this.observer = new MutationObserver(function () { self.queue(); });
+      this.observer.observe(this.el, { childList: true, subtree: true });
+      this.apply();
+    },
+    updated: function () { this.queue(); },
+    destroyed: function () {
+      if (this.observer) this.observer.disconnect();
+    },
+    queue: function () {
+      var self = this;
+      if (this.queued) return;
+      this.queued = true;
+      window.requestAnimationFrame(function () {
+        self.queued = false;
+        self.apply();
+      });
+    },
+    apply: function () {
+      var cols = this.el.querySelectorAll(".cal-day-column[data-date]");
+      if (!cols.length) { this.key = null; return; }
+      var key = Array.prototype.map.call(cols, function (c) { return c.getAttribute("data-date"); }).join(",");
+      if (key === this.key) return;
+      var start = this.el.dataset.start || "08:00:00";
+      var slot = cols[0].querySelector('[data-slot="' + start + '"]');
+      if (!slot) return;
+      var box = scrollBoxWithin(slot, this.el);
+      if (!box) return;
+      this.key = key;
+      box.scrollTop += slot.getBoundingClientRect().top - box.getBoundingClientRect().top;
+    }
+  };
+
+  function scrollBoxWithin(node, stop) {
+    for (var el = node.parentElement; el && el !== stop; el = el.parentElement) {
+      if (el.scrollHeight > el.clientHeight + 1) {
+        var y = window.getComputedStyle(el).overflowY;
+        if (y === "auto" || y === "scroll") return el;
+      }
+    }
+    return null;
+  }
+
   window.PhoenixKitProjectsHooks = {
     PkpOutline: Outline,
     PkpTitle: Title,
@@ -1820,6 +1878,7 @@
     PkpBoard: Board,
     PkpTabScroll: TabScroll,
     PkpDrawerUrl: DrawerUrl,
-    PkpUrlMirror: UrlMirror
+    PkpUrlMirror: UrlMirror,
+    PkpCalendarWorkday: CalendarWorkday
   };
 })();

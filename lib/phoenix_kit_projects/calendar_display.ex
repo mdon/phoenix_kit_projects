@@ -444,6 +444,27 @@ defmodule PhoenixKitProjects.CalendarDisplay do
   end
 
   @doc """
+  Where the Week and Day grids open: the start of the work day
+  (`TimeBoard.work_hours/0`, 08:00) as `"HH:MM:SS"`, the grid's own
+  `data-slot` spelling — the `PkpCalendarWorkday` hook scrolls the grid to
+  that slot instead of leaving it at midnight.
+  """
+  @spec workday_start() :: String.t()
+  def workday_start do
+    {start, _end} = PhoenixKitProjects.TimeBoard.work_hours()
+    Time.to_iso8601(start)
+  end
+
+  @doc """
+  The class a calendar with Week / Day views takes: their time grid scrolls
+  inside a box of its own (at most most of the window), so opening at the
+  work day's start scrolls the grid and not the page, and the toolbar stays
+  in sight.
+  """
+  @spec time_grid_class() :: String.t()
+  def time_grid_class, do: "[&_.cal-week-body]:max-h-[70vh]"
+
+  @doc """
   The calendar's words in the page's language, for
   `PhoenixLiveCalendar.CalendarComponent`'s `translations` attr: the
   headings' month and day names, the weekday row and the Month / Week /

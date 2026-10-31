@@ -144,4 +144,62 @@ defmodule PhoenixKitProjects.Web.ConsistencyWalkthroughTest do
       refute html =~ ~r/>\s*Today\s*</
     end
   end
+
+  describe "Week and Day open on today, at the work day's start (item 5)" do
+    alias PhoenixKitProjects.Web.ProjectCalendarLive
+
+    test "snap_to_today/4 takes today when it was on screen, else stays" do
+      today = ~D[2026-10-31]
+
+      assert ProjectCalendarLive.snap_to_today(:month, ~D[2026-10-10], today) == today
+      assert ProjectCalendarLive.snap_to_today(:month, ~D[2026-12-01], today) == ~D[2026-12-01]
+      assert ProjectCalendarLive.snap_to_today(:week, ~D[2026-10-27], today) == today
+      assert ProjectCalendarLive.snap_to_today(:day, ~D[2026-10-30], today) == ~D[2026-10-30]
+    end
+
+    test "switching the project calendar to Day shows today, with the work-day hook", %{
+      conn: conn,
+      actor_uuid: actor
+    } do
+      project = fixture_project(%{"start_mode" => "immediate"})
+      {:ok, _} = Projects.start_project(project)
+      # The schedule starts on the 10th, so the grid's own date is not today.
+      start = Date.utc_today() |> Date.beginning_of_month() |> Date.add(9)
+
+      {:ok, project} =
+        Projects.update_project(project, %{started_at: DateTime.new!(start, ~T[08:00:00])})
+
+      task = fixture_task(%{"estimated_duration" => 2, "estimated_duration_unit" => "days"})
+      assignment!(project, %{"task_uuid" => task.uuid})
+      {:ok, _} = PhoenixKitProjects.Members.add_member(project.uuid, actor, role: "member")
+
+      {:ok, view, _html} =
+        live_isolated(conn, ProjectCalendarLive,
+          session: %{"id" => project.uuid, "current_user_uuid" => actor}
+        )
+
+      html = render_async(view)
+      assert html =~ ~s(phx-hook="PkpCalendarWorkday")
+      assert html =~ ~s(data-start="08:00:00")
+
+      view |> element(~s(button[phx-value-view="day"])) |> render_click()
+      html = render(view)
+
+      today = Date.utc_today() |> Date.to_iso8601()
+
+      assert [[^today]] =
+               Regex.scan(~r/cal-day-column[^"]*"[^>]*data-date="([^"]+)"/, html,
+                 capture: :all_but_first
+               )
+    end
+
+    test "the hook ships in the module's bundle" do
+      js =
+        File.read!(
+          Application.app_dir(:phoenix_kit_projects, "priv/static/assets/phoenix_kit_projects.js")
+        )
+
+      assert js =~ "PkpCalendarWorkday: CalendarWorkday"
+    end
+  end
 end
