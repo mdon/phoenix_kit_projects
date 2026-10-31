@@ -347,7 +347,7 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLiveTest do
     refute html =~ "cal-container"
   end
 
-  test "unknown project id redirects to the projects list", %{conn: conn, actor_uuid: actor} do
+  test "unknown project id redirects to the projects list", %{conn: conn, actor_uuid: _actor} do
     assert {:error, {:live_redirect, %{to: to}}} =
              live_isolated(conn, ProjectCalendarLive, session: %{"id" => Ecto.UUID.generate()})
 
@@ -516,23 +516,26 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLiveTest do
       {:ok, view, _html} =
         live_isolated(conn, ProjectCalendarLive, session: view_session(project.uuid, actor))
 
-      html = render(view)
-      assert html =~ "assignee_search"
-      assert html =~ mine.title
-      assert html =~ other.title
+      # The two 2-day tasks run back to back, so on the last days of a
+      # month the second one starts in the next month and the grid on
+      # screen does not draw it. The filter decides the event list, so the
+      # assertions read that, not the month that happens to be showing.
+      assert render(view) =~ "assignee_search"
+      assert mine.title in event_titles(view)
+      assert other.title in event_titles(view)
 
-      html = render_click(view, "assignee_pick", %{"uuid" => person.uuid})
-      assert html =~ mine.title
-      refute html =~ other.title
+      render_click(view, "assignee_pick", %{"uuid" => person.uuid})
+      assert mine.title in event_titles(view)
+      refute other.title in event_titles(view)
 
       # Unassigned lens composes back in the other task.
-      html = render_click(view, "toggle_unassigned", %{})
-      assert html =~ other.title
+      render_click(view, "toggle_unassigned", %{})
+      assert other.title in event_titles(view)
 
       # Clear resets to everything.
-      html = render_click(view, "clear_assignee_filter", %{})
-      assert html =~ mine.title
-      assert html =~ other.title
+      render_click(view, "clear_assignee_filter", %{})
+      assert mine.title in event_titles(view)
+      assert other.title in event_titles(view)
     end
 
     test "a sub-project bar matches when a CHILD task belongs to the person", %{
@@ -746,6 +749,9 @@ defmodule PhoenixKitProjects.Web.ProjectCalendarLiveTest do
     refute html =~ "remove_assignee_person"
     assert Process.alive?(view.pid)
   end
+
+  defp event_titles(view),
+    do: Enum.map(:sys.get_state(view.pid).socket.assigns.events, & &1.title)
 
   defp unassigned_count(html) do
     [_, count] = Regex.run(~r/Unassigned\s*<span[^>]*>(\d+)<\/span>/, html)
