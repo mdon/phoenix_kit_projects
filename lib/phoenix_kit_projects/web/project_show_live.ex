@@ -4892,13 +4892,17 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         do: "projects.assignment_made_subproject",
         else: "projects.assignment_made_task"
 
-    meta = %{"task" => label, "project_uuid" => a.project_uuid}
+    # The audit row names the task in its primary language (audit trails
+    # are locale-agnostic); the flash uses the viewer's.
+    meta = %{"task" => Assignment.label(a), "project_uuid" => a.project_uuid}
 
     result =
-      cond do
-        not Authz.can?(scope, socket.assigns.project, :create_tasks) -> {:error, :forbidden}
-        way == :to_subproject -> TaskConversion.to_subproject(a, actor_uuid: actor)
-        true -> TaskConversion.to_task(a, actor_uuid: actor)
+      if conversion_allowed?(scope, a, way) do
+        if way == :to_subproject,
+          do: TaskConversion.to_subproject(a, actor_uuid: actor),
+          else: TaskConversion.to_task(a, actor_uuid: actor)
+      else
+        {:error, :forbidden}
       end
 
     case result do
@@ -4925,6 +4929,29 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         )
 
         {:noreply, put_flash(socket, :error, convert_error(reason))}
+    end
+  end
+
+  # Asked of the project the row sits in — a task of an expanded
+  # sub-project is converted there, not on this page's project — and, for
+  # a sub-project made a task again, of the sub-project itself: its tasks
+  # move into this list and it is archived, which is the archive right
+  # everywhere else.
+  defp conversion_allowed?(scope, %Assignment{} = a, way) do
+    case Projects.get_project(a.project_uuid) do
+      %Project{} = home ->
+        Authz.can?(scope, home, :edit_tasks) and Authz.can?(scope, home, :create_tasks) and
+          (way == :to_subproject or child_archivable?(scope, a.child_project_uuid))
+
+      nil ->
+        false
+    end
+  end
+
+  defp child_archivable?(scope, child_uuid) do
+    case Projects.get_project(child_uuid) do
+      %Project{} = child -> Authz.can?(scope, child, :archive_project)
+      nil -> false
     end
   end
 

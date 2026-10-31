@@ -87,7 +87,14 @@ defmodule PhoenixKitProjects.TaskConversion do
 
           link =
             row
-            |> Ecto.Changeset.change(task_uuid: nil, child_project_uuid: child.uuid)
+            # A sub-project row does not come back as a next occurrence
+            # (`Repeats` copies a task): the rule stays behind, or every
+            # finish of the sub-project would try to repeat it and fail.
+            |> Ecto.Changeset.change(
+              task_uuid: nil,
+              child_project_uuid: child.uuid,
+              repeat_rule: nil
+            )
             |> Ecto.Changeset.check_constraint(:child_project_uuid,
               name: :phoenix_kit_project_assignments_task_xor_child
             )
@@ -220,8 +227,17 @@ defmodule PhoenixKitProjects.TaskConversion do
             )
             |> repo().update!()
 
-          {:ok, archived} =
-            child |> Project.changeset(%{archived_at: DateTime.utc_now()}) |> repo().update()
+          archived =
+            case child
+                 |> Project.changeset(%{archived_at: DateTime.utc_now()})
+                 |> repo().update() do
+              {:ok, archived} -> archived
+              {:error, cs} -> repo().rollback(cs)
+            end
+
+          # The rows that came in may tick or reopen the row (the
+          # completion rules); `settle_tree/2` must run under the lock.
+          Outline.settle_tree(link.project_uuid)
 
           %{assignment: row, project: archived, moved: n}
         else
@@ -232,7 +248,6 @@ defmodule PhoenixKitProjects.TaskConversion do
       end)
 
     with {:ok, %{project: child} = done} <- result do
-      Outline.settle_tree(link.project_uuid)
       Projects.recompute_project_completion(link.project_uuid)
       announce(link.project_uuid, child.uuid, link.uuid)
       Projects.broadcast_project_updated(child)

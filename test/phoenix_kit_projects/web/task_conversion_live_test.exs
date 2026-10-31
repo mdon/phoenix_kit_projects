@@ -137,4 +137,31 @@ defmodule PhoenixKitProjects.Web.TaskConversionLiveTest do
       assert is_nil(Projects.get_assignment(fit.uuid).child_project_uuid)
     end
   end
+
+  # Back to a task archives the sub-project and moves its tasks into this
+  # list: the archive right on the sub-project is asked, not only the edit
+  # rights on this page's project. A manager here is not an owner there.
+  test "a manager of the parent cannot fold a sub-project they may not archive", ctx do
+    {:ok, %{child_project: child, assignment: link}} =
+      Projects.create_subproject(ctx.project.uuid, %{"name" => "Doors"})
+
+    {:ok, manager} =
+      Auth.register_user(%{
+        "email" => "manager-#{System.unique_integer([:positive])}@example.com",
+        "password" => "ManagerPass123!"
+      })
+
+    {:ok, _} = Members.add_member(ctx.project, manager.uuid, role: "manager")
+
+    conn =
+      put_test_scope(build_conn(), fake_scope(user_uuid: manager.uuid, permissions: ["projects"]))
+
+    {:ok, view, _html} = live(conn, "/en/admin/projects/#{ctx.project.uuid}")
+
+    assert render_click(view, "make_task", %{"uuid" => link.uuid}) =~
+             "You do not have permission to do that."
+
+    assert Projects.get_assignment(link.uuid).child_project_uuid == child.uuid
+    assert is_nil(Repo.get(Project, child.uuid).archived_at)
+  end
 end

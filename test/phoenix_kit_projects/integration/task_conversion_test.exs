@@ -15,7 +15,10 @@ defmodule PhoenixKitProjects.Integration.TaskConversionTest do
       Projects.create_task_with_assignment(
         project.uuid,
         %{"title" => title, "ad_hoc" => true},
-        %{"status" => Keyword.get(opts, :status, "todo"), "description" => opts[:description]}
+        Map.merge(
+          %{"status" => Keyword.get(opts, :status, "todo"), "description" => opts[:description]},
+          Keyword.get(opts, :attrs, %{})
+        )
       )
 
     case Keyword.get(opts, :under) do
@@ -123,5 +126,16 @@ defmodule PhoenixKitProjects.Integration.TaskConversionTest do
 
     assert TaskConversion.to_subproject(Projects.get_assignment(fit.uuid)) ==
              {:error, :not_a_task}
+  end
+
+  # A sub-project row cannot come back as a next occurrence (`Repeats`
+  # copies a task), so the rule does not travel with the row: left on it,
+  # the sub-project's finish would try to repeat and fail every time.
+  test "a repeating task made a sub-project stops repeating", %{project: p} do
+    weekly = task!(p, "Check in", attrs: %{"repeat_rule" => %{"every" => 1, "unit" => "week"}})
+    assert weekly.repeat_rule == %{"every" => 1, "unit" => "week"}
+
+    assert {:ok, _} = TaskConversion.to_subproject(weekly)
+    assert Projects.get_assignment(weekly.uuid).repeat_rule == nil
   end
 end
