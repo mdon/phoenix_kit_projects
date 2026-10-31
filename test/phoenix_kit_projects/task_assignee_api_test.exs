@@ -393,8 +393,10 @@ defmodule PhoenixKitProjects.TaskAssigneeApiTest do
       assert Project.derived_status(waiting) == :scheduled
       assert fixture_project(%{"settings" => ongoing, "is_template" => true}).started_at == nil
 
+      # A plain project not yet started is offered its Start (on the header
+      # line since the boss's review of 2026-10-30).
       {:ok, _view, html} = live(conn, "/en/admin/projects/#{fixture_project().uuid}")
-      assert html =~ "set up tasks, then start"
+      assert html =~ "Start project"
     end
   end
 end

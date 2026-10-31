@@ -302,8 +302,8 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
             socket.assigns[:live_action]
             |> tab_for_action(Map.get(params, "tab"), is_template, ext_tabs)
             |> gate_tab(fx)
-            |> gate_comments_tab(comments? and fx.project_comments, comments? and fx.all_comments)
-            |> resolve_landing_tab(fx, ext_tabs, comments? and fx.project_comments)
+            |> gate_comments_tab(comment_tabs(comments?, fx))
+            |> resolve_landing_tab(fx, ext_tabs, elem(comment_tabs(comments?, fx), 0))
 
           # Resolve the workflow-status list once (read-only — nothing is
           # provisioned or seeded here; an unset shared default simply yields
@@ -374,8 +374,8 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
               # The two comment tabs, each its own switch (the boss,
               # 2026-10-30): the project's own thread, and every comment on
               # its tasks in one list.
-              project_thread?: comments? and fx.project_comments,
-              all_comments?: comments? and fx.all_comments,
+              project_thread?: elem(comment_tabs(comments?, fx), 0),
+              all_comments?: elem(comment_tabs(comments?, fx), 1),
               all_comments: [],
               all_comments_task: "",
               all_comments_project?: false,
@@ -670,14 +670,14 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       not socket.assigns.is_template and comments_available?() and
         Extensions.enabled?(project, "discussions")
 
+    {thread?, all?} = comment_tabs(comments?, fx)
+
     active =
       case gate_tab(socket.assigns.active_tab, fx) do
         "ext:" <> _ = id -> if Enum.any?(ext_tabs, &(&1.id == id)), do: id, else: :list
-        :comments -> if comments? and fx.project_comments, do: :comments, else: :list
-        :all_comments -> if comments? and fx.all_comments, do: :all_comments, else: :list
-        tab -> tab
+        tab -> gate_comments_tab(tab, {thread?, all?})
       end
-      |> resolve_landing_tab(fx, ext_tabs, comments? and fx.project_comments)
+      |> resolve_landing_tab(fx, ext_tabs, thread?)
 
     socket =
       socket
@@ -687,8 +687,8 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         fx_files: Extensions.enabled?(project, "files"),
         ext_tabs: ext_tabs,
         comments_enabled: comments?,
-        project_thread?: comments? and fx.project_comments,
-        all_comments?: comments? and fx.all_comments
+        project_thread?: thread?,
+        all_comments?: all?
       )
       |> activate_tab(active)
 
@@ -4004,9 +4004,14 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
 
   # A `/comments` deep link on a project whose Discussions extension is off
   # (or without the comments package) lands like the bare page.
-  defp gate_comments_tab(:comments, false, _all?), do: :list
-  defp gate_comments_tab(:all_comments, _thread?, false), do: :list
-  defp gate_comments_tab(tab, _thread?, _all?), do: tab
+  defp gate_comments_tab(:comments, {false, _all?}), do: :list
+  defp gate_comments_tab(:all_comments, {_thread?, false}), do: :list
+  defp gate_comments_tab(tab, _tabs), do: tab
+
+  # The two comment tabs, `{the project's own thread?, all comments?}`:
+  # each its own flag, both under Discussions.
+  defp comment_tabs(comments?, fx),
+    do: {comments? and fx[:project_comments] == true, comments? and fx[:all_comments] == true}
 
   # With tasks OFF the :list landing has no task surface — land on the first
   # contributed extension tab instead, or on Comments when that is the only
@@ -4139,7 +4144,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
           :comments
 
         "all_comments" ->
-          if socket.assigns[:all_comments?] == true, do: :all_comments, else: :list
+          gate_comments_tab(:all_comments, {comments?, socket.assigns[:all_comments?] == true})
 
         "history" when not socket.assigns.is_template and :erlang.map_get(:tasks, fx) ->
           :history
