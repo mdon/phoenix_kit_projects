@@ -412,9 +412,7 @@ defmodule PhoenixKitProjects.Web.TimeLive do
             <.axis_header lanes={@lanes} view={@view} today={@today} />
 
             <%= if @rows == [] and @board.groups == [] do %>
-              <div class="p-6 text-center text-base-content/60">
-                {gettext("Nothing to show for this range.")}
-              </div>
+              <.empty_state title={gettext("Nothing to show for this range.")} class="py-6" />
             <% end %>
 
             <.board_row

@@ -978,9 +978,11 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
               </h2>
 
               <%= if @my_assignments == [] do %>
-                <p class="text-sm text-base-content/50 py-2">
-                  {gettext("Nothing assigned to you right now.")}
-                </p>
+                <.empty_state
+                  icon="hero-check-circle"
+                  title={gettext("Nothing assigned to you right now.")}
+                  class="py-4"
+                />
               <% else %>
                 <div class="flex flex-col gap-2 mt-2">
                   <.smart_link
