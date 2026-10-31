@@ -3620,6 +3620,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   defp humanize(:completed_at), do: gettext("Finished at")
   defp humanize(:start_time), do: gettext("Start time")
   defp humanize(:end_time), do: gettext("End time")
+  defp humanize(:repeat_rule), do: gettext("Repeats")
 
   defp humanize(field) do
     field |> Atom.to_string() |> String.replace("_", " ") |> String.capitalize()

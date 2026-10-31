@@ -6,7 +6,8 @@ defmodule PhoenixKitProjects.Integration.RepeatsTest do
 
   use PhoenixKitProjects.DataCase, async: false
 
-  alias PhoenixKitProjects.{Outline, Projects, Repeats}
+  alias PhoenixKit.Users.Auth
+  alias PhoenixKitProjects.{Actor, Outline, Projects, Repeats}
   alias PhoenixKitProjects.Schemas.Assignment
 
   setup do
@@ -118,5 +119,61 @@ defmodule PhoenixKitProjects.Integration.RepeatsTest do
     one = task!(p, "Once")
     done!(one)
     assert length(Projects.list_assignments(p.uuid)) == 1
+  end
+
+  # The control's shapes × what becomes of the rule: a choice it can read is
+  # the rule, "Every…" just picked is what it shows (1 week), and a number
+  # or unit it cannot read is kept so the changeset refuses it — never read
+  # as "does not repeat", which silently ended the repeat.
+  for {params, expected} <- [
+        {%{"repeat" => "custom"}, {:rule, %{"every" => 1, "unit" => "week"}}},
+        {%{"repeat" => "custom", "repeat_every" => "3", "repeat_unit" => "month"},
+         {:rule, %{"every" => 3, "unit" => "month"}}},
+        {%{"repeat" => "custom", "repeat_every" => "0", "repeat_unit" => "week"}, :refused},
+        {%{"repeat" => "custom", "repeat_every" => "400", "repeat_unit" => "day"}, :refused},
+        {%{"repeat" => "custom", "repeat_every" => "", "repeat_unit" => "week"}, :refused},
+        {%{"repeat" => "custom", "repeat_every" => "2", "repeat_unit" => "year"}, :refused},
+        {%{"repeat" => "none"}, {:rule, nil}}
+      ] do
+    test "the repeat control #{inspect(params)} -> #{inspect(expected)}" do
+      attrs = Repeats.from_params(unquote(Macro.escape(params)))
+      cs = Assignment.changeset(%Assignment{}, Map.take(attrs, ["repeat_rule"]))
+
+      case unquote(Macro.escape(expected)) do
+        {:rule, rule} ->
+          assert Ecto.Changeset.get_field(cs, :repeat_rule) == rule
+          refute Keyword.has_key?(cs.errors, :repeat_rule)
+
+        :refused ->
+          assert Keyword.has_key?(cs.errors, :repeat_rule)
+      end
+    end
+  end
+
+  test "the next occurrence is recorded: who finished it, and where it came from",
+       %{project: p} do
+    {:ok, user} =
+      Auth.register_user(%{
+        "email" => "repeat-#{System.unique_integer([:positive])}@example.com",
+        "password" => "RepeatPass123!"
+      })
+
+    weekly = task!(p, "Weekly call", %{"repeat_rule" => %{"every" => 1, "unit" => "week"}})
+    Actor.put(user.uuid)
+
+    try do
+      done!(weekly)
+    after
+      Actor.put(nil)
+    end
+
+    [next] = Enum.filter(Projects.list_assignments(p.uuid), &(&1.repeat_rule != nil))
+    assert next.created_by_uuid == user.uuid
+
+    assert_activity_logged("projects.assignment_created",
+      resource_uuid: next.uuid,
+      actor_uuid: user.uuid,
+      metadata_has: %{"repeat_of" => weekly.uuid, "task" => "Weekly call"}
+    )
   end
 end

@@ -25,7 +25,7 @@ defmodule PhoenixKitProjects.Repeats do
   require Logger
 
   alias PhoenixKit.RepoHelper
-  alias PhoenixKitProjects.{Outline, Projects}
+  alias PhoenixKitProjects.{Activity, Outline, Projects}
   alias PhoenixKitProjects.Schemas.{Assignment, Task}
 
   @units ~w(day week month)
@@ -70,7 +70,7 @@ defmodule PhoenixKitProjects.Repeats do
         "week" -> %{"every" => 1, "unit" => "week"}
         "2weeks" -> %{"every" => 2, "unit" => "week"}
         "month" -> %{"every" => 1, "unit" => "month"}
-        "custom" -> normalize(%{"every" => attrs["repeat_every"], "unit" => attrs["repeat_unit"]})
+        "custom" -> custom(attrs)
         _ -> nil
       end
 
@@ -80,6 +80,16 @@ defmodule PhoenixKitProjects.Repeats do
   end
 
   def from_params(attrs), do: attrs
+
+  # "Every…" just picked shows "1 week" before its fields were posted, so
+  # that is the rule. A number or unit it cannot read stays as posted: the
+  # changeset refuses it, rather than the task silently ceasing to repeat.
+  defp custom(attrs) do
+    every = Map.get(attrs, "repeat_every", 1)
+    unit = Map.get(attrs, "repeat_unit", "week")
+    raw = %{"every" => every, "unit" => unit}
+    normalize(raw) || raw
+  end
 
   @doc "Which of the control's choices a rule is."
   @spec choice(map() | nil) :: String.t()
@@ -137,14 +147,18 @@ defmodule PhoenixKitProjects.Repeats do
   @doc """
   For each change that finished a repeating task (`to: "done"`), makes its
   next occurrence. Returns the new tasks.
+
+  `actor_uuid` is whoever's write finished the task: the new task is
+  recorded as theirs (`created_by_uuid`) and its `projects.assignment_created`
+  row names them, with `metadata.repeat_of` the finished task.
   """
-  @spec next([map()]) :: [Assignment.t()]
-  def next(changes) when is_list(changes) do
+  @spec next([map()], binary() | nil) :: [Assignment.t()]
+  def next(changes, actor_uuid \\ nil) when is_list(changes) do
     for %{uuid: uuid, to: "done", from: from} <- changes,
         from != "done",
         %Assignment{repeat_rule: %{}} = done <- [repo().get(Assignment, uuid)],
         %{} = rule <- [normalize(done.repeat_rule)],
-        {:ok, made} <- [occur(done, rule)] do
+        {:ok, made} <- [occur(done, rule, actor_uuid)] do
       made
     end
   rescue
@@ -155,7 +169,7 @@ defmodule PhoenixKitProjects.Repeats do
     :exit, _ -> []
   end
 
-  defp occur(%Assignment{} = done, rule) do
+  defp occur(%Assignment{} = done, rule, actor_uuid) do
     result =
       repo().transaction(fn ->
         # Taken off the done one first, under its row lock: two writes
@@ -167,18 +181,56 @@ defmodule PhoenixKitProjects.Repeats do
         if count == 1, do: copy!(done, rule, done.parent_uuid), else: repo().rollback(:taken)
       end)
 
-    with {:ok, made} <- result do
-      PhoenixKitProjects.PubSub.broadcast_assignment(:assignment_created, %{
-        uuid: made.uuid,
-        project_uuid: made.project_uuid
-      })
-
-      PhoenixKitProjects.PubSub.broadcast_assignment(:assignment_reordered, %{
-        project_uuid: made.project_uuid
-      })
-
-      {:ok, made}
+    case result do
+      {:ok, made} -> announce(made, done, actor_uuid)
+      # Another write took the rule first: its occurrence is the one.
+      {:error, :taken} -> {:error, :taken}
+      {:error, reason} -> failed(done, reason, actor_uuid)
     end
+  end
+
+  # Said, and recorded as a create (a failure as a failed one), so the
+  # finished task's History shows where the next one came from.
+  defp failed(%Assignment{} = done, reason, actor_uuid) do
+    Logger.warning(
+      "[Projects] repeat of #{done.uuid} failed: #{inspect(if is_atom(reason), do: reason, else: :changeset)}"
+    )
+
+    Activity.log_failed("projects.assignment_created",
+      actor_uuid: actor_uuid,
+      resource_type: "assignment",
+      resource_uuid: done.uuid,
+      metadata: %{"project_uuid" => done.project_uuid, "repeat_of" => done.uuid}
+    )
+
+    {:error, reason}
+  end
+
+  defp announce(%Assignment{} = made, %Assignment{} = done, actor_uuid) do
+    if actor_uuid, do: Projects.stamp_assignment(made, %{created_by_uuid: actor_uuid})
+
+    Activity.log("projects.assignment_created",
+      actor_uuid: actor_uuid,
+      resource_type: "assignment",
+      resource_uuid: made.uuid,
+      metadata: %{
+        "task" => made |> repo().preload(:task) |> Assignment.label(),
+        "project_uuid" => made.project_uuid,
+        "repeat_of" => done.uuid,
+        "auto" => true
+      }
+    )
+
+    PhoenixKitProjects.PubSub.broadcast_assignment(:assignment_created, %{
+      uuid: made.uuid,
+      project_uuid: made.project_uuid
+    })
+
+    PhoenixKitProjects.PubSub.broadcast_assignment(:assignment_reordered, %{
+      project_uuid: made.project_uuid
+    })
+
+    {:ok, made}
   end
 
   # The task again, not done, with the rule (only on the top one) and its
@@ -232,9 +284,11 @@ defmodule PhoenixKitProjects.Repeats do
   defp place!(%Assignment{} = made, nil), do: made
 
   defp place!(%Assignment{} = made, parent_uuid) do
+    # The move runs in this transaction (its lock nests): a refused move
+    # rolls the whole occurrence back, so it is said rather than ignored.
     case Outline.move(Projects.get_assignment(made.uuid), parent_uuid, :last) do
       {:ok, moved} -> moved
-      _ -> made
+      {:error, reason} -> repo().rollback(reason)
     end
   end
 
