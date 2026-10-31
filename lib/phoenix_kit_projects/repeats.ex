@@ -49,19 +49,61 @@ defmodule PhoenixKitProjects.Repeats do
   @doc """
   A rule as stored: `%{"every" => 1..365, "unit" => unit}`, or nil for
   anything else (no rule, a bad number, an unknown unit).
+
+  A month rule may also carry `"day"` (1..31): the day of the month its
+  deadlines keep, the first deadline's. Without it a month that is
+  shorter clamps the date once and every later month inherits the clamp
+  (31 Jan → 28 Feb → 28 Mar); with it each month takes the day again,
+  clamped to that month alone (31 Jan → 28 Feb → 31 Mar). A day that is
+  not one is dropped, never the rule.
   """
   @spec normalize(term()) :: map() | nil
   def normalize(%{} = rule) do
     with unit when unit in @units <- to_string(rule["unit"] || rule[:unit] || ""),
          {n, ""} when n in 1..@max_every <-
            Integer.parse(to_string(rule["every"] || rule[:every] || "")) do
-      %{"every" => n, "unit" => unit}
+      put_day(%{"every" => n, "unit" => unit}, rule["day"] || rule[:day])
     else
       _ -> nil
     end
   end
 
   def normalize(_), do: nil
+
+  defp put_day(%{"unit" => "month"} = rule, day) when is_integer(day) and day in 1..31,
+    do: Map.put(rule, "day", day)
+
+  defp put_day(rule, _day), do: rule
+
+  @doc """
+  `rule` as the next occurrence carries it: a month rule keeps the day of
+  the month it started on — its own `"day"`, else the day of `base` (the
+  deadline it was moved on from).
+  """
+  @spec anchored(map(), DateTime.t()) :: map()
+  def anchored(rule, %DateTime{} = base) do
+    case normalize(rule) do
+      %{"unit" => "month", "day" => _} = rule -> rule
+      %{"unit" => "month"} = rule -> Map.put(rule, "day", base.day)
+      rule -> rule
+    end
+  end
+
+  @doc """
+  The anchor day of `stored` carried over to `posted` when they are the
+  same rule otherwise — a form posts the rule without it, and saving the
+  task must not reset the day to the (possibly clamped) deadline it shows.
+  """
+  @spec keep_day(map() | nil, map() | nil) :: map() | nil
+  def keep_day(%{"every" => n, "unit" => "month"} = posted, stored)
+      when not is_map_key(posted, "day") do
+    case normalize(stored) do
+      %{"every" => ^n, "unit" => "month", "day" => day} -> Map.put(posted, "day", day)
+      _ -> posted
+    end
+  end
+
+  def keep_day(posted, _stored), do: posted
 
   @doc """
   The rule the task form's one control posts: `"repeat"` is `"none"`,
@@ -133,11 +175,22 @@ defmodule PhoenixKitProjects.Repeats do
     end
   end
 
-  @doc "`at` moved on by `rule` (whole days, weeks or calendar months)."
+  @doc """
+  `at` moved on by `rule` (whole days, weeks or calendar months). A month
+  rule with a `"day"` lands on that day of the month, or the month's last
+  day when it has fewer.
+  """
   @spec shift(DateTime.t(), map()) :: DateTime.t()
   def shift(%DateTime{} = at, rule) do
-    %{"every" => n, "unit" => unit} = normalize(rule)
-    DateTime.shift(at, [{String.to_existing_atom(unit), n}])
+    case normalize(rule) do
+      %{"every" => n, "unit" => "month", "day" => day} ->
+        shifted = DateTime.shift(at, month: n)
+        target = min(day, Calendar.ISO.days_in_month(shifted.year, shifted.month))
+        DateTime.shift(shifted, day: target - shifted.day)
+
+      %{"every" => n, "unit" => unit} ->
+        DateTime.shift(at, [{String.to_existing_atom(unit), n}])
+    end
   end
 
   @doc "A `Date` moved on by `rule`."
@@ -249,6 +302,11 @@ defmodule PhoenixKitProjects.Repeats do
   defp copy!(%Assignment{} = a, rule, place, top? \\ true) do
     base = a.deadline || a.completed_at || DateTime.utc_now()
 
+    # The task's rule keeps the day of the month it started on, so a month
+    # that clamps the date does not move every later one (`anchored/2`).
+    # A subtask's deadline has its own day: moved by plain calendar months.
+    rule_on = if top?, do: anchored(rule, base), else: Map.delete(rule, "day")
+
     attrs =
       %{
         "project_uuid" => a.project_uuid,
@@ -268,13 +326,13 @@ defmodule PhoenixKitProjects.Repeats do
         "end_date" => shift_date(a.end_date, rule),
         "start_time" => a.start_time,
         "end_time" => a.end_time,
-        "deadline" => if(top? or a.deadline, do: shift(base, rule))
+        "deadline" => if(top? or a.deadline, do: shift(base, rule_on))
       }
 
     made =
       case %Assignment{}
            |> Assignment.changeset(attrs)
-           |> Ecto.Changeset.put_change(:repeat_rule, if(top?, do: rule))
+           |> Ecto.Changeset.put_change(:repeat_rule, if(top?, do: rule_on))
            |> repo().insert() do
         {:ok, made} -> made
         {:error, cs} -> repo().rollback(cs)

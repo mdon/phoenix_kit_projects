@@ -177,6 +177,50 @@ defmodule PhoenixKitProjects.Integration.RepeatsTest do
     )
   end
 
+  describe "a month rule keeps its day" do
+    test "31 Jan -> 28 Feb -> 31 Mar, not 28 Mar", %{project: p} do
+      monthly =
+        task!(p, "Invoice", %{
+          "deadline" => ~U[2027-01-31 09:00:00Z],
+          "repeat_rule" => %{"every" => 1, "unit" => "month"}
+        })
+
+      done!(monthly)
+      [feb] = Enum.filter(Projects.list_assignments(p.uuid), &(&1.repeat_rule != nil))
+      assert feb.deadline == ~U[2027-02-28 09:00:00Z]
+      assert feb.repeat_rule["day"] == 31
+
+      done!(feb)
+      [mar] = Enum.filter(Projects.list_assignments(p.uuid), &(&1.repeat_rule != nil))
+      assert mar.deadline == ~U[2027-03-31 09:00:00Z]
+
+      done!(mar)
+      [apr] = Enum.filter(Projects.list_assignments(p.uuid), &(&1.repeat_rule != nil))
+      assert apr.deadline == ~U[2027-04-30 09:00:00Z]
+    end
+
+    test "a form saving the same rule without the day keeps it" do
+      stored = %Assignment{repeat_rule: %{"every" => 1, "unit" => "month", "day" => 31}}
+      cs = Assignment.changeset(stored, %{"repeat_rule" => %{"every" => 1, "unit" => "month"}})
+      assert Ecto.Changeset.get_field(cs, :repeat_rule)["day"] == 31
+
+      # a different rule is a new start
+      cs = Assignment.changeset(stored, %{"repeat_rule" => %{"every" => 2, "unit" => "month"}})
+      refute Map.has_key?(Ecto.Changeset.get_field(cs, :repeat_rule), "day")
+    end
+
+    test "a day only a month rule can carry, and only a real one" do
+      assert Repeats.normalize(%{"every" => 1, "unit" => "week", "day" => 3}) ==
+               %{"every" => 1, "unit" => "week"}
+
+      assert Repeats.normalize(%{"every" => 1, "unit" => "month", "day" => 40}) ==
+               %{"every" => 1, "unit" => "month"}
+
+      assert Repeats.label(%{"every" => 1, "unit" => "month", "day" => 31}) == "Every month"
+      assert Repeats.choice(%{"every" => 1, "unit" => "month", "day" => 31}) == "month"
+    end
+  end
+
   describe "a repeating subtask" do
     test "whose finish closed its parent comes back beside the parent, not inside it",
          %{project: p} do

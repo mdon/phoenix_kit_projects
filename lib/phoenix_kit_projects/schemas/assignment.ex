@@ -530,8 +530,15 @@ defmodule PhoenixKitProjects.Schemas.Assignment do
 
       rule ->
         case PhoenixKitProjects.Repeats.normalize(rule) do
-          nil -> add_error(changeset, :repeat_rule, gettext("is not a way a task can repeat"))
-          normal -> put_change(changeset, :repeat_rule, normal)
+          nil ->
+            add_error(changeset, :repeat_rule, gettext("is not a way a task can repeat"))
+
+          normal ->
+            put_change(
+              changeset,
+              :repeat_rule,
+              PhoenixKitProjects.Repeats.keep_day(normal, changeset.data.repeat_rule)
+            )
         end
     end
   end
