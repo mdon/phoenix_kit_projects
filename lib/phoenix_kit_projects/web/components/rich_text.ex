@@ -19,6 +19,7 @@ defmodule PhoenixKitProjects.Web.Components.RichText do
 
   import Phoenix.HTML, only: [raw: 1]
 
+  alias Phoenix.HTML.Safe
   alias PhoenixKit.Mentions
   alias PhoenixKit.Mentions.Token
   alias PhoenixKitWeb.Components.Core.MentionText
@@ -78,9 +79,15 @@ defmodule PhoenixKitProjects.Web.Components.RichText do
     pieces = Token.split(text)
     tokens = for %Token{} = t <- pieces, do: t
 
+    # A fresh nonce per render: the placeholders are put back into HTML
+    # the sanitiser already passed, so one the writer could type (into a
+    # link or an image address) would splice a mention's markup into an
+    # attribute.
+    nonce = 8 |> :crypto.strong_rand_bytes() |> Base.encode16(case: :lower)
+
     {markdown, _n} =
       Enum.map_reduce(pieces, 0, fn
-        %Token{}, n -> {placeholder(n), n + 1}
+        %Token{}, n -> {placeholder(nonce, n), n + 1}
         piece, n -> {piece, n}
       end)
 
@@ -90,15 +97,17 @@ defmodule PhoenixKitProjects.Web.Components.RichText do
         {:error, _} -> text |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
       end
 
-    if tokens == [], do: html, else: put_mentions(html, tokens, text, scope, allow_request)
+    if tokens == [],
+      do: html,
+      else: put_mentions(html, tokens, nonce, text, scope, allow_request)
   end
 
   def to_html(_text, _scope, _allow), do: ""
 
   # Letters and digits only: markdown leaves it alone, the sanitiser too.
-  defp placeholder(n), do: "PKMENTION#{n}X"
+  defp placeholder(nonce, n), do: "PKMENTION#{nonce}N#{n}X"
 
-  defp put_mentions(html, tokens, text, scope, allow_request) do
+  defp put_mentions(html, tokens, nonce, text, scope, allow_request) do
     context = Mentions.context(text, user_uuid: user_uuid(scope), scope: scope)
 
     tokens
@@ -106,10 +115,16 @@ defmodule PhoenixKitProjects.Web.Components.RichText do
     |> Enum.reduce(html, fn {token, n}, acc ->
       info = Map.get(context, {token.type, token.uuid}, %{state: :missing})
 
+      # Called by hand, so the assigns carry the change-tracking key a
+      # component's `assign/3` insists on, and the token's own `text` (the
+      # component draws nothing without one; `pieces`, given, spares it the
+      # read). Without them every mention raised or came out empty, and the
+      # description showed the bare placeholders instead of the names.
       rendered =
         %{
+          __changed__: nil,
           pieces: [{token, info}],
-          text: nil,
+          text: token.raw,
           scope: scope,
           class: nil,
           allow_request: allow_request,
@@ -117,10 +132,10 @@ defmodule PhoenixKitProjects.Web.Components.RichText do
           rest: %{}
         }
         |> MentionText.mention_text()
-        |> Phoenix.HTML.Safe.to_iodata()
+        |> Safe.to_iodata()
         |> IO.iodata_to_binary()
 
-      String.replace(acc, placeholder(n), rendered, global: false)
+      String.replace(acc, placeholder(nonce, n), rendered, global: false)
     end)
   rescue
     _ -> html

@@ -40,6 +40,25 @@ defmodule PhoenixKitProjects.Web.DescriptionEditorTest do
       refute RichText.to_html("[x](javascript:alert(1))") =~ "javascript:"
       assert RichText.to_html(nil) == ""
     end
+
+    # The mentions go back in after the sanitiser: a placeholder the writer
+    # types into a link must not receive a mention's markup.
+    test "a typed placeholder never takes a mention's markup" do
+      uuid = Ecto.UUID.generate()
+
+      for typed <- ["PKMENTION0X", "PKMENTIONN0X"] do
+        html = RichText.to_html("[a](#{typed}) ![i](#{typed}) @[user:#{uuid}|Ann]")
+        refute html =~ ~r/(href|src)="[^"]*(<|Ann)/
+        assert html =~ "Ann"
+      end
+    end
+
+    test "a mention in a description is drawn as its name, never as a placeholder" do
+      html = RichText.to_html("Call @[user:#{Ecto.UUID.generate()}|Ann] **today**")
+      assert html =~ "Ann"
+      assert html =~ "<strong>today</strong>"
+      refute html =~ "PKMENTION"
+    end
   end
 
   describe "writing one" do
