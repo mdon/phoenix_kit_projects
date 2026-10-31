@@ -2585,7 +2585,16 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
           >
             <.icon name="hero-arrow-left" class="w-4 h-4 shrink-0" /> {gettext("Projects")}
           </.link>
+          <%!-- The task popup's shape (the walk-through, 2026-10-31): the
+               record's short name beside the mode, its state beside the
+               title. --%>
+          <.ref_chip :if={@live_action == :edit and not @project.is_template} ref={@project.key} />
         </:context>
+        <:badge>
+          <span :if={@live_action == :edit and is_binary(@project.uuid)} class="mt-1 shrink-0">
+            <.project_status_badge project={@project} />
+          </span>
+        </:badge>
       </.form_header>
 
       <.form for={@form} id="project-form" phx-change="validate" phx-submit="save" phx-debounce="300" class="flex flex-col gap-4">
@@ -3014,7 +3023,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
               data-confirm={@dirty? && gettext("Discard your changes?")}
               class="btn btn-ghost btn-sm"
             >
-              {gettext("Cancel")}
+              {gettext("Close")}
             </button>
           </:cancel>
           </.form_actions>
@@ -3251,7 +3260,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
               data-confirm={@dirty? && gettext("Discard your changes?")}
               class="btn btn-ghost btn-sm"
             >
-              {gettext("Cancel")}
+              {gettext("Close")}
             </button>
           </:cancel>
         </.form_actions>

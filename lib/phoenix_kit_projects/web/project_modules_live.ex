@@ -77,6 +77,7 @@ defmodule PhoenixKitProjects.Web.ProjectModulesLive do
          page_title: gettext("Modules"),
          project: project
        )
+       |> keep_host_title()
        |> load_panel()}
     else
       :not_found ->
@@ -115,6 +116,16 @@ defmodule PhoenixKitProjects.Web.ProjectModulesLive do
   # bounce them out of editing the project's name. Embedded, it simply
   # renders nothing — the host already decided whether to show it, and the
   # gate here is the backstop.
+  # The browser tab keeps its page's title: LiveView applies every LV's
+  # `page_title`, nested ones too, so the project popup that embeds this
+  # panel retitled the tab "Modules" (the walk-through, 2026-10-31). Inside
+  # the form, or opened as a popup, it sets none.
+  defp keep_host_title(socket) do
+    if socket.assigns.embedded_in_form,
+      do: assign(socket, page_title: nil),
+      else: WebHelpers.keep_host_title(socket)
+  end
+
   defp refuse(socket, message) do
     # Every assign load_panel/1 would have set: with no project the
     # template short-circuits, but HEEx still needs the keys to exist.
