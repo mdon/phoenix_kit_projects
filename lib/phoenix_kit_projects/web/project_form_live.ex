@@ -2470,6 +2470,8 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
         close_event={@embed_mode not in [:navigate, :emit] && "cancel"}
         close_confirm={@dirty? && gettext("Discard your changes?")}
       >
+        <%!-- In the popup no "Projects" line above the title (the boss): the
+             popup closes on its own; the page keeps its way back. --%>
         <:context>
           <.link
             :if={@embed_mode == :navigate}
@@ -2478,15 +2480,6 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
           >
             <.icon name="hero-arrow-left" class="w-4 h-4 shrink-0" /> {gettext("Projects")}
           </.link>
-          <button
-            :if={@embed_mode != :navigate}
-            type="button"
-            phx-click="cancel"
-            data-confirm={@dirty? && gettext("Discard your changes?")}
-            class="link link-hover text-base-content/70 inline-flex items-center gap-1"
-          >
-            <.icon name="hero-arrow-left" class="w-4 h-4 shrink-0" /> {gettext("Projects")}
-          </button>
         </:context>
       </.form_header>
 

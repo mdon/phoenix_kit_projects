@@ -56,6 +56,24 @@ defmodule PhoenixKitProjects.Web.ProjectFormTabsTest do
     assert Projects.get_project(ctx.project.uuid).assigned_person_uuid == gert.uuid
   end
 
+  test "in the popup no lone Projects line sits above the title", ctx do
+    {:ok, _view, html} =
+      live_isolated(ctx.conn, PhoenixKitProjects.Web.ProjectFormLive,
+        session: %{
+          "current_user_uuid" => embed_user_uuid!(),
+          "mode" => "emit",
+          "pubsub_topic" => "pfl-#{System.unique_integer([:positive])}",
+          "live_action" => "edit",
+          "id" => ctx.project.uuid,
+          "frame_ref" => 1
+        }
+      )
+
+    [header] = Regex.run(~r{<header id="project-form-header".*?</header>}s, html)
+    assert header =~ "Kitchen Tamm"
+    refute header =~ "Projects"
+  end
+
   test "a new project has the same tabs", ctx do
     {:ok, view, html} = live(ctx.conn, "/en/admin/projects/new")
     assert html =~ "New project"
