@@ -3,11 +3,13 @@ defmodule PhoenixKitProjects.Web.TaskFilesTest do
   A task holds its own files and images (the boss's list, item 7; chain
   V27): stored in a folder per task inside the project's, recorded as the
   task's, listed on the edit popup's More tab, an image pasted into the
-  description stored the same way and placed by its address — never as a
-  `data:` URL.
+  description stored the same way and kept in the text by its file
+  (`pkfile:`, `InlineImages`) — never as a `data:` URL.
   """
 
   use PhoenixKitProjects.LiveCase, async: false
+
+  import Ecto.Query
 
   alias PhoenixKit.Modules.Storage.Folder
   alias PhoenixKitProjects.{Attachments, Projects}
@@ -180,5 +182,136 @@ defmodule PhoenixKitProjects.Web.TaskFilesTest do
       actor_uuid: ctx.me,
       metadata_has: %{"file_uuid" => stranger, "db_pending" => true}
     )
+  end
+
+  describe "pictures in the description are kept by file" do
+    defp image!(ctx, opts \\ []) do
+      {:ok, file} =
+        Attachments.store_task_file(
+          ctx.a,
+          tmp(@png <> "#{System.unique_integer()}"),
+          [
+            filename: "shot.png",
+            content_type: "image/png",
+            size_bytes: byte_size(@png),
+            inline: Keyword.get(opts, :inline, true)
+          ],
+          ctx.me
+        )
+
+      file
+    end
+
+    defp private_library!(owner) do
+      %PhoenixKit.Modules.Storage.Library{}
+      |> Ecto.Changeset.change(%{
+        name: "Private",
+        key_prefix: "pk-#{System.unique_integer([:positive])}",
+        slug: "private-#{System.unique_integer([:positive])}",
+        kind: "user",
+        visibility: "private",
+        owner_uuid: owner
+      })
+      |> Repo.insert!()
+    end
+
+    test "an address the editor wrote is stored as the file's reference", ctx do
+      file = image!(ctx)
+      url = PhoenixKit.Modules.Storage.URLSigner.signed_url(file.uuid, "original", locale: :none)
+
+      {:ok, a} =
+        Projects.update_assignment_form(ctx.a, %{
+          "description" => "Look ![shot](#{url}) and ![away](https://example.com/x.png)",
+          "translations" => %{"et" => %{"description" => "Vaata ![shot](#{url})"}}
+        })
+
+      assert a.description ==
+               "Look ![shot](pkfile:#{file.uuid}) and ![away](https://example.com/x.png)"
+
+      assert a.translations["et"]["description"] == "Vaata ![shot](pkfile:#{file.uuid})"
+    end
+
+    test "a reference is drawn for the viewer: a private file by a time-window address, and not at all for one who may not see it",
+         ctx do
+      file = image!(ctx)
+      library = private_library!(ctx.me)
+
+      Repo.update_all(
+        from(f in PhoenixKit.Modules.Storage.File, where: f.uuid == ^file.uuid),
+        set: [library_uuid: library.uuid]
+      )
+
+      text = "![shot](pkfile:#{file.uuid})"
+      owner = PhoenixKit.Users.Auth.Scope.for_user(PhoenixKit.Users.Auth.get_user(ctx.me))
+
+      html = PhoenixKitProjects.Web.Components.RichText.to_html(text, owner)
+      [token] = Regex.run(~r{/file/[^/]+/original/([^/?"]+)}, html, capture: :all_but_first)
+      assert PhoenixKit.Modules.Storage.URLSigner.private_token?(token)
+
+      refute PhoenixKitProjects.Web.Components.RichText.to_html(text, nil) =~ "<img"
+    end
+
+    test "removing a picture of the description takes it out of the text", ctx do
+      file = image!(ctx)
+      other = image!(ctx, inline: false)
+
+      {:ok, _} =
+        Projects.update_assignment_form(ctx.a, %{
+          "description" => "Before ![shot](pkfile:#{file.uuid}) after"
+        })
+
+      {:ok, view, _} =
+        live(ctx.conn, "/en/admin/projects/#{ctx.project.uuid}/assignments/#{ctx.a.uuid}/edit")
+
+      render_click(view, "remove_task_file", %{"uuid" => file.uuid})
+      send(view.pid, :autosave)
+      render(view)
+
+      assert Projects.get_assignment(ctx.a.uuid).description == "Before  after"
+
+      # a file of the task (not in the text) leaves the text as it is
+      render_click(view, "remove_task_file", %{"uuid" => other.uuid})
+      send(view.pid, :autosave)
+      render(view)
+      assert Projects.get_assignment(ctx.a.uuid).description == "Before  after"
+    end
+
+    test "an open view of the task hears of a file added or removed", ctx do
+      PhoenixKitProjects.PubSub.subscribe(
+        PhoenixKitProjects.PubSub.topic_project(ctx.project.uuid)
+      )
+
+      uuid = ctx.a.uuid
+
+      file = image!(ctx, inline: false)
+      assert_receive {:projects, :assignment_updated, %{uuid: ^uuid}}
+
+      :ok = Attachments.remove_task_file(ctx.a, file.uuid, ctx.me)
+      assert_receive {:projects, :assignment_updated, %{uuid: ^uuid}}
+    end
+
+    test "a picture pasted into a task not saved yet is answered with a word, not stored",
+         ctx do
+      {:ok, view, html} =
+        live(ctx.conn, "/en/admin/projects/#{ctx.project.uuid}/assignments/new")
+
+      [id] =
+        Regex.run(~r/data-description-editor="(assignment-description--[^"]+)"/, html,
+          capture: :all_but_first
+        )
+
+      send(
+        view.pid,
+        {:leaf_paste_image,
+         %{
+           editor_id: id,
+           data_url: "data:image/png;base64," <> Base.encode64(@png),
+           name: "shot.png",
+           mime: "image/png"
+         }}
+      )
+
+      assert render(view) =~ "Save the task first to add images."
+    end
   end
 end

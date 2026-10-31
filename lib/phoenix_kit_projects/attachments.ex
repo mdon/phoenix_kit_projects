@@ -341,6 +341,7 @@ defmodule PhoenixKitProjects.Attachments do
          {:ok, %File{} = file} <- Storage.store_file(path, store_opts),
          {:ok, file} <- place_in(file, folder_uuid),
          :ok <- hold(assignment.uuid, file.uuid, inline?, actor_uuid) do
+      files_changed(assignment)
       {:ok, file}
     end
   rescue
@@ -375,6 +376,15 @@ defmodule PhoenixKitProjects.Attachments do
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  # An open view of the task (`AssignmentViewLive`) lists its files: it
+  # reloads on the task's update, as for any other change to it.
+  defp files_changed(%Assignment{uuid: uuid, project_uuid: project_uuid}) do
+    PhoenixKitProjects.PubSub.broadcast_assignment(:assignment_updated, %{
+      uuid: uuid,
+      project_uuid: project_uuid
+    })
   end
 
   @doc """
@@ -432,6 +442,7 @@ defmodule PhoenixKitProjects.Attachments do
         _ = ResourceFolders.detach(file_uuid, folder)
       end
 
+      files_changed(%Assignment{uuid: uuid, project_uuid: project_uuid})
       :ok
     else
       _ -> {:error, :not_found}
@@ -442,22 +453,22 @@ defmodule PhoenixKitProjects.Attachments do
       {:error, :remove_failed}
   end
 
-  @doc """
-  The address a task's image is shown at in its description: a permanent
-  one (a description is read for as long as the task lives), the same the
-  Files page links.
-  """
-  @spec inline_url(File.t()) :: String.t() | nil
-  def inline_url(%File{} = file), do: download_url(file)
-
   @doc "Heroicon name for a file's Storage type / mime (`Format.file_icon/1`)."
   @spec file_icon(map()) :: String.t()
   defdelegate file_icon(file), to: Format
 
-  @doc "Public download URL, nil-safe."
+  @doc """
+  Download URL, nil-safe. A file in a private library gets a time-window
+  token (the file route refuses its permanent one), as `download_urls/1`
+  gives it.
+  """
   @spec download_url(File.t()) :: String.t() | nil
+  def download_url(%File{system_managed: true}), do: nil
+
   def download_url(%File{} = file) do
-    Storage.get_public_url(file)
+    if Libraries.private_file?(file),
+      do: URLSigner.signed_url(to_string(file.uuid), "original", locale: :none, private: true),
+      else: Storage.get_public_url(file)
   rescue
     _ -> nil
   end
@@ -506,18 +517,30 @@ defmodule PhoenixKitProjects.Attachments do
   # alone.
   defp row_url(%File{system_managed: true}, _instance, _private, _direct), do: nil
 
+  # A private library's file gets a time-window token (`private: true`):
+  # the file route refuses its permanent one, so a link without it is dead.
   defp row_url(%File{} = file, instance, private_libraries, direct) do
-    signed = fn -> signed_url(file, instance) end
+    private? = to_string(file.library_uuid) in private_libraries
 
     cond do
-      ImageEditing.edit_in_progress?(file) -> signed_url(file, nil)
-      to_string(file.library_uuid) in private_libraries -> signed.()
-      true -> Map.get(direct, {to_string(file.uuid), "original"}) || signed.()
+      ImageEditing.edit_in_progress?(file) ->
+        signed_url(file, nil, private?)
+
+      private? ->
+        signed_url(file, instance, true)
+
+      true ->
+        Map.get(direct, {to_string(file.uuid), "original"}) || signed_url(file, instance, false)
     end
   rescue
     _ -> nil
   end
 
-  defp signed_url(file, instance),
-    do: URLSigner.signed_url(file.uuid, "original", locale: :none, version: instance)
+  defp signed_url(file, instance, private?),
+    do:
+      URLSigner.signed_url(to_string(file.uuid), "original",
+        locale: :none,
+        version: instance,
+        private: private?
+      )
 end

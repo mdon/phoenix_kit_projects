@@ -133,10 +133,23 @@ defmodule PhoenixKitProjects.Web.Components.DescriptionEditor do
   attr(:id, :string, required: true)
   attr(:name, :string, required: true)
   attr(:value, :string, default: nil)
+
+  attr(:content, :string,
+    default: nil,
+    doc:
+      "what the editor shows, when it differs from `value` (pictures by address); `value` otherwise"
+  )
+
   attr(:label, :string, default: nil)
   attr(:placeholder, :string, default: nil)
   attr(:mention_context, :any, default: nil, doc: "a JSON string or map narrowing `#`")
   attr(:uploads, :boolean, default: false)
+
+  attr(:image_button, :boolean,
+    default: nil,
+    doc: "the toolbar's image button (default: with `uploads`)"
+  )
+
   attr(:readonly, :boolean, default: false)
   attr(:height, :string, default: "180px")
   attr(:class, :any, default: nil)
@@ -145,6 +158,9 @@ defmodule PhoenixKitProjects.Web.Components.DescriptionEditor do
     assigns =
       assign(assigns,
         value: assigns.value || "",
+        content: assigns.content || assigns.value || "",
+        image_button:
+          if(is_nil(assigns.image_button), do: assigns.uploads, else: assigns.image_button),
         suggestions: [
           %{
             trigger: "@",
@@ -170,10 +186,10 @@ defmodule PhoenixKitProjects.Web.Components.DescriptionEditor do
       <.live_component
         module={Leaf}
         id={@id}
-        content={@value}
+        content={@content}
         mode={:visual}
         preset={:simple}
-        toolbar={if @uploads, do: [:image], else: []}
+        toolbar={if @image_button, do: [:image], else: []}
         placeholder={@placeholder || ""}
         height={@height}
         min_height="120px"

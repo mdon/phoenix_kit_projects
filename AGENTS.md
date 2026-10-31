@@ -1696,8 +1696,19 @@ reference:
 - **A task's files** (`Attachments.store_task_file/…`, V27,
   `Web.Components.TaskFiles`, registered in `FileReferences`): stored through
   core Storage in a folder per task; each upload, paste and removal re-checks
-  `:upload_files` and the form's `WriteGate`. Pasted images are placed in the
-  description by URL.
+  `:upload_files` and the form's `WriteGate`; an add or removal broadcasts
+  `:assignment_updated` so an open task view reloads. A picture in the
+  description is kept by FILE, `![alt](pkfile:<uuid>)` (`InlineImages`):
+  the changeset turns an app file address the editor wrote back into the
+  reference, `RichText` resolves it per viewer through
+  `Storage.authorized_url/4` (a private library's file gets a time-window
+  URL; one the viewer may not read is left out), and the editor is handed
+  the text resolved. The reference names the file, not the task, so a
+  repeat's copied description still shows it (the file rows stay with
+  their occurrence). Removing an inline file takes it out of the text in
+  every language; a picture pasted into a task not saved yet is refused
+  with "Save the task first to add images" (the editor always intercepts
+  pastes, so none lands in the text as a `data:` URL).
 - **Project features with a site default** — see "Settings keys". `project_time`
   (time on the project as a whole) is enforced on the project page's Log time
   AND on the Hours page (an entry with no task); `billable` on every write,

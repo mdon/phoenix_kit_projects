@@ -13,6 +13,8 @@ defmodule PhoenixKitProjects.Web.Components.RichText do
   the text is whatever the person typed, so nothing it carries is trusted.
   Mentions are taken out before the render and put back after it, each as
   `<.mention_text>` draws it, so a token's brackets never reach markdown.
+  The text's own pictures (`pkfile:` references, `InlineImages`) are
+  resolved first, for the viewer.
   """
 
   use Phoenix.Component
@@ -22,6 +24,7 @@ defmodule PhoenixKitProjects.Web.Components.RichText do
   alias Phoenix.HTML.Safe
   alias PhoenixKit.Mentions
   alias PhoenixKit.Mentions.Token
+  alias PhoenixKitProjects.InlineImages
   alias PhoenixKitWeb.Components.Core.MentionText
 
   @render_opts [
@@ -76,6 +79,9 @@ defmodule PhoenixKitProjects.Web.Components.RichText do
   def to_html(text, _scope, _allow) when text in [nil, ""], do: ""
 
   def to_html(text, scope, allow_request) when is_binary(text) do
+    # The description's own pictures are kept by file (`pkfile:`): each
+    # becomes an address this viewer may open, or is left out.
+    text = InlineImages.resolve(text, scope)
     pieces = Token.split(text)
     tokens = for %Token{} = t <- pieces, do: t
 

@@ -218,6 +218,7 @@ defmodule PhoenixKitProjects.Schemas.Assignment do
     changeset
     |> stamp_started()
     |> validate_required(@required)
+    |> inline_image_refs()
     |> PhoenixKitProjects.RefText.expand_on_write([:description])
     |> validate_inclusion(:priority, ~w(urgent high normal low))
     |> validate_task_xor_child()
@@ -484,6 +485,39 @@ defmodule PhoenixKitProjects.Schemas.Assignment do
       name: :phoenix_kit_project_assignments_task_xor_child,
       message: gettext("an assignment must be exactly one of a task or a sub-project")
     )
+  end
+
+  # An image the editor wrote by its address is kept by its file
+  # (`InlineImages.to_refs/1`) — in the description and in each
+  # translation's — so a private file's picture is served per viewer, and
+  # a description that only reads back what it was shown is no change.
+  defp inline_image_refs(changeset) do
+    changeset =
+      case fetch_change(changeset, :description) do
+        {:ok, text} when is_binary(text) ->
+          put_change(changeset, :description, PhoenixKitProjects.InlineImages.to_refs(text))
+
+        _ ->
+          changeset
+      end
+
+    case fetch_change(changeset, :translations) do
+      {:ok, %{} = translations} ->
+        put_change(
+          changeset,
+          :translations,
+          Map.new(translations, fn
+            {lang, %{"description" => text} = fields} when is_binary(text) ->
+              {lang, %{fields | "description" => PhoenixKitProjects.InlineImages.to_refs(text)}}
+
+            other ->
+              other
+          end)
+        )
+
+      _ ->
+        changeset
+    end
   end
 
   # Shape guard for the `translations` JSONB. See `Project` for the

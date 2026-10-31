@@ -238,8 +238,15 @@ defmodule PhoenixKitProjects.BatchedReadsTest do
 
       # Core's rule, file by file: a hidden original gets no link; a file
       # mid-edit is served by the app (never the bucket's object URL).
-      for file <- files do
+      for file <- files -- [private] do
         assert Map.get(urls, file.uuid) == Attachments.download_url(file)
+      end
+
+      # A private library's file: the time-window token, which the file
+      # route takes (its permanent one is refused) — on both paths.
+      for url <- [urls[private.uuid], Attachments.download_url(private)] do
+        [token] = Regex.run(~r{/original/([^/?]+)}, url, capture: :all_but_first)
+        assert PhoenixKit.Modules.Storage.URLSigner.private_token?(token)
       end
 
       refute Map.has_key?(urls, hidden.uuid)

@@ -58,6 +58,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
 
   alias PhoenixKitProjects.Schemas.{Assignment, Project, Task}
 
+  alias PhoenixKitProjects.InlineImages
   alias PhoenixKitProjects.Repeats
 
   alias PhoenixKitProjects.Web.Components.{
@@ -724,7 +725,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
     if inline? do
       DescriptionEditor.insert_image(
         DescriptionEditor.editor_id("assignment-description", socket.assigns.current_lang),
-        to_string(Attachments.inline_url(file)),
+        inline_src(socket, file),
         to_string(file.original_file_name)
       )
     end
@@ -740,6 +741,11 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   # A pasted image arrives as a data URL; its bytes are written to a
   # temporary file and stored like an upload. Only an image, at most the
   # inline limit, and only for someone who may attach.
+  # A task not saved yet has nowhere to keep a picture (its files hang off
+  # its row): said, rather than refused as if it were a permission.
+  defp store_pasted_image(%{assigns: %{live_action: :new}} = socket, _id, _paste),
+    do: put_flash(socket, :error, gettext("Save the task first to add images."))
+
   defp store_pasted_image(socket, editor_id, %{data_url: "data:" <> rest} = paste) do
     with true <- attach_allowed?(socket) || :forbidden,
          [meta, b64] <- String.split(rest, ",", parts: 2),
@@ -768,7 +774,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
       case result do
         {:ok, file} ->
           log_task_file(socket, "projects.task_file_added", file.uuid)
-          DescriptionEditor.insert_image(editor_id, to_string(Attachments.inline_url(file)), "")
+          DescriptionEditor.insert_image(editor_id, inline_src(socket, file), "")
           load_task_files(socket)
 
         _ ->
@@ -785,6 +791,73 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   end
 
   defp store_pasted_image(socket, _editor_id, _paste), do: socket
+
+  # The address the editor shows a stored picture at: one this viewer may
+  # open (a private library's is a time-window one). The text keeps the
+  # file, not the address (`InlineImages`, the changeset).
+  defp inline_src(socket, file),
+    do: to_string(InlineImages.url(file, socket.assigns[:phoenix_kit_current_scope]))
+
+  # The description as the editor is handed it: its pictures by an address
+  # the viewer may open, one it cannot kept as it is.
+  defp editor_content(text, scope), do: InlineImages.resolve(text, scope, keep_missing: true)
+
+  # A picture taken off the task leaves its description too — every
+  # language's — and the open editor is handed the text without it; saved
+  # with the rest (`put_form_attrs/3`).
+  defp strip_inline_image(socket, file_uuid) do
+    %{form: form, primary_language: primary, current_lang: lang} = socket.assigns
+    description = Ecto.Changeset.get_field(form.source, :description)
+    translations = Ecto.Changeset.get_field(form.source, :translations) || %{}
+
+    stripped_description = InlineImages.strip(description, file_uuid)
+
+    stripped_translations =
+      Map.new(translations, fn
+        {code, %{"description" => text} = fields} ->
+          {code, %{fields | "description" => InlineImages.strip(text, file_uuid)}}
+
+        other ->
+          other
+      end)
+
+    attrs =
+      %{}
+      |> then(
+        &if(stripped_description != description,
+          do: Map.put(&1, "description", stripped_description),
+          else: &1
+        )
+      )
+      |> then(
+        &if(stripped_translations != translations,
+          do: Map.put(&1, "translations", stripped_translations),
+          else: &1
+        )
+      )
+
+    if attrs == %{} do
+      socket
+    else
+      socket = put_form_attrs(socket, attrs)
+
+      shown =
+        description_value(
+          socket.assigns.form,
+          lang,
+          primary,
+          socket.assigns.multilang_enabled
+        )
+
+      send_update(Leaf,
+        id: DescriptionEditor.editor_id("assignment-description", lang),
+        action: :set_content,
+        content: editor_content(shown || "", socket.assigns[:phoenix_kit_current_scope])
+      )
+
+      socket
+    end
+  end
 
   # A browser-supplied filename reaches storage and download headers: path
   # separators and control characters come out (as the comments' upload).
@@ -833,8 +906,11 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
   # when it says what the form already holds.
   defp put_description(%{assigns: %{form: form}} = socket, lang, markdown) do
     %{current_lang: _, primary_language: primary, multilang_enabled: multi?} = socket.assigns
+    # The editor shows pictures by address; the text keeps them by file, so
+    # an editor reading back what it was handed is no change.
+    markdown = InlineImages.to_refs(markdown)
 
-    if description_value(form, lang, primary, multi?) == markdown do
+    if InlineImages.to_refs(description_value(form, lang, primary, multi?)) == markdown do
       socket
     else
       attrs =
@@ -1771,6 +1847,12 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
 
   def handle_event("remove_task_file", %{"uuid" => file_uuid}, socket) do
     if attach_allowed?(socket) do
+      inline? =
+        Enum.any?(
+          socket.assigns[:task_files] || [],
+          &(&1.inline and to_string(&1.file.uuid) == file_uuid)
+        )
+
       case Attachments.remove_task_file(
              socket.assigns.assignment,
              file_uuid,
@@ -1778,6 +1860,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
            ) do
         :ok ->
           log_task_file(socket, "projects.task_file_removed", file_uuid)
+          socket = if inline?, do: strip_inline_image(socket, file_uuid), else: socket
           {:noreply, socket |> load_task_files() |> put_flash(:info, gettext("File removed."))}
 
         {:error, _} ->
@@ -4473,14 +4556,24 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
                 </div>
               </div>
 
+              <%!-- Pictures are always intercepted (`uploads`): a picture
+                   pasted where it cannot be stored is refused with a
+                   word, never put in the text as a `data:` address. --%>
               <.description_editor
                 id={DescriptionEditor.editor_id("assignment-description", @current_lang)}
                 name={DescriptionEditor.field_name("assignment", @current_lang, @primary_language, @multilang_enabled)}
                 value={description_value(@form, @current_lang, @primary_language, @multilang_enabled)}
+                content={
+                  editor_content(
+                    description_value(@form, @current_lang, @primary_language, @multilang_enabled),
+                    assigns[:phoenix_kit_current_scope]
+                  )
+                }
                 label={gettext("Description")}
                 mention_context={mention_context(@project)}
                 readonly={@current_lang in @ai_in_flight}
-                uploads={@can_attach?}
+                uploads
+                image_button={@can_attach?}
               />
               <%!-- An image for the description: stored as the task's and
                    placed at the cursor (a pasted one too). --%>
