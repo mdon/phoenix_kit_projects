@@ -13,6 +13,7 @@ defmodule PhoenixKitProjects.Web.TaskInUrlTest do
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Schemas.Assignment
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
+  alias PhoenixKitProjects.Web.ProjectShowLive
 
   setup %{conn: conn} do
     {:ok, user} =
@@ -67,7 +68,7 @@ defmodule PhoenixKitProjects.Web.TaskInUrlTest do
     ProjectsPubSub.broadcast_embed(topic, :opened, %{
       lv: PhoenixKitProjects.Web.AssignmentViewLive,
       session:
-        PhoenixKitProjects.Web.ProjectShowLive.view_session(%{
+        ProjectShowLive.view_session(%{
           project_uuid: ctx.project.uuid,
           uuid: ctx.a.uuid
         }),

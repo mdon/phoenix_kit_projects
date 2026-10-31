@@ -2794,28 +2794,32 @@ defmodule PhoenixKitProjects.Projects do
             :ok
 
           rollup ->
-            # What its finish unlocks, read before the write as the page's
-            # "next up" reads it for a task ticked by hand.
-            next_up = subproject_next_up(link, rollup)
-
-            case link |> Assignment.subproject_changeset(rollup) |> repo().update() do
-              {:ok, updated} ->
-                ProjectsPubSub.broadcast_assignment(:assignment_updated, %{
-                  uuid: updated.uuid,
-                  project_uuid: updated.project_uuid
-                })
-
-                PhoenixKitProjects.Handoffs.batch(fn ->
-                  broadcast_status_changed(updated, link.status, :auto)
-                  release_after_subproject(next_up)
-                end)
-
-                recompute_project_completion(updated.project_uuid, depth + 1)
-
-              {:error, _cs} ->
-                :ok
-            end
+            write_rollup(link, rollup, depth)
         end
+    end
+  end
+
+  defp write_rollup(link, rollup, depth) do
+    # What its finish unlocks, read before the write as the page's "next
+    # up" reads it for a task ticked by hand.
+    next_up = subproject_next_up(link, rollup)
+
+    case link |> Assignment.subproject_changeset(rollup) |> repo().update() do
+      {:ok, updated} ->
+        ProjectsPubSub.broadcast_assignment(:assignment_updated, %{
+          uuid: updated.uuid,
+          project_uuid: updated.project_uuid
+        })
+
+        PhoenixKitProjects.Handoffs.batch(fn ->
+          broadcast_status_changed(updated, link.status, :auto)
+          release_after_subproject(next_up)
+        end)
+
+        recompute_project_completion(updated.project_uuid, depth + 1)
+
+      {:error, _cs} ->
+        :ok
     end
   end
 

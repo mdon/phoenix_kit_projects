@@ -91,9 +91,9 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   alias PhoenixKitProjects.Outline
   alias PhoenixKitProjects.PubSub, as: ProjectsPubSub
   alias PhoenixKitProjects.Refs
+  alias PhoenixKitProjects.Repeats
   alias PhoenixKitProjects.Schemas.{Assignment, Project}
   alias PhoenixKitProjects.Schemas.Task, as: TaskSchema
-  alias PhoenixKitProjects.Repeats
   alias PhoenixKitProjects.TaskConversion
   alias PhoenixKitProjects.TaskNotes
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
