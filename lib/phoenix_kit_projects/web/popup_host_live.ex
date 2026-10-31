@@ -522,22 +522,19 @@ defmodule PhoenixKitProjects.Web.PopupHostLive do
     {:noreply, close_task_frames(socket)}
   end
 
+  # The address may name the task another way than the frame does (its
+  # uuid, a former project key): the TASK is compared, not the spelling, so
+  # a link the page already opened is not opened a second time on top.
   def handle_event("pkp_url_task", %{"task" => ref}, socket) when is_binary(ref) do
-    cond do
-      top_task_ref(socket.assigns.modal_stack) == ref ->
-        {:noreply, socket}
+    stack = socket.assigns.modal_stack
 
-      length(socket.assigns.modal_stack) >= socket.assigns.max_stack_depth ->
-        {:noreply, socket}
-
-      true ->
-        case url_task(ref) do
-          %Assignment{} = a ->
-            {:noreply, push_frame(socket, AssignmentViewLive, task_view(socket, a))}
-
-          _ ->
-            {:noreply, socket}
-        end
+    with false <- top_task_ref(stack) == ref,
+         true <- length(stack) < socket.assigns.max_stack_depth,
+         %Assignment{} = a <- url_task(ref),
+         false <- top_task_ref(stack) == (Assignment.row_ref(a) || a.uuid) do
+      {:noreply, push_frame(socket, AssignmentViewLive, task_view(socket, a))}
+    else
+      _ -> {:noreply, socket}
     end
   end
 

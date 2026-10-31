@@ -100,6 +100,19 @@ defmodule PhoenixKitProjects.Web.TaskInUrlTest do
     assert length(Regex.scan(~r/<dialog/, render(view))) == 1
   end
 
+  # A link may name the task by uuid (the Hours page's do) while the open
+  # frame shows its KEY-n: the page opened it already, the hook asking with
+  # the uuid must not stack the same task a second time.
+  test "a task already open is not opened again when the address names it by uuid", ctx do
+    {view, _topic} = host(ctx)
+    ref = Assignment.row_ref(ctx.a)
+    assert is_binary(ref) and ref != ctx.a.uuid
+
+    render_hook(view, "pkp_url_task", %{"task" => ref})
+    render_hook(view, "pkp_url_task", %{"task" => ctx.a.uuid})
+    assert length(Regex.scan(~r/<dialog/, render(view))) == 1
+  end
+
   test "a new task's form is not a task in the address", ctx do
     {view, topic} = host(ctx)
 
