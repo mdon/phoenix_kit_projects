@@ -31,6 +31,7 @@ defmodule PhoenixKitProjects.Web.Components.DurationInput do
   use Gettext, backend: PhoenixKitProjects.Gettext
 
   alias PhoenixKitProjects.Schemas.WorkEntry
+  alias PhoenixKitWeb.Components.Core.Input
 
   @minutes_per %{"minutes" => 1, "hours" => 60, "days" => 8 * 60}
   @units ~w(minutes hours days)
@@ -233,5 +234,5 @@ defmodule PhoenixKitProjects.Web.Components.DurationInput do
   end
 
   # Core's, so a changeset error reads as in every other field.
-  defp translate_error(error), do: PhoenixKitWeb.Components.Core.Input.translate_error(error)
+  defp translate_error(error), do: Input.translate_error(error)
 end

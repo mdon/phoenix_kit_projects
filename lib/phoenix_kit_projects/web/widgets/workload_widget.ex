@@ -11,9 +11,9 @@ defmodule PhoenixKitProjects.Web.Widgets.WorkloadWidget do
 
   import PhoenixKitProjects.Web.Widgets.Helpers
 
-  alias PhoenixKitProjects.Web.Components.AssignmentStatusBadge
   alias PhoenixKitProjects.{Paths, Projects}
   alias PhoenixKitProjects.Schemas.Project
+  alias PhoenixKitProjects.Web.Components.AssignmentStatusBadge
 
   @impl true
   def update(assigns, socket) do

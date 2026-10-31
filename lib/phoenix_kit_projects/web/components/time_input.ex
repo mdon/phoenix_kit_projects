@@ -33,6 +33,7 @@ defmodule PhoenixKitProjects.Web.Components.TimeInput do
   import PhoenixKitWeb.Components.Core.DateInput, only: [date_input: 1]
 
   alias PhoenixKitProjects.L10n
+  alias PhoenixKitWeb.Components.Core.Input
 
   # ── Normalizing what was posted ─────────────────────────────────────
 
@@ -68,16 +69,18 @@ defmodule PhoenixKitProjects.Web.Components.TimeInput do
 
   # `"HH:MM"` of the posted hour, minute and AM/PM, or nil for no hour.
   defp clock(parts) do
-    with {h, ""} when h in 0..23 <- Integer.parse(to_string(parts["hour"] || "")) do
-      m =
-        case Integer.parse(to_string(parts["minute"] || "")) do
-          {m, ""} when m in 0..59 -> m
-          _ -> 0
-        end
+    case Integer.parse(to_string(parts["hour"] || "")) do
+      {h, ""} when h in 0..23 ->
+        m =
+          case Integer.parse(to_string(parts["minute"] || "")) do
+            {m, ""} when m in 0..59 -> m
+            _ -> 0
+          end
 
-      pad(from_half(h, parts["half"])) <> ":" <> pad(m)
-    else
-      _ -> nil
+        pad(from_half(h, parts["half"])) <> ":" <> pad(m)
+
+      _ ->
+        nil
     end
   end
 
@@ -340,5 +343,5 @@ defmodule PhoenixKitProjects.Web.Components.TimeInput do
   defp with_field(assigns), do: assign(assigns, :errors, [])
 
   # Core's, so a changeset error reads as in every other field.
-  defp translate_error(error), do: PhoenixKitWeb.Components.Core.Input.translate_error(error)
+  defp translate_error(error), do: Input.translate_error(error)
 end

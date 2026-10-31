@@ -210,7 +210,7 @@ defmodule PhoenixKitProjects.L10n do
     {h12, day_half_label(half)}
   end
 
-  @doc "The translated `AM` / `PM` of `\"am\"` / `\"pm\"`."
+  @doc ~S(The translated `AM` / `PM` of `"am"` / `"pm"`.)
   @spec day_half_label(String.t()) :: String.t()
   def day_half_label("am"),
     do: Gettext.Macros.pgettext_with_backend(PhoenixKitProjects.Gettext, "time of day", "AM")

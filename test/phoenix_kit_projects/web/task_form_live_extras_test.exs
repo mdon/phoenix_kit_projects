@@ -13,6 +13,8 @@ defmodule PhoenixKitProjects.Web.TaskFormLiveExtrasTest do
   use PhoenixKitProjects.LiveCase, async: false
 
   alias PhoenixKitProjects.Projects
+  alias PhoenixKitProjects.Test.Repo
+  alias PhoenixKitStaff.Schemas.Department
 
   setup %{conn: conn} do
     scope = fake_scope()
@@ -159,7 +161,7 @@ defmodule PhoenixKitProjects.Web.TaskFormLiveExtrasTest do
       task = fixture_task()
 
       dept =
-        PhoenixKitProjects.Test.Repo.insert!(%PhoenixKitStaff.Schemas.Department{
+        Repo.insert!(%Department{
           name: "Paigaldus #{System.unique_integer([:positive])}"
         })
 

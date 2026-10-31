@@ -427,7 +427,7 @@ defmodule PhoenixKitProjects.Web.TaskFormLive do
       socket
     else
       attrs =
-        (form.params || %{})
+        form.params
         |> Map.merge(DescriptionEditor.params(markdown, lang, primary, multi?))
         |> merge_attrs(socket)
 

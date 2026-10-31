@@ -35,7 +35,6 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
 
   require Logger
 
-  alias PhoenixKitProjects.Web.Components.AssignmentStatusBadge
   alias Phoenix.LiveView.JS
   alias PhoenixKit.Mentions
   alias PhoenixKit.Users.Auth.User
@@ -43,8 +42,8 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
 
   alias PhoenixKitProjects.{
     Activity,
-    Attachments,
     Assignees,
+    Attachments,
     Authz,
     Features,
     L10n,
@@ -63,6 +62,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
 
   alias PhoenixKitProjects.Web.Components.{
     AssigneePicker,
+    AssignmentStatusBadge,
     ConfirmAction,
     DescriptionEditor,
     DurationInput,
@@ -724,8 +724,8 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
     if inline? do
       DescriptionEditor.insert_image(
         DescriptionEditor.editor_id("assignment-description", socket.assigns.current_lang),
-        Attachments.inline_url(file) || "",
-        file.original_file_name || ""
+        to_string(Attachments.inline_url(file)),
+        to_string(file.original_file_name)
       )
     end
 
@@ -766,7 +766,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
       case result do
         {:ok, file} ->
           log_task_file(socket, "projects.task_file_added", file.uuid)
-          DescriptionEditor.insert_image(editor_id, Attachments.inline_url(file) || "", "")
+          DescriptionEditor.insert_image(editor_id, to_string(Attachments.inline_url(file)), "")
           load_task_files(socket)
 
         _ ->
@@ -847,7 +847,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
       socket
     else
       attrs =
-        (f.params || %{})
+        f.params
         |> Map.merge(DescriptionEditor.params(md, lang, primary, multi?))
         |> sp_translations(socket)
 

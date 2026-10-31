@@ -17,8 +17,8 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
   alias PhoenixKitAI.Components.AITranslate.FormGlue
   alias PhoenixKitProjects.{Activity, L10n, Paths, Projects, Statuses}
   alias PhoenixKitProjects.Schemas.Project
-  alias PhoenixKitProjects.Web.Crumbs
   alias PhoenixKitProjects.Web.Components.DescriptionEditor
+  alias PhoenixKitProjects.Web.Crumbs
 
   import PhoenixKitProjects.Web.Components.DescriptionEditor,
     only: [description_editor: 1, description_value: 4]
@@ -306,7 +306,7 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
       socket
     else
       attrs =
-        (form.params || %{})
+        form.params
         |> Map.merge(DescriptionEditor.params(markdown, lang, primary, multi?))
         |> Map.put("is_template", "true")
         |> merge_attrs(socket)

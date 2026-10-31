@@ -31,7 +31,7 @@ defmodule PhoenixKitProjects.Web.ApiKeysLive do
   alias PhoenixKitProjects.{ApiAccess, ApiKeys, ApiUsage, Authz, L10n, Paths, Projects}
   alias PhoenixKitProjects.Schemas.{ApiKey, Assignment, Project}
   alias PhoenixKitProjects.Web.Api.Docs
-  alias PhoenixKitProjects.Web.{ApiKeyPanel, ApiKeysFilters, ApiKeysUsage, ListUi}
+  alias PhoenixKitProjects.Web.{ApiKeyPanel, ApiKeysFilters, ApiKeysUsage, ListUi, ProjectApiLive}
   alias PhoenixKitProjects.Web.Components.ConfirmAction
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
   alias PhoenixKitWeb.TableColumns
@@ -594,7 +594,7 @@ defmodule PhoenixKitProjects.Web.ApiKeysLive do
           socket,
           gettext("Saved: %{key} acts as %{role} in %{project}.",
             key: key.name,
-            role: PhoenixKitProjects.Web.ProjectApiLive.role_name(role),
+            role: ProjectApiLive.role_name(role),
             project: project_label(project_uuid)
           )
         )

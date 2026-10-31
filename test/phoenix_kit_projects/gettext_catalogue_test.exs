@@ -15,6 +15,7 @@ defmodule PhoenixKitProjects.GettextCatalogueTest do
 
   alias Expo.Message.Plural
   alias Expo.Message.Singular
+  alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
 
   @gettext_dir Path.expand("../../priv/gettext", __DIR__)
   @locales ~w(de es et fr it pl ru)
@@ -171,7 +172,7 @@ defmodule PhoenixKitProjects.GettextCatalogueTest do
       Gettext.with_locale(PhoenixKitProjects.Gettext, locale, fn ->
         untranslated =
           Enum.filter(declared_labels(), fn label ->
-            PhoenixKitProjects.Web.Helpers.translate_catalog(label) == label and
+            WebHelpers.translate_catalog(label) == label and
               not same_in_translation?(locale, label)
           end)
 

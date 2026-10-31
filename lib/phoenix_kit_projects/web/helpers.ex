@@ -373,7 +373,7 @@ defmodule PhoenixKitProjects.Web.Helpers do
   baseline that has both the primary fields AND the existing
   translations the user has already typed.
   """
-  @spec in_flight_record(Phoenix.LiveView.Socket.t(), atom(), atom()) :: struct()
+  @spec in_flight_record(Phoenix.LiveView.Socket.t(), atom(), atom()) :: struct() | nil
   def in_flight_record(socket, form_assign, fallback_assign) do
     case socket.assigns[form_assign] do
       %Phoenix.HTML.Form{source: %Ecto.Changeset{} = cs} ->

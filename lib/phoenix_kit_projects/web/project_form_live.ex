@@ -31,8 +31,8 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
   alias PhoenixKitProjects.Extensions.ConfigOptions
   alias PhoenixKitProjects.Schemas.Project
   alias PhoenixKitProjects.Web.Components.AccessPanel
-  alias PhoenixKitProjects.Web.Components.ConfirmAction
   alias PhoenixKitProjects.Web.Components.{AssigneePicker, FormParts, TimeInput}
+  alias PhoenixKitProjects.Web.Components.ConfirmAction
   alias PhoenixKitProjects.Web.Components.DescriptionEditor
 
   import PhoenixKitProjects.Web.Components.DescriptionEditor,
@@ -3344,7 +3344,7 @@ defmodule PhoenixKitProjects.Web.ProjectFormLive do
       socket
     else
       attrs =
-        (form.params || %{})
+        form.params
         |> Map.merge(DescriptionEditor.params(markdown, lang, primary, multi?))
         |> merge_attrs(socket)
 

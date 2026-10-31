@@ -10,6 +10,8 @@ defmodule PhoenixKitProjects.Web.ProjectShowBossReviewTest do
 
   alias PhoenixKit.Users.Auth
   alias PhoenixKitProjects.{Features, Projects}
+  alias PhoenixKitProjects.Schemas.Assignment
+  alias PhoenixKitProjects.Test.Repo
   alias PhoenixKitStaff.{Departments, Teams}
 
   setup %{conn: conn} do
@@ -89,7 +91,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowBossReviewTest do
       grandchild = assignment!(project)
       {:ok, _} = PhoenixKitProjects.Outline.move(child, parent.uuid, :last)
       {:ok, _} = PhoenixKitProjects.Outline.move(grandchild, child.uuid, :last)
-      label = PhoenixKitProjects.Schemas.Assignment.label(Projects.get_assignment(parent.uuid))
+      label = Assignment.label(Projects.get_assignment(parent.uuid))
 
       {:ok, view, _html} = live(conn, "/en/admin/projects/#{project.uuid}")
 
@@ -286,7 +288,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowBossReviewTest do
 
       # Written behind the page's back (no broadcast), so the page still
       # holds the old status when the pick arrives.
-      a |> Ecto.Changeset.change(status: "done") |> PhoenixKitProjects.Test.Repo.update!()
+      a |> Ecto.Changeset.change(status: "done") |> Repo.update!()
 
       html =
         render_click(view, "set_status", %{
@@ -340,7 +342,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowBossReviewTest do
       {b_at, _} = :binary.match(pane, "Then on B")
       {a_at, _} = :binary.match(pane, "First on A")
       assert b_at < a_at
-      b_label = PhoenixKitProjects.Schemas.Assignment.label(Projects.get_assignment(b.uuid))
+      b_label = Assignment.label(Projects.get_assignment(b.uuid))
       assert pane =~ b_label
 
       html =

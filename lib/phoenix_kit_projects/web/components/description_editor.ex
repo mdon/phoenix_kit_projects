@@ -43,6 +43,8 @@ defmodule PhoenixKitProjects.Web.Components.DescriptionEditor do
   use Gettext, backend: PhoenixKitProjects.Gettext
 
   alias Phoenix.LiveView
+  alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
+  alias PhoenixKitProjects.Web.Mentions
 
   @doc "The editor's id for one language: `<base>--<lang>` (a code may hold a dash)."
   @spec editor_id(String.t(), String.t() | nil) :: String.t()
@@ -89,7 +91,7 @@ defmodule PhoenixKitProjects.Web.Components.DescriptionEditor do
       )
       when trigger in ["@", "#"] do
     reply =
-      PhoenixKitProjects.Web.Mentions.search_reply(socket, %{
+      Mentions.search_reply(socket, %{
         "kind" => if(trigger == "@", do: "user", else: "resource"),
         "query" => query || "",
         "context" => context
@@ -195,7 +197,7 @@ defmodule PhoenixKitProjects.Web.Components.DescriptionEditor do
           String.t() | nil
   def description_value(form, lang, primary, multilang?) do
     if multilang? and is_binary(lang) and lang != primary,
-      do: PhoenixKitProjects.Web.Helpers.lang_data(form, lang)["description"],
+      do: WebHelpers.lang_data(form, lang)["description"],
       else: form[:description].value
   end
 

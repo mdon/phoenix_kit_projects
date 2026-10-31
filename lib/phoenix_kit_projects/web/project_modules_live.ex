@@ -386,34 +386,31 @@ defmodule PhoenixKitProjects.Web.ProjectModulesLive do
         {:error, %Ecto.Changeset{} = changeset} ->
           # One whole sentence per problem: gluing the changeset's English
           # message into "Label name %{problem}." showed it untranslated.
-          msg =
-            case changeset.errors[:name] do
-              {_, opts} when is_list(opts) ->
-                cond do
-                  opts[:constraint] == :unique ->
-                    gettext("A label with this name already exists in this project.")
-
-                  opts[:validation] == :required ->
-                    gettext("Give the label a name.")
-
-                  opts[:validation] == :length ->
-                    gettext("A label name can be at most 60 characters.")
-
-                  true ->
-                    gettext("Could not add the label.")
-                end
-
-              _ ->
-                gettext("Could not add the label.")
-            end
-
-          {:noreply, put_flash(socket, :error, msg)}
+          {:noreply, put_flash(socket, :error, label_error(changeset.errors[:name]))}
       end
     else
       {:noreply,
        put_flash(socket, :error, gettext("This feature is turned off for this project."))}
     end
   end
+
+  defp label_error({_, opts}) when is_list(opts) do
+    cond do
+      opts[:constraint] == :unique ->
+        gettext("A label with this name already exists in this project.")
+
+      opts[:validation] == :required ->
+        gettext("Give the label a name.")
+
+      opts[:validation] == :length ->
+        gettext("A label name can be at most 60 characters.")
+
+      true ->
+        gettext("Could not add the label.")
+    end
+  end
+
+  defp label_error(_error), do: gettext("Could not add the label.")
 
   # Events re-check authorization — this page writes configuration.
   defp do_set_access_mode(socket, mode) do

@@ -12,7 +12,7 @@ defmodule PhoenixKitProjects.Web.TimeInputTest do
 
   alias PhoenixKit.Settings
   alias PhoenixKitProjects.{L10n, Projects}
-  alias PhoenixKitProjects.Web.Components.TimeInput
+  alias PhoenixKitProjects.Web.Components.{FormParts, TimeInput}
 
   setup %{conn: conn} do
     me = embed_user_uuid!()
@@ -101,7 +101,7 @@ defmodule PhoenixKitProjects.Web.TimeInputTest do
     test "press sends the event with the status, the current one marked" do
       html =
         Phoenix.LiveViewTest.render_component(
-          &PhoenixKitProjects.Web.Components.FormParts.status_buttons/1,
+          &FormParts.status_buttons/1,
           id: "st",
           value: "todo",
           options: [{"Waiting", "waiting"}, {"Can be started", "todo"}],

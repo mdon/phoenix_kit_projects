@@ -29,6 +29,7 @@ defmodule PhoenixKitProjects.Assignees do
 
   import Ecto.Query
 
+  alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.User
   alias PhoenixKitProjects.Schemas.{Assignment, Project}
   # SHADOW schemas + the People doorway (staff-optional seam) — the
@@ -479,7 +480,7 @@ defmodule PhoenixKitProjects.Assignees do
   @spec remember_pick(String.t() | nil, String.t(), String.t()) :: :ok
   def remember_pick(user_uuid, kind, uuid)
       when is_binary(user_uuid) and kind in ~w(person team department) and is_binary(uuid) do
-    case PhoenixKit.Users.Auth.get_user(user_uuid) do
+    case Auth.get_user(user_uuid) do
       %User{} = user ->
         entry = %{"kind" => kind, "uuid" => uuid}
 
@@ -488,7 +489,7 @@ defmodule PhoenixKitProjects.Assignees do
           |> Enum.take(@recent_cap)
 
         _ =
-          PhoenixKit.Users.Auth.merge_user_custom_fields(
+          Auth.merge_user_custom_fields(
             user,
             %{@recent_key => picks},
             ensure_definitions: false,
@@ -514,7 +515,7 @@ defmodule PhoenixKitProjects.Assignees do
     do: for(%{"kind" => k, "uuid" => u} <- stored_picks(user), do: {k, u})
 
   def remembered_picks(user_uuid) when is_binary(user_uuid) do
-    case PhoenixKit.Users.Auth.get_user(user_uuid) do
+    case Auth.get_user(user_uuid) do
       %User{} = user -> remembered_picks(user)
       _ -> []
     end
@@ -655,7 +656,7 @@ defmodule PhoenixKitProjects.Assignees do
     %{
       kind: "person",
       uuid: r.uuid,
-      label: if(r.name not in [nil, ""], do: r.name, else: r.email || "?"),
+      label: if(r.name in [nil, ""], do: r.email || "?", else: r.name),
       sublabel: email,
       email: email,
       place: nil,

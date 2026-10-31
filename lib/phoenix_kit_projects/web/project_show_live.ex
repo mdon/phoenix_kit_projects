@@ -54,7 +54,6 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   # "Post Comment" silently submits empty content. comments is a hard dep here.
   use PhoenixKitComments.Embed
 
-  alias PhoenixKitProjects.Web.Components.AssignmentStatusBadge
   alias PhoenixKit.Users.Auth.User, as: AuthUser
   alias PhoenixKit.Utils.Routes
 
@@ -79,6 +78,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   }
 
   alias PhoenixKitProjects.Web.Components.{
+    AssignmentStatusBadge,
     ConfirmAction,
     DurationInput,
     FormParts,
