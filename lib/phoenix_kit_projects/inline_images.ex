@@ -73,13 +73,18 @@ defmodule PhoenixKitProjects.InlineImages do
   (`Storage.authorized_url/4`; a private library's is a time-window one).
   An image the viewer may not see, or whose file is gone, is left out —
   or, with `keep_missing: true` (the editor), kept as its reference.
+
+  `urls:` hands in addresses already read for this viewer (`urls_for/2`,
+  one read for a whole list); a file it does not name is read here.
   """
   @spec resolve(term(), term(), keyword()) :: term()
   def resolve(text, scope, opts \\ [])
 
   def resolve(text, scope, opts) when is_binary(text) do
     if refs?(text) do
-      urls = urls(uuids(text), scope)
+      known = Keyword.get(opts, :urls, %{})
+      {have, missing} = Enum.split_with(uuids(text), &Map.has_key?(known, &1))
+      urls = Map.merge(Map.take(known, have), urls(missing, scope))
       keep? = Keyword.get(opts, :keep_missing, false)
 
       Regex.replace(@image, text, fn whole, alt, target ->
@@ -104,6 +109,18 @@ defmodule PhoenixKitProjects.InlineImages do
   # a reference this viewer cannot open: kept for the editor, else left out
   defp resolved(whole, _alt, _url, true), do: whole
   defp resolved(_whole, _alt, _url, _keep?), do: ""
+
+  @doc """
+  The addresses `scope` may open the pictures of all `texts` at, in one
+  read: `%{file uuid => url | nil}`, for `resolve/3`'s `urls:` — a list's
+  descriptions resolved without a read per row.
+  """
+  @spec urls_for([term()], term()) :: %{binary() => String.t() | nil}
+  def urls_for(texts, scope) when is_list(texts) do
+    uuids = texts |> Enum.filter(&refs?/1) |> Enum.flat_map(&uuids/1) |> Enum.uniq()
+    # a file that is gone is named too (nil), so it is not read again
+    Map.merge(Map.new(uuids, &{&1, nil}), urls(uuids, scope))
+  end
 
   @doc """
   `text` without the images of `file_uuid` — by reference or by app

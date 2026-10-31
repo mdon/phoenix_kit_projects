@@ -1755,6 +1755,10 @@ defmodule PhoenixKitProjects.Web.Api.Docs do
     `notes_url`. A `subproject` row is a nested project: its lifecycle is its own, the row's status
     and progress roll up from it, and its tasks are reached with `project=<child_project_uuid>`
     (see Sub-projects above).
+    A picture in a `description` reaches you as markdown `![alt](url)`, the url one your key's
+    person may open (a private file's expires — read the task again for a fresh one); one they
+    may not open stays `![alt](pkfile:<uuid>)`. Send the text back as you got it and every
+    picture stays.
 
     Machine-readable description: `GET #{base}/openapi.json`.
     """
