@@ -351,6 +351,66 @@ defmodule PhoenixKitProjects.Web.OutlineListTest do
       assert titles(p) == ["Old"]
     end
 
+    # The drop is the client's word: a row this list made that was filled
+    # in since (its popup, another tab, the API) is kept.
+    for {what, fill} <- [
+          description: :description,
+          subtask: :subtask,
+          time: :time,
+          file: :file
+        ] do
+      test "a task this list made but given a #{what} since is not removed", %{conn: conn} do
+        p = project()
+        {:ok, _} = Outline.sync(p.uuid, [%{"text" => "Old"}], [])
+        [old] = Projects.list_assignments(p.uuid)
+        {:ok, view, _} = live(conn, "/en/admin/projects/#{p.uuid}")
+
+        render_hook(view, "outline_add", %{"after" => old.uuid, "text" => ""})
+        key = page_assigns(view).outline_draft.key
+        render_hook(view, "outline_draft_save", %{"key" => key, "text" => "Made here"})
+        [_, made] = Projects.list_assignments(p.uuid)
+
+        case unquote(fill) do
+          :description ->
+            {:ok, _} = Projects.update_assignment_form(made, %{"description" => "Notes"})
+
+          :subtask ->
+            {:ok, %{assignment: sub}} =
+              Projects.create_task_with_assignment(
+                p.uuid,
+                %{"title" => "Sub", "ad_hoc" => true},
+                %{}
+              )
+
+            {:ok, _} = Outline.move(Projects.get_assignment(sub.uuid), made.uuid, :last)
+
+          :time ->
+            {:ok, _} =
+              PhoenixKitProjects.Ledger.log_time(p.uuid, 30,
+                assignment_uuid: made.uuid,
+                actor_uuid: embed_user_uuid!()
+              )
+
+          :file ->
+            path = Path.join(System.tmp_dir!(), "pkp-drop-#{System.unique_integer([:positive])}")
+            File.write!(path, "notes #{System.unique_integer()}")
+
+            {:ok, _} =
+              PhoenixKitProjects.Attachments.store_task_file(
+                made,
+                path,
+                [filename: "n.txt", content_type: "text/plain", size_bytes: 5],
+                embed_user_uuid!()
+              )
+
+            File.rm(path)
+        end
+
+        render_hook(view, "outline_drop", %{"id" => made.uuid})
+        assert made.uuid in Enum.map(Projects.list_assignments(p.uuid), & &1.uuid)
+      end
+    end
+
     test "a suggestion's hint is the description's words, not its markdown", %{conn: conn} do
       p = project()
       {:ok, _} = Outline.sync(p.uuid, [%{"text" => "First"}], [])

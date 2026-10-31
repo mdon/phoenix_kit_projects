@@ -4861,6 +4861,73 @@ defmodule PhoenixKitProjects.Projects do
   end
 
   @doc """
+  Whether `assignment` (as stored now) holds nothing but its title: a task
+  row with no description in any language, no subtasks, no comments, no
+  files and no time. The outline deletes its draft row when the person
+  clears its title (Backspace on the blank line, or leaving it blank) only
+  if this holds — the client's say-so is not enough, a row may have been
+  filled in since (the task's popup, another tab, the API). The title is
+  not asked: clearing it is the act itself, and the hook sends the drop
+  instead of saving the blank title first.
+  """
+  @spec empty_draft?(Assignment.t()) :: boolean()
+  def empty_draft?(%Assignment{child_project_uuid: nil, uuid: uuid}) when is_binary(uuid) do
+    case repo().one(from(a in Assignment, where: a.uuid == ^uuid, preload: [:task])) do
+      %Assignment{child_project_uuid: nil} = a ->
+        blank_texts?(a, [:description]) and
+          (is_nil(a.task) or (a.task.ad_hoc and blank_texts?(a.task, [:description]))) and
+          not holds_anything?(uuid)
+
+      _ ->
+        false
+    end
+  rescue
+    _ -> false
+  end
+
+  def empty_draft?(_), do: false
+
+  defp blank_texts?(record, fields) do
+    translated =
+      for {_lang, %{} = t} <- record.translations || %{},
+          field <- fields,
+          do: t[Atom.to_string(field)]
+
+    Enum.all?(Enum.map(fields, &Map.get(record, &1)) ++ translated, &blank_text?/1)
+  end
+
+  defp blank_text?(nil), do: true
+  defp blank_text?(text) when is_binary(text), do: String.trim(text) == ""
+  defp blank_text?(_), do: false
+
+  defp holds_anything?(uuid) do
+    repo().exists?(from(a in Assignment, where: a.parent_uuid == ^uuid)) or
+      repo().exists?(
+        from(f in PhoenixKitProjects.Schemas.AssignmentFile, where: f.assignment_uuid == ^uuid)
+      ) or
+      repo().exists?(
+        from(w in PhoenixKitProjects.Schemas.WorkEntry, where: w.assignment_uuid == ^uuid)
+      ) or
+      Map.get(comment_rows(uuid), uuid, 0) > 0
+  end
+
+  # Any comment, published or not: a draft row with a held comment is not
+  # empty either. Without the comments module there are none.
+  defp comment_rows(uuid) do
+    if Code.ensure_loaded?(PhoenixKitComments.Comment) do
+      from(c in PhoenixKitComments.Comment,
+        where: c.resource_type == "assignment" and c.resource_uuid == ^uuid,
+        group_by: c.resource_uuid,
+        select: {c.resource_uuid, count(c.uuid)}
+      )
+      |> repo().all()
+      |> Map.new()
+    else
+      %{}
+    end
+  end
+
+  @doc """
   Deletes an assignment and broadcasts `:assignment_deleted`.
 
   For a **sub-project** linking row (`child_project_uuid` set, V127) this tears

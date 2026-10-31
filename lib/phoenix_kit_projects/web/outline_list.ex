@@ -548,15 +548,19 @@ defmodule PhoenixKitProjects.Web.OutlineList do
 
   # A task this list added and then left empty-handed — Backspace on its
   # blank title, or the row left with its title cleared. Only a task this
-  # session made (`outline_created`) goes; any other emptied title stays as
-  # it was, as it always has.
+  # session made (`outline_created`) goes, and only while it still holds
+  # nothing but its title, read from the database now
+  # (`Projects.empty_draft?/1`: no description, subtasks, comments, files
+  # or time) — the event is the client's, and the row may have been filled
+  # in since. Anything else stays as it was, as it always has.
   def handle_event("outline_drop", %{"id" => uuid}, socket, reload) do
     created = socket.assigns[:outline_created] || MapSet.new()
 
     with true <- socket.assigns.outline_can.edit,
-         true <- socket.assigns[:outline_fresh] == uuid or MapSet.member?(created, uuid),
+         true <- MapSet.member?(created, uuid),
          %Assignment{} = a <- own(socket, uuid),
          false <- MapSet.member?(socket.assigns.outline_parents, uuid),
+         true <- Projects.empty_draft?(a),
          {:ok, _} <- Projects.delete_assignment(a) do
       audit(socket, "projects.assignment_removed", a)
       rows = Outline.walk(socket.assigns.assignments) |> Enum.map(&elem(&1, 0).uuid)
