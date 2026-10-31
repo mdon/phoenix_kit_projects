@@ -5528,7 +5528,13 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       <% show_schedule = @fx.scheduling and @project.started_at != nil and @schedule != nil %>
       <%!-- Ongoing work has no finish line, so no bar towards one (Max,
            2026-10-05); the start bar's badges say Ongoing / All caught up. --%>
-      <% show_progress = @fx.tasks and @total_tasks > 0 and not @is_template and not Project.ongoing?(@project) %>
+      <%!-- The bar is the schedule row's bottom edge. On its own, with
+           nothing done yet, it was a thin empty dark strip under the add
+           buttons (the walk-through, 2026-10-31) — so alone it shows only
+           once something is done. --%>
+      <% show_progress =
+        @fx.tasks and @total_tasks > 0 and not @is_template and not Project.ongoing?(@project) and
+          (show_schedule or @done_tasks > 0) %>
       <%!-- Every block around the list carries an id: a block that appears
            (this one, with the first task) must be inserted, not matched
            against the next block by position — that rebuilt the typed list
