@@ -101,6 +101,11 @@ defmodule PhoenixKitProjects.Web.Components.TaskTimes do
     doc: "`outline` keeps a board card calm: the colour is in the border and the text"
   )
 
+  attr(:class, :any,
+    default: nil,
+    doc: "extra classes; `max-w-full` lets the label truncate in a narrow card"
+  )
+
   def deadline_chip(%{a: %{deadline: %DateTime{}}} = assigns) do
     now = assigns.now || DateTime.utc_now()
 
@@ -114,18 +119,20 @@ defmodule PhoenixKitProjects.Web.Components.TaskTimes do
     <span
       data-deadline={@state}
       class={[
-        "badge gap-1 whitespace-nowrap",
+        "badge gap-1 whitespace-nowrap min-w-0",
         @size == "xs" && "badge-xs",
         @size == "sm" && "badge-sm",
         @tone == "solid" && @state == :overdue && "badge-error",
         @tone == "solid" && @state == :soon && "badge-warning",
         (@tone == "outline" or @state == :set) && "badge-outline",
         @tone == "outline" && @state == :overdue && "text-error border-error",
-        @tone == "outline" && @state == :soon && "text-warning border-warning"
+        @tone == "outline" && @state == :soon && "text-warning border-warning",
+        @class
       ]}
       title={deadline_title(@state)}
     >
-      <span aria-hidden="true">⏰</span> {@label}
+      <span aria-hidden="true" class="shrink-0">⏰</span>
+      <span class="truncate">{@label}</span>
     </span>
     """
   end

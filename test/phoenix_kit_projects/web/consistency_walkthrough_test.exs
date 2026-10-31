@@ -72,4 +72,26 @@ defmodule PhoenixKitProjects.Web.ConsistencyWalkthroughTest do
       refute row =~ ~r/class="relative flex py-3 /
     end
   end
+
+  describe "a board card never cuts off at its right edge (item 3)" do
+    test "the deadline chip truncates and the card's foot wraps", %{conn: conn} do
+      project = fixture_project(%{"start_mode" => "immediate"})
+
+      a =
+        assignment!(project, %{
+          "deadline" => DateTime.add(DateTime.utc_now(), 3 * 86_400, :second)
+        })
+
+      {:ok, view, _html} = live(conn, "/en/admin/projects/#{project.uuid}/tasks/board")
+      card = view |> element("#board-card-#{a.uuid}") |> render()
+
+      [chip] = Regex.run(~r/<span[^>]*data-deadline=[^>]*>/s, card)
+      assert chip =~ "max-w-full"
+      assert card =~ ~s(<span class="truncate">)
+
+      [foot] = Regex.run(~r/<div[^>]*data-board-card-foot[^>]*>/s, card)
+      assert foot =~ "flex-wrap"
+      refute card =~ "ml-auto shrink-0"
+    end
+  end
 end

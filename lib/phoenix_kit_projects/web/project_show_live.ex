@@ -6262,13 +6262,17 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                         {PhoenixKitProjects.Web.AssignmentViewLive, view_session(a)}
                       }
                       embed_mode={@embed_mode}
-                      class="text-sm font-medium link link-hover leading-snug min-w-0 text-left"
+                      class="text-sm font-medium link link-hover leading-snug min-w-0 text-left [overflow-wrap:anywhere]"
                     >
                       {Assignment.label(a, L10n.current_content_lang())}
                     </.smart_link>
                   </div>
 
-                  <div class="flex flex-wrap items-center gap-1">
+                  <%!-- A column is narrow (four side by side): every chip
+                       here wraps to the next line, and one wider than the
+                       card truncates rather than being cut off at its
+                       right edge (the walk-through, 2026-10-31). --%>
+                  <div class="flex flex-wrap items-center gap-1 min-w-0">
                     <.smart_link
                       :if={Assignment.ref(a)}
                       navigate={Paths.view_assignment(a.project_uuid, a.uuid)}
@@ -6279,7 +6283,13 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                     >
                       <.ref_chip ref={Assignment.ref(a)} />
                     </.smart_link>
-                    <.deadline_chip :if={@fx[:dates] != false} a={a} size="xs" tone="outline" />
+                    <.deadline_chip
+                      :if={@fx[:dates] != false}
+                      a={a}
+                      size="xs"
+                      tone="outline"
+                      class="max-w-full"
+                    />
                     <% sub = Map.get(@outline_counts, a.uuid) %>
                     <span :if={sub} class="badge badge-xs badge-outline gap-1" title={gettext("Subtasks done")}>
                       <.icon name="hero-list-bullet" class="w-3 h-3" /> {sub.done}/{sub.total}
@@ -6293,9 +6303,10 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                     <span
                       :for={label <- Enum.take(Map.get(@assignment_labels, a.uuid, []), 2)}
                       :if={@fx.labels}
-                      class={["badge badge-xs", label.color]}
+                      class={["badge badge-xs max-w-full min-w-0", label.color]}
+                      title={label.name}
                     >
-                      {label.name}
+                      <span class="truncate">{label.name}</span>
                     </span>
                     <span
                       :if={@fx.labels and length(Map.get(@assignment_labels, a.uuid, [])) > 2}
@@ -6310,12 +6321,15 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                        look — the faces first. "Unassigned" is shown, not
                        hidden — on a board that is the most actionable thing
                        a card can say. --%>
-                  <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div
+                    class="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 min-w-0"
+                    data-board-card-foot
+                  >
                     <.assignee_shown
                       :if={@fx.assignees}
                       a={a}
                       faces={faces[a.uuid]}
-                      class="text-xs opacity-80"
+                      class="text-xs opacity-80 max-w-full"
                     />
                     <span
                       :if={@fx.assignees and is_nil(assignee_type(a))}
@@ -6325,7 +6339,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                       {gettext("Unassigned")}
                     </span>
 
-                    <div class="ml-auto shrink-0 flex items-center gap-1">
+                    <div class="ml-auto max-w-full flex flex-wrap items-center justify-end gap-1">
                       <button
                         :if={a.status in ~w(waiting todo in_progress done)}
                         type="button"
