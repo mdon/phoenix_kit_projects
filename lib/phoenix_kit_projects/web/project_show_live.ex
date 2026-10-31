@@ -93,6 +93,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   alias PhoenixKitProjects.Refs
   alias PhoenixKitProjects.Schemas.{Assignment, Project}
   alias PhoenixKitProjects.Schemas.Task, as: TaskSchema
+  alias PhoenixKitProjects.TaskConversion
   alias PhoenixKitProjects.TaskNotes
   alias PhoenixKitProjects.Web.Helpers, as: WebHelpers
   alias PhoenixKitProjects.Web.OutlineList
@@ -2085,6 +2086,27 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                   label={ai_notes_label(a_note_count, a_tokens)}
                 />
                 <.table_row_menu_divider />
+                <%!-- More complexity than a task holds (the boss,
+                     2026-10-30): the same row becomes a sub-project, its
+                     subtasks the sub-project's tasks (`TaskConversion`). --%>
+                <.table_row_menu_button
+                  :if={@fx.subprojects and not @is_template and is_nil(@a.parent_uuid)}
+                  {ConfirmAction.ask("make_subproject",
+                    uuid: @a.uuid,
+                    title: gettext("Make “%{title}” a sub-project?", title: Assignment.label(@a, L10n.current_content_lang())),
+                    message:
+                      @below > 0 &&
+                        ngettext(
+                          "Its subtask becomes the sub-project's task. Its comments, files, time and connections stay with it.",
+                          "Its %{count} subtasks become the sub-project's tasks. Its comments, files, time and connections stay with it.",
+                          @below
+                        ),
+                    confirm: gettext("Make it a sub-project")
+                  )}
+                  icon="hero-rectangle-stack"
+                  label={gettext("Make it a sub-project")}
+                />
+                <.table_row_menu_divider />
                 <%!-- Deleting, so "Delete" — "Remove" is for taking
                      something off without deleting it. --%>
                 <.table_row_menu_button
@@ -2362,6 +2384,8 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     "remove_dependency" => :dependencies,
     "change_workflow_status" => :statuses,
     "detach_subproject" => :subprojects,
+    "make_subproject" => :subprojects,
+    "make_task" => :subprojects,
     "open_health_modal" => :lifecycle,
     "save_health" => :lifecycle,
     "open_start_modal" => :lifecycle,
@@ -2413,6 +2437,11 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
     "save_duration" => :edit_tasks,
     "remove_dependency" => :edit_tasks,
     "detach_subproject" => :edit_tasks,
+    # Turning a task into a sub-project and back edits the task and adds or
+    # takes away a sub-project: the edit floor here, the adding one
+    # (`:create_tasks`, the sub-project form's) in the handler too.
+    "make_subproject" => :edit_tasks,
+    "make_task" => :edit_tasks,
     "archive_project" => :archive_project,
     "unarchive_project" => :archive_project,
     # Starting is a container-level act, not work: it stamps `started_at`,
@@ -2445,7 +2474,8 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
        ConfirmAction.request(
          socket,
          params,
-         ~w(archive_project remove_assignment review_submission detach_subproject complete)
+         ~w(archive_project remove_assignment review_submission detach_subproject complete
+            make_subproject make_task)
        )}
 
   def handle_event("confirm_action_cancel", _params, socket),
@@ -3243,6 +3273,33 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
         if locked,
           do: {:noreply, put_flash(socket, :error, locked)},
           else: detach_subproject(socket, a, child_uuid)
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  # A task made a sub-project and back, in place (`TaskConversion`, the
+  # panel of 2026-10-31): the row keeps everything that hangs off it.
+  defp gated_handle_event("make_subproject", %{"uuid" => uuid}, socket) do
+    case scoped_assignment(socket, uuid) do
+      %Assignment{child_project_uuid: nil} = a ->
+        convert(socket, a, :to_subproject)
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  defp gated_handle_event("make_task", %{"uuid" => uuid}, socket) do
+    case scoped_assignment(socket, uuid) do
+      %Assignment{child_project_uuid: child_uuid} = a when is_binary(child_uuid) ->
+        # The project is archived on the way: a host's move lock holds it
+        # here as it holds a detach.
+        case child_uuid |> Projects.get_project() |> locked_reason() do
+          nil -> convert(socket, a, :to_task)
+          locked -> {:noreply, put_flash(socket, :error, locked)}
+        end
 
       _ ->
         {:noreply, socket}
@@ -4792,6 +4849,71 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   defp locked_reason(nil), do: nil
   defp locked_reason(%Project{} = project), do: MoveLock.reason(project)
 
+  defp convert(socket, %Assignment{} = a, way) do
+    scope = socket.assigns[:phoenix_kit_current_scope]
+    actor = Activity.actor_uuid(socket)
+    label = Assignment.label(a, L10n.current_content_lang())
+
+    action =
+      if way == :to_subproject,
+        do: "projects.assignment_made_subproject",
+        else: "projects.assignment_made_task"
+
+    meta = %{"task" => label, "project_uuid" => a.project_uuid}
+
+    result =
+      cond do
+        not Authz.can?(scope, socket.assigns.project, :create_tasks) -> {:error, :forbidden}
+        way == :to_subproject -> TaskConversion.to_subproject(a, actor_uuid: actor)
+        true -> TaskConversion.to_task(a, actor_uuid: actor)
+      end
+
+    case result do
+      {:ok, %{project: child, moved: moved}} ->
+        Activity.log(action,
+          actor_uuid: actor,
+          resource_type: "assignment",
+          resource_uuid: a.uuid,
+          metadata: Map.merge(meta, %{"child_project_uuid" => child.uuid, "moved" => moved})
+        )
+
+        {:noreply,
+         socket
+         |> put_flash(:info, convert_done(way, label))
+         |> sync_project_completion()
+         |> load_assignments()}
+
+      {:error, reason} ->
+        Activity.log_failed(action,
+          actor_uuid: actor,
+          resource_type: "assignment",
+          resource_uuid: a.uuid,
+          metadata: meta
+        )
+
+        {:noreply, put_flash(socket, :error, convert_error(reason))}
+    end
+  end
+
+  defp convert_done(:to_subproject, label),
+    do: gettext("“%{task}” is a sub-project now.", task: label)
+
+  defp convert_done(:to_task, label),
+    do: gettext("“%{task}” is a task now; its project is archived.", task: label)
+
+  defp convert_error(:forbidden), do: gettext("You do not have permission to do that.")
+
+  defp convert_error(:has_subprojects),
+    do: gettext("It holds sub-projects of its own, which cannot sit under a task.")
+
+  defp convert_error(:subtask),
+    do: gettext("A subtask cannot become a sub-project. Move it to the top of the list first.")
+
+  defp convert_error(:too_deep),
+    do: gettext("There is no room for another level of sub-projects.")
+
+  defp convert_error(_), do: gettext("Could not change it.")
+
   defp detach_subproject(socket, a, child_uuid) do
     case Projects.detach_subproject(a) do
       {:ok, _} ->
@@ -5780,6 +5902,29 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                               phx-value-uuid={child.uuid}
                               icon="hero-arrows-right-left"
                               label={gettext("Move out…")}
+                            />
+                            <%!-- Back to one task (`TaskConversion`): its
+                                 tasks come under the row, the project is
+                                 archived, nothing is deleted. --%>
+                            <.table_row_menu_button
+                              :if={@fx.subprojects and not @is_template and !@move_locks[child.uuid]}
+                              {ConfirmAction.ask("make_task",
+                                uuid: a.uuid,
+                                title: gettext("Make “%{name}” a task?", name: Project.localized_name(child, sp_lang)),
+                                message:
+                                  if(sp_summary && sp_summary.total > 0,
+                                    do:
+                                      ngettext(
+                                        "Its task becomes a subtask of it, and the project is archived.",
+                                        "Its %{count} tasks become subtasks of it, and the project is archived.",
+                                        sp_summary.total
+                                      ),
+                                    else: gettext("The project is archived.")
+                                  ),
+                                confirm: gettext("Make it a task")
+                              )}
+                              icon="hero-check-circle"
+                              label={gettext("Make it a task")}
                             />
                             <.table_row_menu_divider />
                             <.table_row_menu_button

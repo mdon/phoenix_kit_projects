@@ -161,6 +161,11 @@ defmodule PhoenixKitProjects.Web.Components.HistoryFeed do
 
   defp compact_activity("projects.assignment_made_idle", _), do: gettext("kept it idle")
 
+  defp compact_activity("projects.assignment_made_subproject", _),
+    do: gettext("made it a sub-project")
+
+  defp compact_activity("projects.assignment_made_task", _), do: gettext("made it a task again")
+
   defp compact_activity("projects.assignment_ready", %{meta: %{"resume" => true}}),
     do: gettext("It can go on again")
 
@@ -289,6 +294,11 @@ defmodule PhoenixKitProjects.Web.Components.HistoryFeed do
     do: gettext("marked as can be started:")
 
   defp activity_sentence("projects.assignment_made_idle", _), do: gettext("kept idle:")
+
+  defp activity_sentence("projects.assignment_made_subproject", _),
+    do: gettext("made a sub-project:")
+
+  defp activity_sentence("projects.assignment_made_task", _), do: gettext("made a task again:")
 
   defp activity_sentence("projects.assignment_ready", %{meta: %{"resume" => true}}),
     do: gettext("Can go on again:")
@@ -419,6 +429,8 @@ defmodule PhoenixKitProjects.Web.Components.HistoryFeed do
   defp icon_for(%{action: "projects.assignment_started"}), do: "hero-play"
   defp icon_for(%{action: "projects.assignment_ready"}), do: "hero-arrow-right"
   defp icon_for(%{action: "projects.assignment_made_ready"}), do: "hero-arrow-right-circle"
+  defp icon_for(%{action: "projects.assignment_made_subproject"}), do: "hero-rectangle-stack"
+  defp icon_for(%{action: "projects.assignment_made_task"}), do: "hero-check-circle"
   defp icon_for(%{action: "projects.assignment_made_idle"}), do: "hero-pause-circle"
   defp icon_for(%{action: "projects.assignment_on_hold"}), do: "hero-pause"
   defp icon_for(%{action: "projects.assignment_waiting"}), do: "hero-hand-raised"
