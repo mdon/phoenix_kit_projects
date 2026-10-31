@@ -189,11 +189,14 @@ defmodule PhoenixKitProjects.GettextCatalogueTest do
   # The status vocabulary the owner agreed (boss's list, item 1): ONE name
   # per status wherever it is shown, and each step into it phrased on the
   # status's own root. A catalogue edit that drifts from it fails here.
+  # ru "В ожидании" (panel review 2026-10-31): a bare "Ожидает" has no
+  # subject as a column or a filter; the phrase is the one "Оставить в
+  # ожидании" already uses and needs no gender.
   alias PhoenixKitProjects.Web.Components.AssignmentStatusBadge, as: Words
 
   @vocabulary %{
     "ru" => {
-      ["Ожидает", "Можно начинать", "В работе", "Выполнена"],
+      ["В ожидании", "Можно начинать", "В работе", "Выполнена"],
       ["Разрешить начать", "Взять в работу", "Отметить выполненной", "Открыть заново"]
     },
     "et" => {
@@ -215,6 +218,8 @@ defmodule PhoenixKitProjects.GettextCatalogueTest do
     Gettext.with_locale(PhoenixKitProjects.Gettext, "ru", fn ->
       assert Words.label("done", true) == "Выполнен"
       assert Words.action_label(:mark_done, true) == "Отметить выполненным"
+      assert Words.on_hold_label(false) == "Приостановлена"
+      assert Words.on_hold_label(true) == "Приостановлен"
     end)
   end
 
