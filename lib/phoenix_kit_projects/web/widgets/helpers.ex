@@ -152,10 +152,7 @@ defmodule PhoenixKitProjects.Web.Widgets.Helpers do
   def hours(nil), do: "—"
   def hours(h) when h == 0, do: "0h"
 
-  def hours(h) when is_number(h) do
-    rounded = Float.round(h / 1, 1)
-    if rounded == trunc(rounded), do: "#{trunc(rounded)}h", else: "#{rounded}h"
-  end
+  def hours(h) when is_number(h), do: PhoenixKitProjects.L10n.format_decimal(h) <> "h"
 
   @doc "A datetime as the module prints dates (`L10n.format_date/1`, translated), or `—`."
   @spec date(DateTime.t() | nil) :: String.t()

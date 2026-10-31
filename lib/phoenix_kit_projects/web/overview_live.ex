@@ -640,9 +640,9 @@ defmodule PhoenixKitProjects.Web.OverviewLive do
       days == 1 -> gettext("tomorrow")
       days == -1 -> gettext("yesterday")
       days > 1 and days < 14 -> ngettext("in %{count} day", "in %{count} days", days)
-      days > 1 -> gettext("in %{n} weeks", n: Float.round(days / 7, 1))
+      days > 1 -> gettext("in %{n} weeks", n: L10n.format_decimal(days / 7))
       days < 0 and days > -14 -> ngettext("%{count} day ago", "%{count} days ago", abs(days))
-      true -> gettext("%{n} weeks ago", n: Float.round(abs(days) / 7, 1))
+      true -> gettext("%{n} weeks ago", n: L10n.format_decimal(abs(days) / 7))
     end
   end
 

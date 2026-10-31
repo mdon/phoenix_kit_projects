@@ -965,13 +965,7 @@ defmodule PhoenixKitProjects.Web.TimeLive do
 
   defp logged_minutes(line), do: line.logged |> Enum.map(& &1.minutes) |> Enum.sum()
 
-  defp format_hours(minutes) do
-    h = minutes / 60
-
-    if h == Float.round(h * 1.0, 0),
-      do: Integer.to_string(trunc(h)),
-      else: :erlang.float_to_binary(h * 1.0, decimals: 1)
-  end
+  defp format_hours(minutes), do: L10n.format_decimal(minutes / 60)
 
   # On the site's clock (core's `time_format`: 24-hour or AM/PM).
   defp hhmm(%NaiveDateTime{} = t), do: L10n.format_time(t)

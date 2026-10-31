@@ -22,7 +22,7 @@ defmodule PhoenixKitProjects.Web.Components.RunningCard do
   import PhoenixKitProjects.Web.Components.TierPill
   import PhoenixKitProjects.Web.Components.SmartLink
 
-  alias PhoenixKitProjects.{Paths, Schemas.Project}
+  alias PhoenixKitProjects.{L10n, Paths, Schemas.Project}
 
   attr(:node, :map, required: true)
   attr(:tier, :atom, required: true, values: [:late, :near_done, :on_track, :empty])
@@ -166,11 +166,11 @@ defmodule PhoenixKitProjects.Web.Components.RunningCard do
     do: ngettext("in %{count} day", "in %{count} days", days)
 
   defp relative_day(days) when days > 1,
-    do: gettext("in %{n} weeks", n: Float.round(days / 7, 1))
+    do: gettext("in %{n} weeks", n: L10n.format_decimal(days / 7))
 
   defp relative_day(days) when days < 0 and days > -14,
     do: ngettext("%{count} day ago", "%{count} days ago", abs(days))
 
   defp relative_day(days),
-    do: gettext("%{n} weeks ago", n: Float.round(abs(days) / 7, 1))
+    do: gettext("%{n} weeks ago", n: L10n.format_decimal(abs(days) / 7))
 end

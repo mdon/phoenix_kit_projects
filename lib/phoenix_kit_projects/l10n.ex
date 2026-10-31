@@ -220,6 +220,54 @@ defmodule PhoenixKitProjects.L10n do
 
   defp pad2(n), do: n |> Integer.to_string() |> String.pad_leading(2, "0")
 
+  # Languages that write a decimal comma (`4,6`). The rest — English
+  # first — write a point.
+  @comma_decimal ~w(et ru de es fr it pl pt nl sv fi da nb nn no lt lv uk be cs sk sl hr sr bs bg ro hu tr el)
+
+  @doc """
+  A fractional number as the page's language writes it: `4.6` in English,
+  `4,6` in Estonian, Russian, German, Spanish, French, Italian, Polish (and
+  the other decimal-comma languages). Every fractional number the module
+  prints goes through this (the walk-through, 2026-10-31: "4.6 kuud üle
+  tähtaja", "Aega jäänud: 1.1 nädalat").
+
+  Options:
+
+    * `:decimals` — places to round to (default `1`);
+    * `:trim` — drop zeros at the end, and the separator with them
+      (`2.0` → `2`, `1.50` → `1.5`; default `true`). `trim: false` keeps
+      every place (`1,50`), for a column of figures.
+
+  Machine output (CSV, JSON, CSS) never goes through it.
+  """
+  @spec format_decimal(number(), keyword()) :: String.t()
+  def format_decimal(number, opts \\ []) when is_number(number) do
+    decimals = Keyword.get(opts, :decimals, 1)
+    trim? = Keyword.get(opts, :trim, true)
+    rounded = Float.round(number * 1.0, decimals)
+
+    text =
+      cond do
+        trim? and rounded == trunc(rounded) -> Integer.to_string(trunc(rounded))
+        trim? -> :erlang.float_to_binary(rounded, [:compact, decimals: decimals])
+        true -> :erlang.float_to_binary(rounded, decimals: decimals)
+      end
+
+    String.replace(text, ".", decimal_separator())
+  end
+
+  @doc "The page's decimal separator: `\",\"` or `\".\"` (`format_decimal/2`)."
+  @spec decimal_separator() :: String.t()
+  def decimal_separator do
+    base =
+      (current_content_lang() || "en")
+      |> String.downcase()
+      |> String.split(["-", "_"], parts: 2)
+      |> hd()
+
+    if base in @comma_decimal, do: ",", else: "."
+  end
+
   @doc """
   The current content-display language code.
 

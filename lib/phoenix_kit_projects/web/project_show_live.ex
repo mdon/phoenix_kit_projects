@@ -4813,11 +4813,15 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   defp whole_amount(n, :weeks), do: ngettext("%{count} week", "%{count} weeks", n)
   defp whole_amount(n, :months), do: ngettext("%{count} month", "%{count} months", n)
 
-  defp fractional_amount(v, :days), do: pgettext("fractional amount", "%{value} days", value: v)
-  defp fractional_amount(v, :weeks), do: pgettext("fractional amount", "%{value} weeks", value: v)
+  # "4,6 kuud", not "4.6 kuud": the page's decimal separator.
+  defp fractional_amount(v, :days),
+    do: pgettext("fractional amount", "%{value} days", value: L10n.format_decimal(v))
+
+  defp fractional_amount(v, :weeks),
+    do: pgettext("fractional amount", "%{value} weeks", value: L10n.format_decimal(v))
 
   defp fractional_amount(v, :months),
-    do: pgettext("fractional amount", "%{value} months", value: v)
+    do: pgettext("fractional amount", "%{value} months", value: L10n.format_decimal(v))
 
   # ── Priority display (Phase C) ───────────────────────────────────
 

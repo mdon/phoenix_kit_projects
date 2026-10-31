@@ -2299,13 +2299,13 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
           <div>
             <dt class="opacity-60">{gettext("Human time")}</dt>
             <dd class="font-semibold">
-              {Format.duration(@report.totals.minutes)} ({Format.decimal_hours(@report.totals.minutes)} h)
+              {Format.duration(@report.totals.minutes)} ({Format.hours_shown(@report.totals.minutes)} h)
             </dd>
           </div>
           <div>
             <dt class="opacity-60">{gettext("Billable")}</dt>
             <dd class="font-semibold">
-              {Format.duration(@report.totals.billable_minutes)} ({Format.decimal_hours(@report.totals.billable_minutes)} h)
+              {Format.duration(@report.totals.billable_minutes)} ({Format.hours_shown(@report.totals.billable_minutes)} h)
             </dd>
           </div>
           <div :if={@report.totals.ai_minutes > 0}>
@@ -2403,7 +2403,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
           <.table_default_row :for={{label, row} <- @rows}>
             <.table_default_cell>{label}</.table_default_cell>
             <.table_default_cell class="text-right tabular-nums whitespace-nowrap">{Format.duration(row.minutes)}</.table_default_cell>
-            <.table_default_cell class="text-right tabular-nums whitespace-nowrap">{Format.decimal_hours(row.minutes)}</.table_default_cell>
+            <.table_default_cell class="text-right tabular-nums whitespace-nowrap">{Format.hours_shown(row.minutes)}</.table_default_cell>
             <.table_default_cell class="text-right tabular-nums whitespace-nowrap">{Format.duration(row.billable_minutes)}</.table_default_cell>
             <.table_default_cell class="text-right tabular-nums whitespace-nowrap">{row.entries}</.table_default_cell>
           </.table_default_row>

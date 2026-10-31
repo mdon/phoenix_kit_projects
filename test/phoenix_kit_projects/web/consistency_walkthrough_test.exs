@@ -307,4 +307,43 @@ defmodule PhoenixKitProjects.Web.ConsistencyWalkthroughTest do
       assert group =~ "data-header-end"
     end
   end
+
+  describe "decimals in the page's language (item 9)" do
+    alias PhoenixKitProjects.Hours.Format
+    alias PhoenixKitProjects.L10n
+
+    defp in_locale(locale, fun) do
+      Gettext.put_locale(PhoenixKitWeb.Gettext, locale)
+      Gettext.put_locale(PhoenixKitProjects.Gettext, locale)
+      fun.()
+    after
+      Gettext.put_locale(PhoenixKitWeb.Gettext, "en")
+      Gettext.put_locale(PhoenixKitProjects.Gettext, "en")
+    end
+
+    test "format_decimal/2 writes a comma in et/ru/de/es/fr/it/pl and a point in English" do
+      for locale <- ~w(et ru de es fr it pl) do
+        assert in_locale(locale, fn -> L10n.format_decimal(4.56) end) == "4,6"
+      end
+
+      assert in_locale("en", fn -> L10n.format_decimal(4.56) end) == "4.6"
+      assert in_locale("et-EE", fn -> L10n.format_decimal(1.1) end) == "1,1"
+      assert in_locale("et", fn -> L10n.format_decimal(2.0) end) == "2"
+
+      assert in_locale("et", fn -> L10n.format_decimal(1.5, decimals: 2, trim: false) end) ==
+               "1,50"
+
+      assert in_locale("et", fn -> L10n.format_decimal(1.25, decimals: 2) end) == "1,25"
+    end
+
+    test "the Hours figures, tokens and costs on a page follow it; the CSV keeps a point" do
+      in_locale("ru", fn ->
+        assert Format.hours_shown(90) == "1,50"
+        assert Format.tokens(3_400) == "3,4k"
+        assert Format.cost(1234) == "$12,34"
+        assert PhoenixKitProjects.Web.Widgets.Helpers.hours(1.5) == "1,5h"
+        assert Format.decimal_hours(90) == "1.50"
+      end)
+    end
+  end
 end
