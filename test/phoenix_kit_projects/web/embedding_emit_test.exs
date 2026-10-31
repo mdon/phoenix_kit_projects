@@ -373,10 +373,12 @@ defmodule PhoenixKitProjects.Web.EmbeddingEmitTest do
       assert_receive {:projects, :closed, %{frame_ref: 9}}, 500
     end
 
-    test "the 'Templates' back link is the way out of the frame (:closed, not :opened)",
+    test "Close is the way out of the frame (:closed, not :opened)",
          %{conn: conn} do
       # A frame must never push the list page as ANOTHER frame — inside a
-      # host's popup or the page's drawer "back" closes the sheet.
+      # host's popup or the page's drawer the way out closes the sheet.
+      # No lone "← Templates" line above the title any more (the
+      # walk-through, 2026-10-31): Close, as in the task popup.
       topic = unique_topic()
       ProjectsPubSub.subscribe(topic)
 
@@ -391,9 +393,10 @@ defmodule PhoenixKitProjects.Web.EmbeddingEmitTest do
         )
 
       refute html =~ ~s(phx-click="open_embed")
+      refute has_element?(view, "button.link[phx-click=cancel]")
 
       view
-      |> element("button.link[phx-click=cancel]", "Templates")
+      |> element("button.btn[phx-click=cancel]", "Close")
       |> render_click()
 
       assert_receive {:projects, :closed, %{frame_ref: 0}}, 500

@@ -425,4 +425,96 @@ defmodule PhoenixKitProjects.Web.ConsistencyWalkthroughTest do
                wrapper =~ "[&_div:has(>[data-editor-footer])]:hidden"
     end
   end
+
+  describe "the other popups do the same job the task popup's way (item 12)" do
+    setup %{conn: conn} do
+      {:ok, conn: put_test_scope(conn, fake_scope(user_uuid: embed_user_uuid!()))}
+    end
+
+    defp popup(conn, lv, extra) do
+      live_isolated(conn, lv,
+        session:
+          Map.merge(
+            %{
+              "current_user_uuid" => embed_user_uuid!(),
+              "mode" => "emit",
+              "pubsub_topic" => "walk-#{System.unique_integer([:positive])}",
+              "frame_ref" => 1
+            },
+            extra
+          )
+      )
+    end
+
+    defp header(html, id) do
+      [header] = Regex.run(~r{<header id="#{id}".*?</header>}s, html)
+      header
+    end
+
+    test "the library task popup: Close, and no lone \"← Tasks\" above its title", %{conn: conn} do
+      task = fixture_task()
+
+      {:ok, _view, html} =
+        popup(conn, PhoenixKitProjects.Web.TaskFormLive, %{
+          "live_action" => "edit",
+          "id" => task.uuid
+        })
+
+      refute header(html, "task-form-header") =~ "Tasks"
+      assert html =~ ~r/>\s*Close\s*</
+      refute html =~ ~r/>\s*Cancel\s*</
+    end
+
+    test "the template popup: Close, and no lone \"← Templates\" above its title", %{conn: conn} do
+      template = fixture_project(%{"is_template" => true})
+
+      {:ok, _view, html} =
+        popup(conn, PhoenixKitProjects.Web.TemplateFormLive, %{
+          "live_action" => "edit",
+          "id" => template.uuid
+        })
+
+      refute header(html, "template-form-header") =~ "Templates"
+      assert html =~ ~r/>\s*Close\s*</
+      refute html =~ ~r/>\s*Cancel\s*</
+    end
+
+    test "the sub-project popup's footer says Close", %{conn: conn} do
+      project = fixture_project()
+
+      {:ok, view, _html} =
+        live(conn, "/en/admin/projects/#{project.uuid}/assignments/new?kind=subproject")
+
+      footer = view |> element("#subproject-form button[phx-click=cancel]") |> render()
+      assert footer =~ "Close"
+    end
+
+    test "popups and the Hours tab leave the browser tab's title to the page", %{conn: conn} do
+      project = fixture_project()
+
+      {:ok, _} =
+        PhoenixKitProjects.Members.add_member(project.uuid, embed_user_uuid!(), role: "owner")
+
+      for lv <- [
+            PhoenixKitProjects.Web.ProjectMembersLive,
+            PhoenixKitProjects.Web.ProjectActivityLive,
+            PhoenixKitProjects.Web.ProjectApiLive
+          ] do
+        {:ok, view, _} = popup(conn, lv, %{"id" => project.uuid})
+        assert lv_page_title(view) == nil, inspect(lv)
+      end
+
+      {:ok, tab, _} =
+        live_isolated(conn, PhoenixKitProjects.Web.ProjectHoursLive,
+          session: %{
+            "project_uuid" => project.uuid,
+            "current_user_uuid" => embed_user_uuid!(),
+            "locale" => "en",
+            "wrapper_class" => ""
+          }
+        )
+
+      assert lv_page_title(tab) == nil
+    end
+  end
 end

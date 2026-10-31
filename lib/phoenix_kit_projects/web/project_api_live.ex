@@ -62,6 +62,9 @@ defmodule PhoenixKitProjects.Web.ProjectApiLive do
          can_manage:
            Authz.can?(socket.assigns[:phoenix_kit_current_scope], project, :manage_modules)
        )
+       # Opened as a popup, the browser tab keeps its page's title (LiveView
+       # applies every LV's page_title, nested ones too).
+       |> WebHelpers.keep_host_title()
        |> load_keys()}
     else
       :not_found -> bounce(socket, gettext("Project not found."))

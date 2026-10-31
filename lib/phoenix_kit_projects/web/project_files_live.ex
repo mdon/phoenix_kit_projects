@@ -65,6 +65,9 @@ defmodule PhoenixKitProjects.Web.ProjectFilesLive do
          show_picker: false,
          folder_uuid: Attachments.folder_uuid(project, Activity.actor_uuid(socket))
        )
+       # Opened as a popup, the browser tab keeps its page's title (LiveView
+       # applies every LV's page_title, nested ones too).
+       |> WebHelpers.keep_host_title()
        |> load_files()}
     else
       :not_found -> bounce(socket, gettext("Project not found."))

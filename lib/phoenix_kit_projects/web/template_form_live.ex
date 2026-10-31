@@ -425,15 +425,8 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
           <.link :if={@embed_mode == :navigate} navigate={Paths.templates()} class="link link-hover text-base-content/70 inline-flex items-center gap-1">
             <.icon name="hero-arrow-left" class="w-4 h-4 shrink-0" /> {gettext("Templates")}
           </.link>
-          <button
-            :if={@embed_mode != :navigate}
-            type="button"
-            phx-click="cancel"
-            data-confirm={@dirty? && gettext("Discard your changes?")}
-            class="link link-hover text-base-content/70 inline-flex items-center gap-1"
-          >
-            <.icon name="hero-arrow-left" class="w-4 h-4 shrink-0" /> {gettext("Templates")}
-          </button>
+          <%!-- In a popup no lone "← Templates" line above the title, as in the
+               project popup: the popup closes with its ✕ and Close. --%>
         </:context>
       </.form_header>
 
@@ -516,7 +509,7 @@ defmodule PhoenixKitProjects.Web.TemplateFormLive do
                 data-confirm={@dirty? && gettext("Discard your changes?")}
                 class="btn btn-ghost btn-sm"
               >
-                {gettext("Cancel")}
+                {gettext("Close")}
               </button>
           </:cancel>
             </.form_actions>

@@ -4337,7 +4337,7 @@ defmodule PhoenixKitProjects.Web.AssignmentFormLive do
             data-confirm={@dirty? && gettext("Discard your changes?")}
             class="btn btn-ghost btn-sm mr-auto"
           >
-            {gettext("Cancel")}
+            {gettext("Close")}
           </button>
           <button
             type="submit"

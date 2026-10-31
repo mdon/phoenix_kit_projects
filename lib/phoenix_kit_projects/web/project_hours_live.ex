@@ -146,7 +146,9 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
         dom: "hours-#{project.uuid}",
         enabled?: Features.on?(project, "ledger"),
         project_options: [],
-        page_title: gettext("Hours")
+        # A tab of the project page, never a page of its own: it leaves the
+        # browser tab's title to the page (LiveView applies every LV's).
+        page_title: nil
       )
     else
       mount_nothing(socket)
@@ -162,7 +164,7 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
       dom: "hours-none",
       enabled?: false,
       project_options: [],
-      page_title: gettext("Hours")
+      page_title: nil
     )
   end
 
