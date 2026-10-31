@@ -4138,6 +4138,8 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
           id: "ext:#{ext.key}:#{tab.key}",
           # The URL segment of the tab (`/projects/:id/whiteboards`).
           slug: to_string(tab.key),
+          # The declared label is a msgid (`gettext_noop/1` where the tab is
+          # declared) — translated where the strip draws it, never here.
           label: tab.label,
           icon: tab.icon || ext.icon,
           lv: tab.lv,
@@ -4714,8 +4716,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       if overdue? do
         delta_days(now, planned_end)
       else
-        {v, u} = humanize_hours(abs(delta_pct / 100 * total_hours))
-        "#{v} #{u}"
+        humanize_hours(abs(delta_pct / 100 * total_hours))
       end
 
     %{
@@ -4793,8 +4794,8 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       days < 1 -> ngettext("%{count} hour", "%{count} hours", round(hours))
       days < 2 -> gettext("1 day")
       days < 14 -> ngettext("%{count} day", "%{count} days", round(days))
-      days < 60 -> gettext("%{n} weeks", n: Float.round(days / 7, 1))
-      true -> gettext("%{n} months", n: Float.round(days / 30, 1))
+      days < 60 -> amount(days / 7, :weeks)
+      true -> amount(days / 30, :months)
     end
   end
 
@@ -4802,11 +4803,33 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
   # land at intuitive points. Previously transitioned at 8h/40h which
   # came from "1 workday = 8h" and produced jarring jumps like
   # 7.9h → "8 hours", 8h → "1.0 days".
-  defp humanize_hours(h) when h < 1, do: {gettext("< 1"), gettext("hour")}
-  defp humanize_hours(h) when h < 24, do: {round(h), gettext("hours")}
-  defp humanize_hours(h) when h < 24 * 7, do: {Float.round(h / 24, 1), gettext("days")}
-  defp humanize_hours(h) when h < 24 * 30, do: {Float.round(h / (24 * 7), 1), gettext("weeks")}
-  defp humanize_hours(h), do: {Float.round(h / (24 * 30), 1), gettext("months")}
+  # One whole phrase, plural-correct ("2 дня", "5 дней"): a number glued to
+  # a bare "hours" read "5 часы" in Russian. A fractional amount ("1.5")
+  # takes its own msgid — ru/pl/et put it in a different form than any
+  # whole count does.
+  defp humanize_hours(h) when h < 1, do: gettext("< 1 hour")
+  defp humanize_hours(h) when h < 24, do: ngettext("%{count} hour", "%{count} hours", round(h))
+  defp humanize_hours(h) when h < 24 * 7, do: amount(h / 24, :days)
+  defp humanize_hours(h) when h < 24 * 30, do: amount(h / (24 * 7), :weeks)
+  defp humanize_hours(h), do: amount(h / (24 * 30), :months)
+
+  defp amount(value, unit) do
+    rounded = Float.round(value * 1.0, 1)
+
+    if rounded == trunc(rounded),
+      do: whole_amount(trunc(rounded), unit),
+      else: fractional_amount(rounded, unit)
+  end
+
+  defp whole_amount(n, :days), do: ngettext("%{count} day", "%{count} days", n)
+  defp whole_amount(n, :weeks), do: ngettext("%{count} week", "%{count} weeks", n)
+  defp whole_amount(n, :months), do: ngettext("%{count} month", "%{count} months", n)
+
+  defp fractional_amount(v, :days), do: pgettext("fractional amount", "%{value} days", value: v)
+  defp fractional_amount(v, :weeks), do: pgettext("fractional amount", "%{value} weeks", value: v)
+
+  defp fractional_amount(v, :months),
+    do: pgettext("fractional amount", "%{value} months", value: v)
 
   # ── Priority display (Phase C) ───────────────────────────────────
 
@@ -5398,7 +5421,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       <% top_tab = top_tab_of(@active_tab) %>
       <% top_tabs =
         if(@fx.tasks, do: [%{id: "tasks", label: gettext("Tasks"), icon: "hero-clipboard-document-list"}], else: []) ++
-          Enum.map(@ext_tabs, &%{id: &1.id, label: &1.label, icon: &1.icon}) ++
+          Enum.map(@ext_tabs, &%{id: &1.id, label: WebHelpers.translate_catalog(&1.label), icon: &1.icon}) ++
           if(@project_thread?,
             do: [
               %{
@@ -5528,7 +5551,6 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
       <%= if show_schedule or show_progress do %>
         <div id={"project-summary-#{@project.uuid}"} class="bg-base-200/50 rounded-t-lg overflow-hidden">
           <%= if show_schedule do %>
-            <% {rem_v, rem_u} = humanize_hours(@schedule.remaining_hours) %>
             <div class="flex flex-wrap items-center gap-3 px-4 py-2 text-xs">
               <%= if @project.completed_at do %>
                 <div class="flex items-center gap-2">
@@ -5540,7 +5562,7 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                 <div class="flex items-center gap-2">
                   <.icon name="hero-clock" class="w-4 h-4 text-base-content/60" />
                   <span class="text-base-content/60">{gettext("Remaining:")}</span>
-                  <span class="font-medium">{rem_v} {rem_u}</span>
+                  <span class="font-medium">{humanize_hours(@schedule.remaining_hours)}</span>
                 </div>
                 <span class="text-base-content/40">·</span>
                 <div class="flex items-center gap-2">
@@ -5979,9 +6001,8 @@ defmodule PhoenixKitProjects.Web.ProjectShowLive do
                         <span :if={Project.ongoing?(child) and sp_summary.total > 0 and sp_summary.done == sp_summary.total} class="badge badge-success badge-outline badge-sm gap-1">
                           <.icon name="hero-check" class="w-3 h-3" /> {gettext("All caught up")}
                         </span>
-                        <% {sp_hv, sp_hu} = humanize_hours(sp_summary.total_hours) %>
                         <span :if={sp_summary.total_hours > 0} class="badge badge-ghost badge-sm gap-1">
-                          <.icon name="hero-clock" class="w-3 h-3" /> {sp_hv} {sp_hu}
+                          <.icon name="hero-clock" class="w-3 h-3" /> {humanize_hours(sp_summary.total_hours)}
                         </span>
                         <div class="flex items-center gap-1">
                           <progress class="progress progress-primary w-20" value={a.progress_pct} max="100"></progress>

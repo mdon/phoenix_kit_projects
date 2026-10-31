@@ -511,5 +511,6 @@ defmodule PhoenixKitProjects.Web.ApiKeysUsage do
   defp pct(_v, max) when max <= 0, do: 0
   defp pct(v, max), do: Float.round(v / max * 100, 1)
 
-  defp short_day(%Date{} = d), do: "#{L10n.short_month(d.month)} #{d.day}"
+  defp short_day(%Date{} = d),
+    do: gettext("%{month} %{day}", month: L10n.short_month(d.month), day: d.day)
 end

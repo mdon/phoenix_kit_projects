@@ -39,6 +39,9 @@ defmodule PhoenixKitProjects.Features do
   """
 
   import Ecto.Query
+  # `gettext_noop/1` only: the preset names and the creation-block labels are
+  # catalog data, translated where they are drawn (`Web.Helpers.translate_catalog/1`).
+  use Gettext, backend: PhoenixKitProjects.Gettext
 
   require Logger
 
@@ -440,8 +443,9 @@ defmodule PhoenixKitProjects.Features do
     [
       %{
         key: "simple",
-        name: "Simple task list",
-        description: "Just a task list — no start or finish, no tracking, no scheduling.",
+        name: gettext_noop("Simple task list"),
+        description:
+          gettext_noop("Just a task list — no start or finish, no tracking, no scheduling."),
         flags: %{
           # A checklist is typed in place — no shared library to pick
           # from or feed (Max, 2026-09-05: "for the checklist it's not
@@ -478,14 +482,15 @@ defmodule PhoenixKitProjects.Features do
       },
       %{
         key: "standard",
-        name: "Standard project",
-        description: "The default feature set — everything the module ships on today.",
+        name: gettext_noop("Standard project"),
+        description:
+          gettext_noop("The default feature set — everything the module ships on today."),
         flags: %{}
       },
       %{
         key: "full",
-        name: "Full tracker",
-        description: "Every task feature explicitly on.",
+        name: gettext_noop("Full tracker"),
+        description: gettext_noop("Every task feature explicitly on."),
         # EVERY built-in flag, derived from the gate list rather than typed
         # out: a hand-kept map missed lifecycle, ledger and view_board, so
         # "Full" applied over "Simple" left three explicit falses standing
@@ -509,10 +514,10 @@ defmodule PhoenixKitProjects.Features do
   @creation_blocks_setting "projects_new_form_top_blocks"
 
   @creation_blocks [
-    %{key: "template", label: "From template"},
-    %{key: "start", label: "Start timing"},
-    %{key: "statuses", label: "Workflow statuses"},
-    %{key: "people", label: "People"}
+    %{key: "template", label: gettext_noop("From template")},
+    %{key: "start", label: gettext_noop("Start timing")},
+    %{key: "statuses", label: gettext_noop("Workflow statuses")},
+    %{key: "people", label: gettext_noop("People")}
   ]
 
   @creation_block_keys Enum.map(@creation_blocks, & &1.key)

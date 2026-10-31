@@ -747,7 +747,7 @@ defmodule PhoenixKitProjects.Web.ProjectsSettingsLive do
               :for={block <- @creation_blocks}
               class="flex cursor-pointer items-center justify-between gap-3 py-1"
             >
-              <span class="text-sm">{block.label}</span>
+              <span class="text-sm">{WebHelpers.translate_catalog(block.label)}</span>
               <input
                 type="checkbox"
                 class="toggle toggle-primary toggle-sm"

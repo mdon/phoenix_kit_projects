@@ -384,10 +384,27 @@ defmodule PhoenixKitProjects.Web.ProjectModulesLive do
           {:noreply, socket |> reload() |> put_flash(:info, gettext("Label added."))}
 
         {:error, %Ecto.Changeset{} = changeset} ->
+          # One whole sentence per problem: gluing the changeset's English
+          # message into "Label name %{problem}." showed it untranslated.
           msg =
             case changeset.errors[:name] do
-              {m, _} -> gettext("Label name %{problem}.", problem: m)
-              _ -> gettext("Could not add the label.")
+              {_, opts} when is_list(opts) ->
+                cond do
+                  opts[:constraint] == :unique ->
+                    gettext("A label with this name already exists in this project.")
+
+                  opts[:validation] == :required ->
+                    gettext("Give the label a name.")
+
+                  opts[:validation] == :length ->
+                    gettext("A label name can be at most 60 characters.")
+
+                  true ->
+                    gettext("Could not add the label.")
+                end
+
+              _ ->
+                gettext("Could not add the label.")
             end
 
           {:noreply, put_flash(socket, :error, msg)}
@@ -537,13 +554,13 @@ defmodule PhoenixKitProjects.Web.ProjectModulesLive do
             class="btn btn-outline btn-xs"
             {ConfirmAction.ask("apply_preset",
               key: preset.key,
-              title: gettext("Apply the “%{name}” preset?", name: preset.name),
+              title: gettext("Apply the “%{name}” preset?", name: WebHelpers.translate_catalog(preset.name)),
               message: gettext("It overwrites this project's feature toggles."),
               confirm: gettext("Apply")
             )}
-            title={preset.description}
+            title={WebHelpers.translate_catalog(preset.description)}
           >
-            {preset.name}
+            {WebHelpers.translate_catalog(preset.name)}
           </button>
         </div>
 

@@ -221,6 +221,11 @@ defmodule PhoenixKitProjects do
     %{
       key: module_key(),
       label: "Projects",
+      # The labels below are OUR strings: without the backend core looks them
+      # up in its own catalogue, finds none, and the permissions matrix shows
+      # every sub-permission in English (`Web.GettextManifest` registers them).
+      gettext_backend: PhoenixKitProjects.Gettext,
+      gettext_domain: "default",
       icon: "hero-clipboard-document-list",
       description: "Reach the Projects module — see the projects you belong to",
       sub_permissions: [

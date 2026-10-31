@@ -1667,7 +1667,8 @@ defmodule PhoenixKitProjects.Web.ProjectHoursLive do
   defp pct(_part, whole) when whole <= 0, do: 0
   defp pct(part, whole), do: Float.round(part / whole * 100, 2)
 
-  defp short_day(%Date{} = d), do: "#{L10n.short_month(d.month)} #{d.day}"
+  defp short_day(%Date{} = d),
+    do: gettext("%{month} %{day}", month: L10n.short_month(d.month), day: d.day)
 
   # ── Breakdowns ──
 
